@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling", "hatch-requirements-txt"]
+build-backend = "hatchling.build"
+
+[project]
+name = "apex-assistant"
+requires-python = ">= 3.11"
+version = "2024.07.02"
+dynamic = ["dependencies"]
+
+[project.scripts]
+apex-assistant = "apex_stat_analysis.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["apex_stat_analysis"]
+
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ["requirements.txt", "requirements-speech.txt"]

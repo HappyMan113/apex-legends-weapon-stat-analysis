@@ -52,9 +52,8 @@ class ApexTermBase(abc.ABC):
     def _has_variation(self, said_term: Term) -> bool:
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
-    def has_variation(self, said_term: str | list[str] | Term) -> bool:
-        if isinstance(said_term, (str, list)):
-            said_term = Term(said_term)
+    def has_variation(self, said_term: Term) -> bool:
+        assert isinstance(said_term, Term)
         return self._has_variation(said_term)
 
     @abc.abstractmethod
@@ -207,15 +206,25 @@ def terms_match(terms1: typing.Iterable[ApexTermBase], terms2: typing.Iterable[A
 class ApexTerms:
     COMPARE = ConcreteApexTerm('compare', 'which is better', 'which weapon is better',
                                'which one is better', 'what\'s better')
-    COMMANDS = (COMPARE,)
+    BEST = ConcreteApexTerm('best', 'best weapons')
+    NUMBERS = (ConcreteApexTerm('1', 'one'),
+               ConcreteApexTerm('2', 'two'),
+               ConcreteApexTerm('3', 'three'),
+               ConcreteApexTerm('4', 'four'),
+               ConcreteApexTerm('5', 'five'),
+               ConcreteApexTerm('6', 'six'),
+               ConcreteApexTerm('7', 'seven'),
+               ConcreteApexTerm('8', 'eight'),
+               ConcreteApexTerm('9', 'nine'),
+               ConcreteApexTerm('10', 'ten'))
+    COMMANDS = (COMPARE, BEST) + NUMBERS
 
-    STOP_TERM = ConcreteApexTerm('stop')
+    STOP = ConcreteApexTerm('stop')
 
     WITH_SIDEARM = ConcreteApexTerm('with sidearm', 'and sidearm', 'switching to sidearm',
                                     'and then switching to', 'with sidearm of', 'sidearm',
                                     'with secondary', 'with secondary weapon',
-                                    'with secondary weapon of',
-                                    'and')
+                                    'with secondary weapon of', 'and')
 
     NO_MAG_TERM = ConcreteApexTerm('no mag', 'no magazine')
     ALL_MAG_TERMS: typing.Tuple[ConcreteApexTerm] = (
@@ -228,7 +237,7 @@ class ApexTerms:
                          'level 2 magazine',
                          'blue mag',
                          'blue magazine'),
-        ConcreteApexTerm('level 3/4 mag',
+        ConcreteApexTerm('level 3 or 4 mag',
                          'level 3 magazine',
                          'purple mag',
                          'purple magazine',
@@ -251,7 +260,7 @@ class ApexTerms:
                          'blue stock'
                          'blue standard stock'
                          'blue sniper stock'),
-        ConcreteApexTerm('level 3/4 stock',
+        ConcreteApexTerm('level 3 or 4 stock',
                          'level 3 stock',
                          'level 3 standard stock',
                          'level 3 sniper stock',
@@ -292,7 +301,7 @@ class ApexTerms:
                                        'blue shotgun bolt'
                                        'level 2 shotgun bolt',
                                        'shotgun bolt level 2'),
-                      ConcreteApexTerm('level 3/4 bolt',
+                      ConcreteApexTerm('level 3 or 4 bolt',
                                        'level 3 bolt',
                                        'level 3 shotgun bolt'
                                        'purple bolt',
@@ -304,9 +313,10 @@ class ApexTerms:
                       )
 
     THIRTY_THIRTY_REPEATER = ConcreteApexTerm(
-            '30-30', '33', 'there are three', '30 seconds ready', 'very very')
+            '30-30', '33', 'there are three', '30 seconds ready', 'very very', '3030')
     BOCEK = ConcreteApexTerm('Bocek', 'bow check')
-    CAR = ConcreteApexTerm('C.A.R.', 'car', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart')
+    CAR = ConcreteApexTerm(
+        'C.A.R.', 'car', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
     CARE_PACKAGE = ConcreteApexTerm('care package')
     ALTERNATOR = ConcreteApexTerm('Alternator', 'I don\'t need her', 'I\'ll do neither')
     CHARGE_RIFLE = ConcreteApexTerm(
@@ -385,7 +395,7 @@ class ApexTerms:
             'Nemesis', 'and this is', 'now what\'s this', 'Namaste', 'messes', 'nervousness', 'yes',
             'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses',
             'and that\'s just')
-    P2020 = ConcreteApexTerm('P2020', 'be 2020', 'B-2020')
+    P2020 = ConcreteApexTerm('P2020', 'be 2020', 'B-2020', 'P-220')
     PEACEKEEPER = ConcreteApexTerm('Peacekeeper', 'today', '2k', 'BK', 'P.K.')
     DISRUPTOR = ConcreteApexTerm('Disruptor', 'it\'s Raptor', 'the softer', 'stopping', 'disrupted')
     PROWLER = ConcreteApexTerm(
@@ -417,59 +427,63 @@ class ApexTerms:
             'I don\'t know', 'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99',
             'all right any line', 'I don\'t need nine', 'irony 9', 'I already know',
             'I already need a 9', '$1.99', 'R-89', 'iron 9', 'oh I don\'t even know')
-    REVVED = ConcreteApexTerm('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it',
-                              'rev\'d',
-                              'revved', 'R.I.P.', 'round')
-    RE_45 = ConcreteApexTerm('RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45')
+    REVVED = ConcreteApexTerm(
+        'revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
+        'R.I.P.', 'round')
+    RE_45 = ConcreteApexTerm(
+        'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45', 'R8-45')
     SENTINEL = ConcreteApexTerm(
             'sentinel', 'what\'s that now', 'is that not', 'setting\' off', 'that\'s it now',
             'techno', 'is that no', 'said no', 'such an old', '7-0')
     AMPED = ConcreteApexTerm('amped', 'ant', 'it', 'end', 'yipped')
-    SPITFIRE = ConcreteApexTerm('Spitfire', 'step out of the car', 'is that her',
-                                'it\'s a bit better',
-                                'fitzpire', 'skip her', 'zip fire', 'stay fire', 'set fire')
+    SPITFIRE = ConcreteApexTerm(
+            'Spitfire', 'step out of the car', 'is that her', 'it\'s a bit better', 'fitzpire',
+            'skip her', 'zip fire', 'stay fire', 'set fire')
     TRIPLE_TAKE = ConcreteApexTerm(
             'Triple Take', 'triple-tick', 'triple T', 'chipotle', 'sure thing', 'chilti', 'Chanté',
             'triple-click', 'it\'s real thick')
-    VOLT = ConcreteApexTerm('Volt', '4', 'oh', 'four', 'bull', 'boop', 'what', 'well', 'vote')
-    WINGMAN = ConcreteApexTerm('Wingman', 'we\'ll be back')
+    VOLT = ConcreteApexTerm('Volt', '4', 'oh', 'bull', 'boop', 'what', 'well', 'vote')
+    WINGMAN = ConcreteApexTerm('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
     BOOSTED_LOADER = _CombinedTerm(ConcreteApexTerm('boosted', 'who\'s dead', 'that\'s it'),
                                    ConcreteApexTerm('loader', 'loaded', 'love you', 'odor'))
+    SMG = ConcreteApexTerm('SMG')
+    SHOTGUN = ConcreteApexTerm('shotgun')
+    RIFLE = ConcreteApexTerm('rifle')
 
     WITH = ConcreteApexTerm('with')
 
     WEAPON_ARCHETYPE_TERMS: typing.Tuple[ApexTermBase] = (
         THIRTY_THIRTY_REPEATER.combine(SLOW),
-        THIRTY_THIRTY_REPEATER.combine(QUICK),
+        THIRTY_THIRTY_REPEATER.combine_opt_term(QUICK),
         ALTERNATOR,
         ALTERNATOR.combine_opt_term(WITH).combine(DISRUPTOR),
-        BOCEK.combine(MINIMAL),
+        BOCEK.combine_opt_term(MINIMAL),
         BOCEK.combine(DRAWN),
         BOCEK.combine_opt_term(WITH).combine(SHATTER_CAPS, MINIMAL),
         BOCEK.combine_opt_term(WITH).combine(SHATTER_CAPS, DRAWN),
-        CAR,
-        CHARGE_RIFLE.combine(FAR),
+        CAR.combine_opt_term(SMG),
+        CHARGE_RIFLE.combine_opt_term(FAR),
         DEVOTION,
         DEVOTION.combine(CARE_PACKAGE),
         DEVOTION.combine_opt_term(WITH).combine(TURBOCHARGER),
-        EVA_8,
-        EVA_8.combine(CARE_PACKAGE),
+        EVA_8.combine_opt_term(SHOTGUN),
+        EVA_8.combine_opt_term(SHOTGUN).combine(CARE_PACKAGE),
         FLATLINE,
         G7_SCOUT,
-        HAVOC,
-        HAVOC.combine_opt_term(WITH).combine(TURBOCHARGER),
+        HAVOC.combine_opt_term(RIFLE),
+        HAVOC.combine_opt_term(RIFLE).combine_opt_term(WITH).combine(TURBOCHARGER),
         HEMLOCK,
         KRABER,
         LONGBOW,
         L_STAR,
-        MASTIFF,
-        MOZAMBIQUE,
-        MOZAMBIQUE.combine_opt_term(WITH).combine(HAMMERPOINT),
+        MASTIFF.combine_opt_term(SHOTGUN),
+        MOZAMBIQUE.combine_opt_term(SHOTGUN),
+        MOZAMBIQUE.combine_opt_term(SHOTGUN).combine_opt_term(WITH).combine(HAMMERPOINT),
         NEMESIS,
         P2020,
         P2020.combine_opt_term(WITH).combine(HAMMERPOINT),
-        PEACEKEEPER,
-        PEACEKEEPER.combine_opt_term(WITH).combine(DISRUPTOR),
+        PEACEKEEPER.combine_opt_term(SHOTGUN),
+        PEACEKEEPER.combine_opt_term(SHOTGUN).combine_opt_term(WITH).combine(DISRUPTOR),
         PROWLER,
         PROWLER.combine(CARE_PACKAGE),
         R301_CARBINE,
@@ -482,7 +496,7 @@ class ApexTerms:
         SENTINEL.combine(AMPED),
         SPITFIRE,
         TRIPLE_TAKE,
-        VOLT,
+        VOLT.combine_opt_term(SMG),
         WINGMAN,
         WINGMAN.combine_opt_term(WITH).combine(BOOSTED_LOADER)
     )
@@ -492,4 +506,4 @@ class ApexTerms:
                                                  ALL_STOCK_TERMS +
                                                  ALL_MAG_TERMS +
                                                  ALL_BOLT_TERMS +
-                                                 (WITH_RELOAD_TERM, NO_RELOAD_TERM, STOP_TERM))
+                                                 (WITH_RELOAD_TERM, NO_RELOAD_TERM, STOP))

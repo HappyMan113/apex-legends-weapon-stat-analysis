@@ -5,7 +5,6 @@ from threading import Lock
 from types import MappingProxyType
 import typing
 
-from matplotlib import pyplot as plt
 import numpy as np
 
 from apex_stat_analysis.weapon import WeaponArchetype, ConcreteWeapon, WeaponBase
@@ -32,8 +31,14 @@ class _ComparisonResult:
                   min_fraction_of_max: float = 0) -> MappingProxyType:
         min_dmg = self._calc_min(min_fraction_of_max)
         num = np.count_nonzero(self.weighted_average_damage >= min_dmg)
-        if min_fraction_of_max <= 0:
+        return self._get_best_num(weapon_dict, num)
+
+    @staticmethod
+    def _get_best_num(weapon_dict: MappingProxyType, num: int) -> MappingProxyType:
+        assert num >= 1
+        if num >= len(weapon_dict):
             return weapon_dict
+
         return MappingProxyType({
             weapon: tup
             for weapon, tup in itertools.islice(weapon_dict.items(), num)})
@@ -53,8 +58,17 @@ class _ComparisonResult:
         return list(itertools.islice(self.sorted_weapons.items(), n_one_indexed))[-1]
 
     def limit_to_best(self, min_fraction_of_max: float = 0):
+        assert min_fraction_of_max <= 1
         archetypes = self._get_best(self.sorted_archetypes, min_fraction_of_max=min_fraction_of_max)
         base_weapons = self._get_best(self.sorted_weapons, min_fraction_of_max=min_fraction_of_max)
+
+        return _ComparisonResult(sorted_archetypes=archetypes,
+                                 sorted_weapons=base_weapons)
+
+    def limit_to_best_num(self, num):
+        assert num >= 1
+        archetypes = self._get_best_num(self.sorted_archetypes, num=num)
+        base_weapons = self._get_best_num(self.sorted_weapons, num=num)
 
         return _ComparisonResult(sorted_archetypes=archetypes,
                                  sorted_weapons=base_weapons)
@@ -76,8 +90,8 @@ class ApexDatabase:
              f'{self.get_instance.__name__}()')
 
         self_path = os.path.dirname(__file__)
-        apex_stats_filename = os.path.join(self_path, 'Apex Legends Stats.csv')
-        ttks_filename = os.path.join(self_path, 'Historic TTKs.csv')
+        apex_stats_filename = os.path.join(self_path, 'weapon_stats.csv')
+        ttks_filename = os.path.join(self_path, 'historic_ttks.csv')
 
         with open(apex_stats_filename, encoding='utf-8-sig') as fp:
             dr = WeaponCsvReader(fp)
@@ -128,6 +142,8 @@ class ApexDatabase:
         print(f'Sorted Weapon Archetypes:\n{archetypes_str}')
 
         if show_plots:
+            from matplotlib import pyplot as plt
+
             ttks = self.ttks
             ts_lin = np.linspace(ttks.min(), ttks.max(), num=1000)
             for base_weapon in result.get_sorted_weapons():
@@ -138,6 +154,9 @@ class ApexDatabase:
             plt.ylim((0, None))
             plt.legend()
             plt.show()
+
+    def compare_all_weapons(self) -> _ComparisonResult:
+        return self.compare_weapons(self._base_weapons)
 
     def compare_weapons(self, base_weapons: typing.Iterable[WeaponBase]) -> _ComparisonResult:
         if not isinstance(base_weapons, (tuple, list)):
@@ -199,13 +218,3 @@ class ApexDatabase:
 
     def get_base_weapons(self):
         return self._base_weapons
-
-    # def get_base_weapon(self, main_weapon: ApexTermBase, sidearm: ApexTermBase | None = None) -> \
-    #         WeaponBase | None:
-    #     if sidearm is not None:
-    #         reload = True
-    #     else:
-    #         reload = False
-    #
-    #     self.get_weapon_archetype()
-    #     return

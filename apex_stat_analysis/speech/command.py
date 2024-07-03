@@ -21,3 +21,6 @@ class Command:
     def _execute(self, arguments: typing.Iterable[ApexTermBase]) -> str:
         raise NotImplementedError(f'Must implement {self._execute.__name__} in '
                                   f'{self.__class__.__name__}.')
+
+    def __repr__(self):
+        return str(self._name)

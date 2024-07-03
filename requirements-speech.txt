@@ -1,0 +1,2 @@
+RealtimeSTT>=0.2.0
+RealtimeTTS>=0.4.1

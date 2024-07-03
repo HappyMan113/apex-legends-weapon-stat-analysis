@@ -1,0 +1,10 @@
+build/
+*.build/
+dist/
+package/
+*.dist/
+venv/
+*.egg-info/
+*.log
+*.pyc
+*.spec

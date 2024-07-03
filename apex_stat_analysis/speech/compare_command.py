@@ -51,9 +51,8 @@ class CompareCommand(Command):
         return f'{audible_name} is best.'
 
     @staticmethod
-    def make_audible(weapon: WeaponArchetype):
+    def make_audible(weapon: WeaponArchetype | WeaponBase):
         audible_name = re.sub('[()]', '', weapon.get_name())
-        audible_name = re.sub('([A-Z])([A-Z])', r'\1.\2.', audible_name)
         return audible_name
 
     def get_base_weapons(self, weapon_terms: tuple[ConcreteApexTerm]) -> \

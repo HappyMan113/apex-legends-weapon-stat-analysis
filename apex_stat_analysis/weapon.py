@@ -5,8 +5,7 @@ import math
 import typing
 from typing import Callable
 
-from apex_stat_analysis.speech.terms import ApexTerms, ApexTermBase, ConcreteApexTerm, \
-    strip_punctuation
+from apex_stat_analysis.speech.terms import ApexTerms, ApexTermBase, ConcreteApexTerm, Term
 
 
 def _compile_terms(all_terms: ConcreteApexTerm | tuple[ConcreteApexTerm],
@@ -496,7 +495,7 @@ class WeaponArchetype:
         self.spinup = spinup
 
         # Figure out what term matches the weapon name.
-        stripped_name = strip_punctuation(name)
+        stripped_name = Term(name)
         possible_terms = tuple(_term
                                for _term in ApexTerms.WEAPON_ARCHETYPE_TERMS
                                if _term.has_variation(stripped_name))

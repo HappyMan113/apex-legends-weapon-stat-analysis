@@ -1,4 +1,4 @@
-from apex_stat_analysis.speech.terms import ApexTermBase, ApexTerms, strip_punctuation
+from apex_stat_analysis.speech.terms import ApexTermBase, ApexTerms, Term, strip_punctuation
 
 
 class ApexTranslator:
@@ -10,7 +10,7 @@ class ApexTranslator:
             for n in range(self._apex_term_word_lim, 0, -1)
         }
 
-    def translate_terms(self, text: str) -> tuple[ApexTermBase]:
+    def translate_terms(self, text: str) -> tuple[ApexTermBase, ...]:
         words = strip_punctuation(text).split(' ')
         reconstructed: list[ApexTermBase] = []
         idx = 0
@@ -23,8 +23,9 @@ class ApexTranslator:
 
     def _translate_term(self, words: list[str]) -> tuple[ApexTermBase | None, int]:
         for num_to_test in range(self._apex_term_word_lim, 0, -1):
+            term_to_test = Term(words[:num_to_test])
             apex_term: ApexTermBase | None = next(
-                filter(lambda _at: _at.has_variation(words[:num_to_test]),
+                filter(lambda _at: _at.has_variation(term_to_test),
                        self._get_apex_terms_of_size(num_to_test)),
                 None)
             if apex_term is not None:

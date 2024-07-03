@@ -10,7 +10,7 @@ from RealtimeTTS import OpenAIEngine, SystemEngine, TextToAudioStream
 from apex_stat_analysis.speech.command import Command
 from apex_stat_analysis.speech.command_registry import CommandRegistry
 from apex_stat_analysis.speech.term_translator import ApexTranslator
-from apex_stat_analysis.speech.terms import ApexTermBase, ApexTerms
+from apex_stat_analysis.speech.terms import ApexTermBase
 
 # Logger for this module.
 logger = logging.getLogger()
@@ -30,8 +30,8 @@ class SpeechClient:
                                             model='large-v2',
                                             post_speech_silence_duration=2)
         self.stream = TextToAudioStream([openai_engine, system_engine])
-        self._closed = False
         self.apex_translator = ApexTranslator()
+        self._closed = False
 
     def start(self):
         self.text_to_speech('listening')
@@ -44,24 +44,20 @@ class SpeechClient:
 
     def process_text(self, text: str):
         logger.debug(f'Heard: {text}')
-        terms: tuple[ApexTermBase] = self.apex_translator.translate_terms(text)
+        terms = self.apex_translator.translate_terms(text)
         logger.debug(f'Terms: {terms}')
-        if terms == (ApexTerms.STOP_TERM,):
-            self.text_to_speech('stopping')
-            self.stop()
-        elif len(terms) > 0:
-            self._process_command(terms)
-
-    def _process_command(self, terms: tuple[ApexTermBase]):
-        assert len(terms) > 0
         result = self.find_command(terms)
         if result is not None:
-            logger.debug(f'Issuing command: {terms}')
             command, idx = result
-            message = command.execute(terms[:idx] + terms[idx + 1:])
-            self.text_to_speech(message)
+            self._process_command(command=command,
+                                  arguments=terms[:idx] + terms[idx + 1:])
         else:
             logger.debug('Unknown command.')
+
+    def _process_command(self, command: Command, arguments: tuple[ApexTermBase]):
+        logger.debug(f'Issuing command: {command} {arguments}')
+        message = command.execute(arguments)
+        self.text_to_speech(message)
 
     @staticmethod
     def find_command(terms: tuple[ApexTermBase]) -> tuple[Command, int] | None:
@@ -73,7 +69,7 @@ class SpeechClient:
         return None
 
     def text_to_speech(self, text: str):
-        if not text.endswith('.'):
+        if not text.endswith(('.', '!', '?')):
             text = f'{text}.'
         logger.info(f'Saying: {text}')
         self.stream.feed(text).play()
