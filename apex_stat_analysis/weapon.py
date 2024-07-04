@@ -3,85 +3,113 @@ from enum import StrEnum
 import logging
 import math
 import typing
+from types import MappingProxyType
 from typing import Callable
 
-from apex_stat_analysis.speech.terms import ApexTerms, ApexTermBase, ConcreteApexTerm, Term
+from apex_stat_analysis.speech.term_translator import ApexTranslator, ParsedAndFollower
+from apex_stat_analysis.speech.terms import ApexTerms, ApexTermBase, ConcreteApexTerm, Words
 
 
-def _compile_terms(all_terms: ConcreteApexTerm | tuple[ConcreteApexTerm],
-                   *all_values: float | int | None) -> (dict[ConcreteApexTerm, float | None] |
-                                                        dict[ConcreteApexTerm, int | None]):
-    if isinstance(all_terms, ConcreteApexTerm):
-        all_terms = (all_terms,)
-    assert len(all_terms) == len(all_values)
-    assert len(all_terms) == len(set(all_terms))
+def add_sidearm_and_reload(base_weapons: typing.Iterable['WeaponBase'],
+                           sidearm: 'WeaponBase | None' = None,
+                           reload: bool = False) -> tuple['WeaponBase']:
+    result = base_weapons
+    if sidearm is not None:
+        result = tuple(weapon.combine_with_sidearm(sidearm) for weapon in result)
+    if reload:
+        result = tuple(weapon.reload() for weapon in result)
+    if not isinstance(result, tuple):
+        result = tuple(result)
+    return result
 
-    reload_times = {term: time for term, time in zip(all_terms, all_values)}
-    return reload_times
+
+T = typing.TypeVar('T')
 
 
-class BaseMagazineCapacity:
+class StatBase(abc.ABC, typing.Generic[T]):
+    def __init__(self,
+                 all_terms: ConcreteApexTerm | None | tuple[ConcreteApexTerm],
+                 *all_values: T):
+        if not isinstance(all_terms, tuple):
+            all_terms: tuple[ConcreteApexTerm | None] = (all_terms,)
+        else:
+            assert all(term is not None for term in all_terms)
+        assert len(all_terms) == len(all_values)
+        assert len(all_terms) == len(set(all_terms))
+
+        term_to_val_dict: MappingProxyType[ConcreteApexTerm | None, T] = MappingProxyType({
+            term: time for term, time in zip(all_terms, all_values)
+        })
+        self._default_stats = MappingProxyType({all_terms[-1]: all_values[-1]})
+        self._translator = ApexTranslator({term: val
+                                           for term, val in term_to_val_dict.items()
+                                           if term is not None})
+        self._str_to_val_dict: MappingProxyType[str | None, T] = MappingProxyType({
+            (str(term) if term is not None else None): val
+            for term, val in term_to_val_dict.items()})
+
+    def get_stats(self, words: Words | None = None) -> MappingProxyType[str | None, T]:
+        if words is None:
+            return self._str_to_val_dict
+
+        terms = {str(parsed.get_term()): parsed.get_parsed()
+                 for parsed in self._translator.translate_terms(words)}
+        if len(terms) == 0:
+            return self._default_stats
+        return MappingProxyType(terms)
+
+
+class MagazineCapacityBase(StatBase[int]):
+    pass
+
+
+class SingleMagazineCapacity(MagazineCapacityBase):
     def __init__(self, base_capacity: int):
-        self.base_capacity = base_capacity
-
-    def get_capacities(self) -> dict[ConcreteApexTerm, int]:
-        return _compile_terms(ApexTerms.NO_MAG_TERM, self.base_capacity)
+        super().__init__(None, base_capacity)
 
 
-class MagazineCapacity(BaseMagazineCapacity):
+class MagazineCapacity(MagazineCapacityBase):
     def __init__(self,
                  base_capacity: int,
                  level_1_capacity: int,
                  level_2_capacity: int,
                  level_3_capacity: int):
-        super().__init__(base_capacity=base_capacity)
-        self.level_1_capacity = level_1_capacity
-        self.level_2_capacity = level_2_capacity
-        self.level_3_capacity = level_3_capacity
-
-    def get_capacities(self) -> dict[ConcreteApexTerm, int]:
-        return _compile_terms(ApexTerms.ALL_MAG_TERMS,
-                              self.base_capacity,
-                              self.level_1_capacity,
-                              self.level_2_capacity,
-                              self.level_3_capacity)
+        super().__init__(ApexTerms.ALL_MAG_TERMS,
+                         base_capacity,
+                         level_1_capacity,
+                         level_2_capacity,
+                         level_3_capacity)
 
 
-class BaseReloadTime:
+class ReloadTimeBase(StatBase[float | None]):
+    pass
+
+
+class SingleReloadTime(ReloadTimeBase):
     def __init__(self, reload_time_secs: float | None):
-        self.reload_time_secs = reload_time_secs
-
-    def get_reload_times_secs(self) -> dict[ConcreteApexTerm, float | None]:
-        return (_compile_terms(ApexTerms.NO_STOCK_TERM, self.reload_time_secs)
-                if self.reload_time_secs is not None
-                else _compile_terms(ApexTerms.NO_RELOAD_TERM, None))
+        super().__init__(None, reload_time_secs)
 
 
-class ReloadTime(BaseReloadTime):
+class ReloadTime(ReloadTimeBase):
     def __init__(self,
                  base_reload_time_secs: float,
                  level_1_reload_time_secs: float,
                  level_2_reload_time_secs: float,
                  level_3_reload_time_secs: float):
-        super().__init__(base_reload_time_secs)
-        self.level_1_reload_time_secs = level_1_reload_time_secs
-        self.level_2_reload_time_secs = level_2_reload_time_secs
-        self.level_3_reload_time_secs = level_3_reload_time_secs
-
-    def get_reload_times_secs(self) -> dict[ConcreteApexTerm, float]:
-        return _compile_terms(ApexTerms.ALL_STOCK_TERMS,
-                              self.reload_time_secs,
-                              self.level_1_reload_time_secs,
-                              self.level_2_reload_time_secs,
-                              self.level_3_reload_time_secs)
+        super().__init__(ApexTerms.ALL_STOCK_TERMS,
+                         base_reload_time_secs,
+                         level_1_reload_time_secs,
+                         level_2_reload_time_secs,
+                         level_3_reload_time_secs)
 
 
-class BaseRoundsPerMinute:
+class BaseRoundsPerMinute(StatBase[float]):
+    pass
+
+
+class SingleRoundsPerMinute(BaseRoundsPerMinute):
     def __init__(self, base_rounds_per_minute: float):
-        self.base_rounds_per_minute = base_rounds_per_minute
-
-    def get_rounds_per_minutes(self) -> dict[ConcreteApexTerm, float]:
-        return _compile_terms(ApexTerms.NO_BOLT_TERM, self.base_rounds_per_minute)
+        super().__init__(None, base_rounds_per_minute)
 
 
 class RoundsPerMinute(BaseRoundsPerMinute):
@@ -90,17 +118,11 @@ class RoundsPerMinute(BaseRoundsPerMinute):
                  level_1_rounds_per_minute: float,
                  level_2_rounds_per_minute: float,
                  level_3_rounds_per_minute: float):
-        super().__init__(base_rounds_per_minute=base_rounds_per_minute)
-        self.level_1_rounds_per_minute = level_1_rounds_per_minute
-        self.level_2_rounds_per_minute = level_2_rounds_per_minute
-        self.level_3_rounds_per_minute = level_3_rounds_per_minute
-
-    def get_rounds_per_minutes(self) -> dict[ConcreteApexTerm, float]:
-        return _compile_terms(ApexTerms.ALL_BOLT_TERMS,
-                              self.base_rounds_per_minute,
-                              self.level_1_rounds_per_minute,
-                              self.level_2_rounds_per_minute,
-                              self.level_3_rounds_per_minute)
+        super().__init__(ApexTerms.ALL_BOLT_TERMS,
+                         base_rounds_per_minute,
+                         level_1_rounds_per_minute,
+                         level_2_rounds_per_minute,
+                         level_3_rounds_per_minute)
 
 
 class SpinupType(StrEnum):
@@ -124,7 +146,15 @@ class Spinup(abc.ABC):
     def get_magazine_duration_seconds(self,
                                       base_weapon: 'ConcreteWeapon',
                                       tactical: bool = False) -> float:
-        raise NotImplementedError()
+        raise NotImplementedError('Must implement.')
+
+    @abc.abstractmethod
+    def __hash__(self):
+        raise NotImplementedError('Must implement.')
+
+    @abc.abstractmethod
+    def __eq__(self, other):
+        raise NotImplementedError('Must implement.')
 
 
 class SpinupDevotion(Spinup):
@@ -196,6 +226,15 @@ class SpinupDevotion(Spinup):
                      spinup_time_seconds +
                      damage_per_second_initial) / 2)
 
+    def __hash__(self):
+        return hash(self.__class__) ^ hash((self._rounds_per_minute_initial,
+                                            self._spinup_time_seconds))
+
+    def __eq__(self, other):
+        return (isinstance(other, SpinupDevotion) and
+                self._rounds_per_minute_initial == other._rounds_per_minute_initial and
+                self._spinup_time_seconds == other._spinup_time_seconds)
+
 
 class SpinupHavoc(Spinup):
     def __init__(self, spinup_time_seconds: float):
@@ -232,6 +271,13 @@ class SpinupHavoc(Spinup):
         else:
             return 0
 
+    def __hash__(self):
+        return hash(self.__class__) ^ hash(self._spinup_time_seconds)
+
+    def __eq__(self, other):
+        return (isinstance(other, SpinupHavoc) and
+                other._spinup_time_seconds == self._spinup_time_seconds)
+
 
 class SpinupNone(Spinup):
     def get_magazine_duration_seconds(self,
@@ -257,14 +303,16 @@ class SpinupNone(Spinup):
         damage_per_second = base_weapon.get_damage_per_second_body()
         return damage_per_second * min(time_seconds, magazine_duration_seconds)
 
+    def __hash__(self):
+        return hash(self.__class__)
+
+    def __eq__(self, other):
+        return isinstance(other, SpinupNone)
+
 
 class WeaponBase(abc.ABC):
-    def __init__(self, name: str, term: ApexTermBase | None):
+    def __init__(self, name: str):
         self.name = name
-        self.term = term
-
-    def get_term(self) -> ApexTermBase | None:
-        return self.term
 
     @abc.abstractmethod
     def get_archetype(self) -> 'WeaponArchetype':
@@ -300,16 +348,23 @@ class WeaponBase(abc.ABC):
         return CombinedWeapon(self, sidearm)
 
     def reload(self) -> 'WeaponBase':
-        return ReloadingWeapon(self)
+        return ReloadingWeapon(self) if self.get_tactical_reload_time_secs() is not None else self
+
+    @abc.abstractmethod
+    def __hash__(self):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def __eq__(self, other):
+        raise NotImplementedError()
 
 
 class ReloadingWeapon(WeaponBase):
     def __init__(self, reloading_weapon: 'WeaponBase'):
-        super().__init__(f'{reloading_weapon.get_name()} {ApexTerms.WITH_RELOAD_TERM}',
-                         reloading_weapon.get_term().combine(ApexTerms.WITH_RELOAD_TERM)
-                         if reloading_weapon.get_term() is not None
-                         else None)
+        super().__init__(f'{reloading_weapon.get_name()} {ApexTerms.WITH_RELOAD_TERM}')
+        assert reloading_weapon.get_tactical_reload_time_secs() is not None
         self.reloading_weapon = reloading_weapon
+        self.reload_time_secs = float(reloading_weapon.get_tactical_reload_time_secs())
 
     def get_archetype(self) -> 'WeaponArchetype':
         return self.reloading_weapon.get_archetype()
@@ -318,10 +373,7 @@ class ReloadingWeapon(WeaponBase):
         return self.reloading_weapon.get_deploy_time_secs()
 
     def get_instantaneous_damage(self, time_seconds: float, include_deployment=False) -> float:
-        reload_time_seconds = self.reloading_weapon.get_tactical_reload_time_secs()
-        if reload_time_seconds is None:
-            return self.reloading_weapon.get_instantaneous_damage(time_seconds)
-
+        reload_time_seconds = self.reload_time_secs
         mag_duration_seconds = self.reloading_weapon.get_magazine_duration_seconds(tactical=True)
         cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
         rel_time_seconds = time_seconds % cycle_duration_seconds
@@ -330,10 +382,12 @@ class ReloadingWeapon(WeaponBase):
                 else 0)
 
     def get_cumulative_damage(self, time_seconds: float, include_deployment=False) -> float:
-        reload_time_seconds = self.reloading_weapon.get_tactical_reload_time_secs()
-        if reload_time_seconds is None:
-            return self.reloading_weapon.get_cumulative_damage(time_seconds)
+        dt = self.get_deploy_time_secs() if include_deployment else 0
+        time_seconds -= dt
+        if time_seconds <= 0:
+            return 0
 
+        reload_time_seconds = self.reload_time_secs
         mag_duration_seconds = self.reloading_weapon.get_magazine_duration_seconds(tactical=True)
         cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
         num_completed_cycles, rel_time_seconds = divmod(time_seconds, cycle_duration_seconds)
@@ -352,16 +406,19 @@ class ReloadingWeapon(WeaponBase):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.reloading_weapon.get_tactical_reload_time_secs()
 
+    def __hash__(self):
+        return hash(self.__class__) ^ hash(self.reloading_weapon)
+
+    def __eq__(self, other):
+        return (isinstance(other, ReloadingWeapon) and
+                other.reloading_weapon == self.reloading_weapon)
+
 
 class CombinedWeapon(WeaponBase):
     def __init__(self, main_weapon: WeaponBase, sidearm: WeaponBase):
         self.main_weapon = main_weapon
         self.sidearm = sidearm
-        super().__init__(
-            name=f'{main_weapon.name} {ApexTerms.WITH_SIDEARM} {sidearm.name}',
-            term=(main_weapon.get_term().combine(ApexTerms.WITH_SIDEARM, sidearm.get_term())
-                  if sidearm.get_term() is not None and main_weapon.get_term() is not None
-                  else None))
+        super().__init__(f'{main_weapon.name} {ApexTerms.WITH_SIDEARM} {sidearm.name}')
 
     def get_deploy_time_secs(self) -> float:
         return self.main_weapon.get_deploy_time_secs()
@@ -391,7 +448,7 @@ class CombinedWeapon(WeaponBase):
         main_total_duration_seconds = self.main_weapon.get_magazine_duration_seconds()
         cum_damage = self.main_weapon.get_cumulative_damage(
             min(time_seconds, main_total_duration_seconds),
-            include_deployment=False)
+            include_deployment=include_deployment)
         if time_seconds >= main_total_duration_seconds:
             time_seconds -= main_total_duration_seconds
             cum_damage += self.sidearm.get_cumulative_damage(time_seconds,
@@ -406,6 +463,13 @@ class CombinedWeapon(WeaponBase):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.sidearm.get_tactical_reload_time_secs()
 
+    def __hash__(self):
+        return hash(self.__class__) ^ hash((self.main_weapon, self.sidearm))
+
+    def __eq__(self, other):
+        return (isinstance(other, CombinedWeapon) and
+                other.main_weapon == self.main_weapon and other.sidearm == self.sidearm)
+
 
 class ConcreteWeapon(WeaponBase):
     def __init__(self,
@@ -417,9 +481,8 @@ class ConcreteWeapon(WeaponBase):
                  rounds_per_minute: float,
                  magazine_capacity: int,
                  spinup: Spinup,
-                 tactical_reload_time_secs: float | None,
-                 term: ApexTermBase | None):
-        super().__init__(name=name, term=term)
+                 tactical_reload_time_secs: float | None):
+        super().__init__(name=name)
         self.deploy_time_secs = deploy_time_secs
         self.archetype = archetype
         self.weapon_class = weapon_class
@@ -468,9 +531,26 @@ class ConcreteWeapon(WeaponBase):
     def get_rounds_per_minute(self):
         return self.rounds_per_minute
 
+    def __hash__(self):
+        return hash(self.__class__) ^ hash(self.name)
+
+    def __eq__(self, other):
+        return (isinstance(other, ConcreteWeapon) and
+                self.deploy_time_secs == other.deploy_time_secs and
+                self.archetype == other.archetype and
+                self.weapon_class == other.weapon_class and
+                self.damage_body == other.damage_body and
+                self.rounds_per_minute == other.rounds_per_minute and
+                self.magazine_capacity == other.magazine_capacity and
+                self.spinup == other.spinup and
+                self.tactical_reload_time_secs == other.tactical_reload_time_secs)
+
 
 class WeaponArchetype:
     _TAKEN_TERMS: set[ApexTermBase] = set()
+    _ARCHETYPE_TERM_FINDER = ApexTranslator({
+        term: term
+        for term in ApexTerms.WEAPON_ARCHETYPE_TERMS})
 
     def __init__(self,
                  name: str,
@@ -478,10 +558,10 @@ class WeaponArchetype:
                  weapon_class: str,
                  damage_body: float,
                  deploy_time_secs: float,
-                 rounds_per_minute: BaseRoundsPerMinute,
-                 magazine_capacity: BaseMagazineCapacity,
-                 tactical_reload_time: BaseReloadTime,
-                 full_reload_time: BaseReloadTime,
+                 rounds_per_minute: SingleRoundsPerMinute,
+                 magazine_capacity: SingleMagazineCapacity,
+                 tactical_reload_time: SingleReloadTime,
+                 full_reload_time: SingleReloadTime,
                  spinup: Spinup):
         self.name = name
         self.active = active
@@ -495,20 +575,21 @@ class WeaponArchetype:
         self.spinup = spinup
 
         # Figure out what term matches the weapon name.
-        stripped_name = Term(name)
-        possible_terms = tuple(_term
-                               for _term in ApexTerms.WEAPON_ARCHETYPE_TERMS
-                               if _term.has_variation(stripped_name))
+        name_words = Words(name)
+        possible_terms = tuple(map(
+            ParsedAndFollower.get_parsed,
+            WeaponArchetype._ARCHETYPE_TERM_FINDER.translate_terms(name_words)))
         if len(possible_terms) == 0:
             logging.warning(f'No term found for weapon archetype: {name}. Speech-to-text will not '
                             'work for it.')
             term = None
-        elif len(possible_terms) != 1:
+        elif len(possible_terms) > 1:
+            term = possible_terms[0]
             logging.warning(f'More than one term for weapon archetype {name} found. We\'ll assume '
-                            'the longest one is the right one.')
-            term = max(possible_terms, key=len)
+                            f'that {term} is the right one.')
         else:
-            term, = possible_terms
+            (term,) = possible_terms
+
         if term is not None:
             if term in WeaponArchetype._TAKEN_TERMS:
                 logging.warning(f'Term {term} refers to another weapon. Can\'t use it.')
@@ -516,7 +597,47 @@ class WeaponArchetype:
             else:
                 WeaponArchetype._TAKEN_TERMS.add(term)
         self.term = term
-        self.base_weapons: dict[bool, tuple[WeaponBase]] = {}
+        self.base_weapons = tuple(self._get_base_weapons(
+            rpms=self.rounds_per_minute.get_stats(),
+            mags=self.magazine_capacity.get_stats(),
+            tactical_reload_times=self.tactical_reload_time.get_stats()))
+
+    def _get_base_weapons(self,
+                          rpms: MappingProxyType[str | None, float],
+                          mags: MappingProxyType[str | None, int],
+                          tactical_reload_times: MappingProxyType[str | None, float]) -> \
+            typing.Generator[ConcreteWeapon, None, None]:
+        if not self.active:
+            return
+
+        name = self.name
+        weapon_class = self.weapon_class
+        damage_body = self.damage_body
+        deploy_time_secs = self.deploy_time_secs
+        spinup = self.spinup
+
+        for rpm_idx, (rpm_name, rpm) in enumerate(reversed(rpms.items())):
+            rpm_name = f' ({rpm_name})' if rpm_name is not None else ''
+
+            for mag_idx, (mag_name, mag) in enumerate(reversed(mags.items())):
+                mag_name = f' ({mag_name})' if mag_name is not None else ''
+
+                for stock_idx, (stock_name, tactical_reload_time) in enumerate(reversed(
+                        tactical_reload_times.items())):
+                    stock_name = f' ({stock_name})' if stock_name is not None else ''
+
+                    full_name = f'{name}{rpm_name}{mag_name}{stock_name}'
+                    base_weapon: ConcreteWeapon = ConcreteWeapon(
+                        archetype=self,
+                        name=full_name,
+                        weapon_class=weapon_class,
+                        damage_body=damage_body,
+                        deploy_time_secs=deploy_time_secs,
+                        rounds_per_minute=rpm,
+                        magazine_capacity=mag,
+                        spinup=spinup,
+                        tactical_reload_time_secs=tactical_reload_time)
+                    yield base_weapon
 
     def get_term(self) -> ApexTermBase | None:
         return self.term
@@ -533,76 +654,15 @@ class WeaponArchetype:
     def __repr__(self):
         return self.name
 
-    @staticmethod
-    def _get_next_term(prev_term: ApexTermBase | None,
-                       cur_term: ConcreteApexTerm,
-                       idx: int) -> ApexTermBase | None:
-        if prev_term is None:
+    def get_base_weapons(self, words: Words | None = None) -> \
+            typing.Generator[ConcreteWeapon, None, None]:
+        if words is None:
+            for weapon in self.base_weapons:
+                yield weapon
             return None
-        method: typing.Callable[[ApexTermBase, ConcreteApexTerm], ApexTermBase] = (
-            ApexTermBase.combine_opt_term
-            if idx == 0
-            else ApexTermBase.combine)
-        return method(prev_term, cur_term)
 
-    def get_base_weapons(self, reload: bool = False, sidearm: WeaponBase | None = None) -> \
-            tuple[WeaponBase]:
-        if not self.active:
-            return tuple()
-
-        if reload in self.base_weapons and sidearm is None:
-            return self.base_weapons[reload]
-
-        base_weapons: list[WeaponBase] = []
-
-        name = self.name
-        weapon_class = self.weapon_class
-        damage_body = self.damage_body
-        deploy_time_secs = self.deploy_time_secs
-        spinup = self.spinup
-        term = self.term
-
-        rpms = self.rounds_per_minute.get_rounds_per_minutes()
-        mags = self.magazine_capacity.get_capacities()
-        tactical_reload_times = (self.tactical_reload_time.get_reload_times_secs()
-                                 if reload
-                                 else BaseReloadTime(None).get_reload_times_secs())
-
-        for rpm_idx, (rpm_term, rpm) in enumerate(reversed(rpms.items())):
-            rpm_name = f' ({rpm_term})' if len(rpms) > 1 else ''
-            # noinspection PyTypeChecker
-            rpm_term = self._get_next_term(term, rpm_term, rpm_idx)
-
-            for mag_idx, (mag_term, mag) in enumerate(reversed(mags.items())):
-                mag_name = f' ({mag_term})' if len(mags) > 1 else ''
-                # noinspection PyTypeChecker
-                mag_term = self._get_next_term(rpm_term, mag_term, mag_idx)
-
-                for stock_idx, (stock_term, tactical_reload_time) in enumerate(reversed(
-                        tactical_reload_times.items())):
-                    stock_name = f' ({stock_term})' if len(tactical_reload_times) > 1 else ''
-
-                    # noinspection PyTypeChecker
-                    full_term = self._get_next_term(mag_term, stock_term, stock_idx)
-                    full_name = f'{name}{rpm_name}{mag_name}{stock_name}'
-                    base_weapon: WeaponBase = ConcreteWeapon(
-                        archetype=self,
-                        name=full_name,
-                        weapon_class=weapon_class,
-                        damage_body=damage_body,
-                        deploy_time_secs=deploy_time_secs,
-                        rounds_per_minute=rpm,
-                        magazine_capacity=mag,
-                        spinup=spinup,
-                        tactical_reload_time_secs=tactical_reload_time,
-                        term=full_term)
-                    if sidearm is not None:
-                        base_weapon = base_weapon.combine_with_sidearm(sidearm)
-                    if reload:
-                        base_weapon = base_weapon.reload()
-                    base_weapons.append(base_weapon)
-
-        result = tuple(base_weapons)
-        if sidearm is None:
-            self.base_weapons[reload] = result
-        return result
+        for weapon in self._get_base_weapons(
+                rpms=self.rounds_per_minute.get_stats(words),
+                mags=self.magazine_capacity.get_stats(words),
+                tactical_reload_times=self.tactical_reload_time.get_stats(words)):
+            yield weapon

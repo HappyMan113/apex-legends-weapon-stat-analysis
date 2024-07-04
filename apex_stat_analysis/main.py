@@ -8,6 +8,7 @@ from apex_stat_analysis.speech.best_command import BestCommand
 from apex_stat_analysis.speech.command_registry import CommandRegistry
 from apex_stat_analysis.speech.compare_command import CompareCommand
 from apex_stat_analysis.speech.speech_client import SpeechClient
+from apex_stat_analysis.weapon_database import ApexDatabase
 
 
 logger = logging.getLogger()
@@ -40,6 +41,9 @@ def main():
     ensure_ffmpeg_installed()
     setup_logger(logging.WARNING)
     register_commands()
+
+    # Load everything in.
+    ApexDatabase.get_instance()
 
     try:
         with SpeechClient() as client:

@@ -7,7 +7,12 @@ import typing
 
 import numpy as np
 
-from apex_stat_analysis.weapon import WeaponArchetype, ConcreteWeapon, WeaponBase
+from apex_stat_analysis.speech.term_translator import ApexTranslator, ParsedAndFollower
+from apex_stat_analysis.speech.terms import Words
+from apex_stat_analysis.weapon import (ConcreteWeapon,
+                                       WeaponArchetype,
+                                       WeaponBase,
+                                       add_sidearm_and_reload)
 from apex_stat_analysis.weapon_csv_parser import WeaponCsvReader, TTKCsvReader
 
 
@@ -105,29 +110,31 @@ class ApexDatabase:
         ttks.sort()
         self.ttks = ttks
 
-        base_weapons: tuple[WeaponBase] = tuple(
-            base_weapon
-            for weapon_archetype in weapons
-            for base_weapon in weapon_archetype.get_base_weapons())
-
         self._weapon_archetypes = weapons
-        self._base_weapons = base_weapons
+
+        base_weapons: list[ConcreteWeapon] = []
+        for weapon_archetype in self._weapon_archetypes:
+            try:
+                base_weapons.extend(weapon_archetype.get_base_weapons())
+            except Exception as ex:
+                raise type(ex)(f'trouble with getting base weapons for {weapon_archetype}') from ex
+        self._base_weapons: tuple[ConcreteWeapon] = tuple(base_weapons)
+        self._archetype_translator = ApexTranslator({weapon.get_term(): weapon
+                                                     for weapon in weapons
+                                                     if weapon.get_term() is not None})
 
     def general_list(self, show_plots: bool = False):
         wingman: WeaponBase = next(
             base_weapon
             for base_weapon in self._base_weapons
             if 'wingman' in base_weapon.get_name().lower())
-        base_weapons: list[WeaponBase] = [
-            base_weapon.combine_with_sidearm(wingman)
-            for base_weapon in self._base_weapons]
-        for weapon_archetype in self._weapon_archetypes:
-            try:
-                base_weapons.extend(weapon_archetype.get_base_weapons(reload=True))
-            except Exception as ex:
-                raise type(ex)(f'trouble with getting base weapons for {weapon_archetype}') from ex
 
-        result = self.compare_weapons(base_weapons).limit_to_best(0.75)
+        base_weapons = (add_sidearm_and_reload(self._base_weapons, reload=True) +
+                        add_sidearm_and_reload(self._base_weapons,
+                                               sidearm=wingman,
+                                               reload=True))
+
+        result = self.compare_weapons(base_weapons)
 
         sorted_weapons_str = '\n'.join(
             f'  {weighted_avg_damage:4.2f}: {weapon}'
@@ -136,12 +143,13 @@ class ApexDatabase:
         print(f'Sorted Weapons:\n{sorted_weapons_str}')
 
         archetypes_str = '\n'.join(
-            f'  {weapon}: {dmg:4.2f}'
-            for weapon, (dmg, _) in
+            f'  {base_weapon}: {dmg:4.2f}'
+            for weapon, (dmg, base_weapon) in
             result.get_archetypes().items())
         print(f'Sorted Weapon Archetypes:\n{archetypes_str}')
 
         if show_plots:
+            result = result.limit_to_best_num(4)
             from matplotlib import pyplot as plt
 
             ttks = self.ttks
@@ -155,27 +163,31 @@ class ApexDatabase:
             plt.legend()
             plt.show()
 
-    def compare_all_weapons(self, reloads: bool = False, sidearm: WeaponBase = None) -> \
+    def compare_all_weapons(self, sidearm: WeaponBase = None, reload: bool = False) -> \
             _ComparisonResult:
-        all_weapons = self._base_weapons
-        if sidearm is not None:
-            all_weapons = [weapon.combine_with_sidearm(sidearm) for weapon in all_weapons]
-        if reloads:
-            all_weapons = [weapon.reload() for weapon in all_weapons]
-        return self.compare_weapons(all_weapons)
+        return self.compare_weapons(add_sidearm_and_reload(self._base_weapons,
+                                                           sidearm=sidearm,
+                                                           reload=reload))
 
     def compare_weapons(self, base_weapons: typing.Iterable[WeaponBase]) -> _ComparisonResult:
         if not isinstance(base_weapons, (tuple, list)):
             base_weapons = tuple(base_weapons)
 
+        tiebreaker_time = 10
+
         ts = self.ttks
-        power = 0
+        weights = np.ones_like(ts)
 
         # ts = np.linspace(self.ttks.min(), self.ttks.max(), num=1000)
         # # power should be non-positive, probably in the range [0, -1]. Lower values means you're
         # # assuming TTK is going to be lower. Zero probably makes sense if your TTK values are
         # # good.
         # power = -1
+        # weights = ts ** power
+
+        if ts.max() < tiebreaker_time:
+            ts = np.append(ts, tiebreaker_time)
+            weights = np.append(weights, weights.sum() * 0.01)
 
         num_base_weapons = len(base_weapons)
         damage_table: np.ndarray[np.floating] = np.empty((num_base_weapons, len(ts)))
@@ -192,7 +204,7 @@ class ApexDatabase:
         # This one actually weights earlier damage more highly.
         weighted_average_damage = np.average(mean_dps_till_time_t,
                                              axis=1,
-                                             weights=(ts ** power))
+                                             weights=weights)
         sorti = weighted_average_damage.argsort()[::-1]
         sorted_weapons: tuple[WeaponBase, ...] = tuple(base_weapons[idx] for idx in sorti)
 
@@ -219,8 +231,22 @@ class ApexDatabase:
 
         return ApexDatabase._INSTANCE
 
-    def get_weapon_archetypes(self) -> tuple[WeaponArchetype]:
+    def get_all_weapon_archetypes(self) -> tuple[WeaponArchetype]:
         return self._weapon_archetypes
 
-    def get_base_weapons(self):
+    def get_weapon_archetypes(self, words: Words) -> \
+            typing.Generator[ParsedAndFollower[WeaponArchetype], None, None]:
+        for archetype in self._archetype_translator.translate_terms(words):
+            yield archetype
+
+    def get_all_base_weapons(self) -> tuple[ConcreteWeapon]:
         return self._base_weapons
+
+    def get_base_weapons(self, words: Words) -> typing.Generator[ConcreteWeapon, None, None]:
+        assert isinstance(words, Words)
+        for parsed_archetype in self.get_weapon_archetypes(words):
+            archetype = parsed_archetype.get_parsed()
+            best_match = next(archetype.get_base_weapons(parsed_archetype.get_following_words()),
+                              None)
+            if best_match is not None:
+                yield best_match

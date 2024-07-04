@@ -1,35 +1,38 @@
 import abc
 import csv
-from enum import StrEnum
 import typing
+from enum import StrEnum
+from typing import Any, Generic, IO, Type, TypeVar
 
 from apex_stat_analysis.ttk_datum import TTKDatum
-from apex_stat_analysis.weapon import (BaseMagazineCapacity,
-                                       BaseReloadTime,
-                                       BaseRoundsPerMinute,
-                                       MagazineCapacity,
+from apex_stat_analysis.weapon import (MagazineCapacity,
                                        ReloadTime,
                                        RoundsPerMinute,
                                        SpinupDevotion,
                                        SpinupHavoc,
+                                       SingleMagazineCapacity,
                                        SpinupNone,
-                                       SpinupType,
+                                       SingleReloadTime,
+                                       SingleRoundsPerMinute,
                                        Spinup,
+                                       SpinupType,
                                        WeaponArchetype)
 
 
-class CsvReader:
+T = TypeVar('T')
+
+class CsvReader(Generic[T]):
     VALUE_EMPTY = ''
     WEAPON_DICT_TYPE = dict[str, str]
 
-    def __init__(self, fp: typing.IO):
+    def __init__(self, fp: IO):
         self._dict_reader = csv.DictReader(fp)
         self._cur_dict: CsvReader.WEAPON_DICT_TYPE | None = None
 
     def _parse(self,
                key: str,
-               default_value: typing.Any | None,
-               clazz: typing.Any,
+               default_value: Any | None,
+               clazz: Any,
                error_message: str | None):
         val_str = self._cur_dict[key]
         if val_str != self.VALUE_EMPTY:
@@ -58,7 +61,7 @@ class CsvReader:
 
     def _parse_str_enum(self,
                         key: str,
-                        enum_type: typing.Type[StrEnum],
+                        enum_type: Type[StrEnum],
                         default_value: StrEnum | None = None,
                         error_message: str | None = None):
         assert issubclass(enum_type, StrEnum)
@@ -110,22 +113,22 @@ class CsvReader:
                     error_message = error_message(key)
                 raise ValueError(error_message)
 
-    def __iter__(self):
+    def __iter__(self) -> typing.Iterator[T]:
         for item in self._dict_reader.__iter__():
             self._cur_dict = item
             yield self._parse_item()
 
     @abc.abstractmethod
-    def _parse_item(self):
+    def _parse_item(self) -> T:
         raise NotImplementedError()
 
 
-class TTKCsvReader(CsvReader):
+class TTKCsvReader(CsvReader[TTKDatum]):
     KEY_CLIP = 'Clip of classic blunder'
     KEY_FRAMES_TO_KILL = 'Frames to Kill'
     KEY_FPS = 'FPS'
 
-    def _parse_item(self):
+    def _parse_item(self) -> TTKDatum:
         try:
             clip_name = self._parse_str(self.KEY_CLIP)
         except KeyError:
@@ -136,7 +139,7 @@ class TTKCsvReader(CsvReader):
         return TTKDatum(clip_name, ttk_seconds)
 
 
-class WeaponCsvReader(CsvReader):
+class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON = "Weapon"
     KEY_WEAPON_CLASS = "Weapon Class"
     KEY_DAMAGE_BODY = "Damage (body)"
@@ -165,7 +168,7 @@ class WeaponCsvReader(CsvReader):
     def __init__(self, fp: typing.IO):
         super().__init__(fp)
 
-    def _parse_rpm(self) -> BaseRoundsPerMinute:
+    def _parse_rpm(self) -> SingleRoundsPerMinute:
         rpm_base = self._parse_float(self.KEY_RPM_BASE)
         error_message = 'Must specify either all shotgun bolt levels or just the base rpm.'
         if self._has_value(self.KEY_RPM_SHOTGUN_BOLT_LEVEL_1):
@@ -180,11 +183,11 @@ class WeaponCsvReader(CsvReader):
                                   level_2_rounds_per_minute=rpm_shotgun_bolt_level_2,
                                   level_3_rounds_per_minute=rpm_shotgun_bolt_level_3)
         else:
-            rpm = BaseRoundsPerMinute(rpm_base)
+            rpm = SingleRoundsPerMinute(rpm_base)
 
         return rpm
 
-    def _parse_mag(self) -> BaseMagazineCapacity:
+    def _parse_mag(self) -> SingleMagazineCapacity:
         magazine_base = self._parse_int(self.KEY_MAGAZINE_BASE)
         error_message = 'Must specify either all magazine levels or just the base magazine size.'
         if self._has_value(self.KEY_MAGAZINE_LEVEL_1):
@@ -199,7 +202,7 @@ class WeaponCsvReader(CsvReader):
                                    level_2_capacity=magazine_level_2,
                                    level_3_capacity=magazine_level_3)
         else:
-            mag = BaseMagazineCapacity(magazine_base)
+            mag = SingleMagazineCapacity(magazine_base)
             self._ensure_empty(error_message,
                                self.KEY_MAGAZINE_LEVEL_1,
                                self.KEY_MAGAZINE_LEVEL_2,
@@ -215,9 +218,9 @@ class WeaponCsvReader(CsvReader):
         error_message = ('Must specify no reload times; base tactical and full reload times only; '
                          'or all tactical and full reload times.')
         if not self._has_value(key_base_reload_time):
-            reload = BaseReloadTime(None)
+            reload = SingleReloadTime(None)
         elif not self._has_value(key_level_1_reload_time):
-            reload = BaseReloadTime(self._parse_float(key_base_reload_time))
+            reload = SingleReloadTime(self._parse_float(key_base_reload_time))
             self._ensure_empty(error_message, key_level_2_reload_time, key_level_3_reload_time)
         else:
             reload = ReloadTime(
@@ -232,7 +235,7 @@ class WeaponCsvReader(CsvReader):
 
         return reload
 
-    def _parse_tactical_and_full_reload_time(self) -> tuple[BaseReloadTime, BaseReloadTime]:
+    def _parse_tactical_and_full_reload_time(self) -> tuple[SingleReloadTime, SingleReloadTime]:
         tactical_reload = self._parse_reload_time(
             key_base_reload_time=self.KEY_TACTICAL_RELOAD_TIME_BASE,
             key_level_1_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_1,
@@ -271,7 +274,7 @@ class WeaponCsvReader(CsvReader):
 
         return spinup
 
-    def _parse_item(self):
+    def _parse_item(self) -> WeaponArchetype:
         # Parse basic stats
         weapon_name = self._parse_str(self.KEY_WEAPON)
         active = self._parse_bool(self.KEY_ACTIVE)

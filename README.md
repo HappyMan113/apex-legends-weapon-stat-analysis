@@ -61,7 +61,9 @@ Just get "Desktop development with C++"
 
 ## Set up Virtual Environment
 This virtual environment will contain all required dependencies. It's the virtual environment that
-gets copied into the release archive and can be used for development & testing.
+gets copied into the release archive. It can be used for development & testing, but if you install 
+packages for testing purposes only, be sure to uninstall them prior to release. Rerunning
+setup_venv.ps1 will accomplish this.
 ```shell
 .\scripts\install.ps1
 ```
