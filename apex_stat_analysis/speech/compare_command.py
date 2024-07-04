@@ -35,10 +35,10 @@ class CompareCommand(Command):
         if with_reloads:
             weapons = [weapon.reload() for weapon in weapons]
 
-        LOGGER.debug(f'Comparing: {weapons}')
+        LOGGER.info(f'Comparing: {weapons}')
         comparison_result = ApexDatabase.get_instance().compare_weapons(weapons)
         best_weapon, score = comparison_result.get_best_weapon()
-        LOGGER.debug(f'Best: {best_weapon}')
+        LOGGER.info(f'Best: {best_weapon}')
         audible_name = self.make_audible(best_weapon.get_archetype())
 
         if len(weapons) == 2:

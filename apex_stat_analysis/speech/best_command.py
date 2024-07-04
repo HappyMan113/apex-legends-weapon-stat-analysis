@@ -25,7 +25,8 @@ class BestCommand(Command):
         LOGGER.debug(f'Getting {number} best weapons.')
         comparison_result = \
             ApexDatabase.get_instance().compare_all_weapons().limit_to_best_num(number)
-        LOGGER.debug(f'Best: {comparison_result.get_archetypes()}')
+        LOGGER.info(f'Best {number} weapons:\n'
+                    f'  {comparison_result.get_archetypes()}')
         audible_names = ' '.join([CompareCommand.make_audible(weapon_archetype)
                                   for weapon_archetype in comparison_result.get_archetypes()])
         return audible_names

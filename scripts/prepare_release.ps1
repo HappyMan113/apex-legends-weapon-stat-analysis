@@ -16,7 +16,7 @@ try {
 } catch [System.Management.Automation.ItemNotFoundException] {}
 
 echo 'Zipping...'
-& "C:\Program Files\7-Zip\7z.exe" a -sfx $archive_name "$package_path\*"
+& "C:\Program Files\7-Zip\7z.exe" a $archive_name "$package_path\*"
 if ($LASTEXITCODE -ne 0) { exit }
 
 echo 'Zipped!'

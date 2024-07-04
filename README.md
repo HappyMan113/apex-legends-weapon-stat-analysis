@@ -2,6 +2,7 @@
 # Prerequisites
 See the [RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before) for more information. 
 - Must be on Windows.
+- Must have a microphone.
 - Must have NVIDIA CUDA GPU.
 - Install [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
 - Set up OpenAI API key
@@ -38,8 +39,13 @@ Head over to the Releases page and download apex-assistant.7z. Extract the archi
 [7zip](https://www.7-zip.org/download.html).
 
 ## Usage
-Run `apex-assistant.bat` which you just extracted.
+Run `apex-assistant.bat` which you just extracted. Wait for audio recording to start.
 
+### Example Voice Commands:
+- "Compare wingman peacekeeper"
+- "Compare RE-45 with purple mag with P2020 with hammerpoint"
+- "Compare no reloads R-99 with level 2 stock with Flatline with level 1 magazine"
+- "Best 5"
 
 
 # Developer Guide
