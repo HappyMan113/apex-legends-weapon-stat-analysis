@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling", "hatch-requirements-txt"]
-build-backend = "hatchling.build"
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "apex-assistant"
@@ -11,8 +11,14 @@ dynamic = ["dependencies"]
 [project.scripts]
 apex-assistant = "apex_stat_analysis.main:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["apex_stat_analysis"]
+[tool.setuptools]
+include-package-data = true
 
-[tool.hatch.metadata.hooks.requirements_txt]
-files = ["requirements.txt", "requirements-speech.txt"]
+[tool.setuptools.package-data]
+apex_stat_analysis = ["*.csv"]
+
+[tool.setuptools.packages.find]
+include = ["apex_stat_analysis*"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt", "requirements-speech.txt"]}

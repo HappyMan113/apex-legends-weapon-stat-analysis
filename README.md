@@ -1,23 +1,22 @@
 
 # Prerequisites
-- [Install NVIDIA Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
-<!--
-- [RealtimeSTT](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file)
-  - Install CUDA
-    - [Install CUDA Toolkit](https://developer.nvidia.com/cuda-downloads)
-    - [Install CUDNN](https://docs.nvidia.com/deeplearning/cudnn/latest/installation/windows.html)
-      - https://developer.nvidia.com/cudnn-downloads
-      - `pip install nvidia-cudnn-cu12`
--->
+See the [RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before) for more information. 
+- Must be on Windows.
+- Must have NVIDIA CUDA GPU.
+- Install [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
+- Set up OpenAI API key
+  - [Create a Project Key](https://platform.openai.com/api-keys)
+  - Set environment variable `OPENAI_API_KEY`
+  - [Add funds](https://platform.openai.com/settings/organization/billing/overview) if needed (I
+  wasn't able to make any free requests, but maybe you'll have better luck.)
 - Install FFMpeg
   ```shell
   winget install Gyan.FFmpeg
   ```
-
-## OpenAI API key
-- [Create a Project Key](https://platform.openai.com/api-keys)
-- Set environment variable `OPENAI_API_KEY`
-- [Add funds](https://platform.openai.com/settings/organization/billing/overview) if needed.
+- Install 7-Zip.
+  ```shell
+  winget install -e --id 7zip.7zip
+  ```
 
 <!--
 ## Get your Azure API keys:
@@ -34,6 +33,15 @@
 - Add install location with exe to your Path
 -->
 
+## User Installation
+Head over to the Releases page and download apex-assistant.7z. Extract the archive using 
+[7zip](https://www.7-zip.org/download.html).
+
+## Usage
+Run `apex-assistant.bat` which you just extracted.
+
+
+
 # Developer Guide
 <!--
 ## [Build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
@@ -41,8 +49,38 @@ Just get "Desktop development with C++"
 -->
 
 ## Set up Virtual Environment
+This virtual environment will contain all required dependencies. It's the virtual environment that
+gets copied into the release archive and can be used for development & testing.
 ```shell
 .\scripts\install.ps1
+```
+
+## Install this package
+You'll need to install this package before you can run it. While a regular install is done as part 
+of the prepare_release script, you may want to install for development and testing purposes before
+preparing a release.
+
+### Regular Install
+```shell
+.\package\venv\Scripts\python -m pip install .
+```
+### Editable Install
+```shell
+.\package\venv\Scripts\python -m pip install -e .
+```
+
+## Create Release Archive
+<!--
+### Prerequisite
+# TODO: Create process for creating an installer: http://ntsblog.homedev.com.au/index.php/2015/05/14/self-extracting-archive-runs-setup-exe-7zip-sfx-switch/
+Install 7-Zip LZMA SDK:
+https://www.7-zip.org/sdk.html
+
+###
+Zip up release package.
+-->
+```shell
+.\scripts\prepare_release.ps1
 ```
 
 <!--
@@ -65,17 +103,3 @@ Just get "Desktop development with C++"
   pyinstaller -c -F ./apex_stat_analysis/main.py -n apex-assistant --collect-data apex_stat_analysis --clean --collect-data pvporcupine --collect-binaries azure
   ```
 -->
-
-## Re-Installation of Apex Assistant Package Only
-```shell
-.\package\venv\Scripts\python -m pip install .
-```
-### Editable Install
-```shell
-.\package\venv\Scripts\python -m pip install -e .
-```
-
-# Usage
-```shell
-.\package\apex-assistant.bat
-```

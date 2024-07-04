@@ -1,0 +1,44 @@
+$ErrorActionPreference = 'Stop'
+cd "$PSScriptRoot\.."
+
+python .\scripts\python_version_check.py
+if ($LASTEXITCODE -ne 0) { exit }
+
+$package_path = "package"
+$venv_path = "$package_path\venv"
+
+# Clean.
+try {
+    Remove-Item -Recurse $package_path
+} catch [System.Management.Automation.ItemNotFoundException] {}
+
+# Create virtual environement.
+python -m venv "$venv_path"
+if ($LASTEXITCODE -ne 0) { exit }
+
+# Activate virtual environment.
+& "$venv_path\Scripts\Activate.ps1"
+
+# Upgrade pip.
+python -m pip install --upgrade pip
+
+# Sanity check that we're in a virtual environment.
+pip config set --site install.require-virtualenv true
+# Ensure that only the packages that are actually required get installed. This way, the compressed virtual
+# environment ends up being under 2 GB and can be attached to a GitHub release.
+pip config set --site install.no-deps true
+# Setting no-compile to true here doesn't seem to work, even though setting other options this way works. We have
+# to resort to using the --no-compile flag instead.
+# pip config set --site install.no-compile true
+
+# Install RealtimeSTT and RealtimeTTS.
+pip install -r .\requirements-speech.txt --ignore-requires-python --no-compile
+if ($LASTEXITCODE -ne 0) { exit }
+
+# Install required packages.
+# https://download.pytorch.org/whl/cu121 has torch packages.
+pip install -r .\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121 --no-compile
+if ($LASTEXITCODE -ne 0) { exit }
+
+echo ''
+echo 'Success!'

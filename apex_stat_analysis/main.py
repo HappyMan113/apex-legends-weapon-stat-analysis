@@ -46,7 +46,7 @@ def main():
             # Something in SpeechClient initializer is actually changing the log level; that's one
             # reason we need to change the log level after client initialization. The other reason
             # is that we can avoid logging messages we don't care about.
-            logger.setLevel(logging.DEBUG)
+            logger.setLevel(logging.INFO)
 
             client.start()
     except KeyboardInterrupt:

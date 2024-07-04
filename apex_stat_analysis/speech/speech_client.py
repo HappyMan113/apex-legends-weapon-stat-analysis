@@ -28,7 +28,7 @@ class SpeechClient:
                                             device='cuda',
                                             language='en',
                                             model='large-v2',
-                                            post_speech_silence_duration=2)
+                                            post_speech_silence_duration=1)
         self.stream = TextToAudioStream([openai_engine, system_engine])
         self.apex_translator = ApexTranslator()
         self._closed = False
@@ -81,7 +81,7 @@ class SpeechClient:
         self.stop()
 
     def stop(self):
-        if self._closed:
+        if not hasattr(self, '_closed') or self._closed:
             return
         self._closed = True
 

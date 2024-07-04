@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="install" type="PowerShellRunType" factoryName="PowerShell" scriptUrl="C:\Users\Timothy\Desktop\Documents\Video Games\Apex Legends\apex-legends-weapon-stat-analysis\scripts\install.ps1" executablePath="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe">
+  <configuration default="false" name="install" type="PowerShellRunType" factoryName="PowerShell" scriptUrl="$PROJECT_DIR$/scripts/prepare_release.ps1" executablePath="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe">
     <envs />
     <method v="2" />
   </configuration>
