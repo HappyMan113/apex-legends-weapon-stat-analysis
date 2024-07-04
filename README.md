@@ -1,3 +1,8 @@
+<!-- 
+TODO: Explain what the assistant does and the methods used to calculate "best" weapons.
+# About
+## Methods
+-->
 
 # Prerequisites
 See the [RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before) for more information. 

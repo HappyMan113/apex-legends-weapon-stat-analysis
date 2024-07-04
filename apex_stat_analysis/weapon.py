@@ -596,10 +596,10 @@ class WeaponArchetype:
                         spinup=spinup,
                         tactical_reload_time_secs=tactical_reload_time,
                         term=full_term)
-                    if reload:
-                        base_weapon = base_weapon.reload()
                     if sidearm is not None:
                         base_weapon = base_weapon.combine_with_sidearm(sidearm)
+                    if reload:
+                        base_weapon = base_weapon.reload()
                     base_weapons.append(base_weapon)
 
         result = tuple(base_weapons)

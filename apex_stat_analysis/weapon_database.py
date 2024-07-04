@@ -115,9 +115,9 @@ class ApexDatabase:
 
     def general_list(self, show_plots: bool = False):
         wingman: WeaponBase = next(
-                base_weapon
-                for base_weapon in self._base_weapons
-                if 'wingman' in base_weapon.get_name().lower())
+            base_weapon
+            for base_weapon in self._base_weapons
+            if 'wingman' in base_weapon.get_name().lower())
         base_weapons: list[WeaponBase] = [
             base_weapon.combine_with_sidearm(wingman)
             for base_weapon in self._base_weapons]
@@ -130,15 +130,15 @@ class ApexDatabase:
         result = self.compare_weapons(base_weapons).limit_to_best(0.75)
 
         sorted_weapons_str = '\n'.join(
-                f'  {weighted_avg_damage:4.2f}: {weapon}'
-                for weapon, weighted_avg_damage in
-                result.get_sorted_weapons().items())
+            f'  {weighted_avg_damage:4.2f}: {weapon}'
+            for weapon, weighted_avg_damage in
+            result.get_sorted_weapons().items())
         print(f'Sorted Weapons:\n{sorted_weapons_str}')
 
         archetypes_str = '\n'.join(
-                f'  {weapon}: {dmg:4.2f}'
-                for weapon, (dmg, _) in
-                result.get_archetypes().items())
+            f'  {weapon}: {dmg:4.2f}'
+            for weapon, (dmg, _) in
+            result.get_archetypes().items())
         print(f'Sorted Weapon Archetypes:\n{archetypes_str}')
 
         if show_plots:
@@ -155,8 +155,14 @@ class ApexDatabase:
             plt.legend()
             plt.show()
 
-    def compare_all_weapons(self) -> _ComparisonResult:
-        return self.compare_weapons(self._base_weapons)
+    def compare_all_weapons(self, reloads: bool = False, sidearm: WeaponBase = None) -> \
+            _ComparisonResult:
+        all_weapons = self._base_weapons
+        if sidearm is not None:
+            all_weapons = [weapon.combine_with_sidearm(sidearm) for weapon in all_weapons]
+        if reloads:
+            all_weapons = [weapon.reload() for weapon in all_weapons]
+        return self.compare_weapons(all_weapons)
 
     def compare_weapons(self, base_weapons: typing.Iterable[WeaponBase]) -> _ComparisonResult:
         if not isinstance(base_weapons, (tuple, list)):
