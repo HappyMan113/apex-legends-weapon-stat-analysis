@@ -3,7 +3,11 @@ import csv
 import typing
 from enum import StrEnum
 from typing import Any, Generic, IO, Type, TypeVar
+import logging
 
+from apex_stat_analysis.speech.term import RequiredTerm, Words
+from apex_stat_analysis.speech.term_translator import TermLookerUpper
+from apex_stat_analysis.speech.terms import WEAPON_ARCHETYPE_TERMS
 from apex_stat_analysis.ttk_datum import TTKDatum
 from apex_stat_analysis.weapon import (MagazineCapacity,
                                        ReloadTime,
@@ -18,7 +22,7 @@ from apex_stat_analysis.weapon import (MagazineCapacity,
                                        SpinupType,
                                        WeaponArchetype)
 
-
+logger = logging.getLogger()
 T = TypeVar('T')
 
 class CsvReader(Generic[T]):
@@ -116,10 +120,12 @@ class CsvReader(Generic[T]):
     def __iter__(self) -> typing.Iterator[T]:
         for item in self._dict_reader.__iter__():
             self._cur_dict = item
-            yield self._parse_item()
+            item = self._parse_item()
+            if item is not None:
+                yield item
 
     @abc.abstractmethod
-    def _parse_item(self) -> T:
+    def _parse_item(self) -> T | None:
         raise NotImplementedError()
 
 
@@ -140,7 +146,7 @@ class TTKCsvReader(CsvReader[TTKDatum]):
 
 
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
-    KEY_WEAPON = "Weapon"
+    KEY_WEAPON_ARCHETYPE = "Weapon"
     KEY_WEAPON_CLASS = "Weapon Class"
     KEY_DAMAGE_BODY = "Damage (body)"
     KEY_RPM_BASE = "RPM (base)"
@@ -165,8 +171,33 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_FULL_RELOAD_TIME_LEVEL_2 = 'Full Reload Time (level 2)'
     KEY_FULL_RELOAD_TIME_LEVEL_3 = 'Full Reload Time (level 3)'
 
+    _ARCHETYPE_TERM_LOOKER_UPPER = TermLookerUpper(WEAPON_ARCHETYPE_TERMS)
+
     def __init__(self, fp: typing.IO):
         super().__init__(fp)
+        self._taken_terms: set[RequiredTerm] = set()
+
+    def _parse_weapon_archetype_term(self, key: str) -> RequiredTerm:
+        # Figure out what term matches the weapon name.
+        read_name = self._parse_str(key)
+        name_words = Words(read_name)
+        possible_terms = WeaponCsvReader._ARCHETYPE_TERM_LOOKER_UPPER.look_up_term(name_words)
+        if len(possible_terms) == 0:
+            raise RuntimeError(f'No term found for weapon archetype: {read_name}. Speech-to-text '
+                               'will not work for it.')
+
+        if len(possible_terms) > 1:
+            term = possible_terms[0]
+            logging.warning(f'More than one term for weapon archetype {read_name} found. We\'ll '
+                            f'assume that {term} is the right one.')
+        else:
+            (term,) = possible_terms
+
+        if term in self._taken_terms:
+            raise RuntimeError(f'Term {term} refers to another weapon. Can\'t use it.')
+        self._taken_terms.add(term)
+
+        return term
 
     def _parse_rpm(self) -> SingleRoundsPerMinute:
         rpm_base = self._parse_float(self.KEY_RPM_BASE)
@@ -274,10 +305,15 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         return spinup
 
-    def _parse_item(self) -> WeaponArchetype:
-        # Parse basic stats
-        weapon_name = self._parse_str(self.KEY_WEAPON)
+    def _parse_item(self) -> WeaponArchetype | None:
         active = self._parse_bool(self.KEY_ACTIVE)
+        if not active:
+            name = self._parse_str(self.KEY_WEAPON_ARCHETYPE)
+            logger.info(f'Weapon "{name}" is not active. Skipping.')
+            return None
+
+        # Parse basic stats
+        term = self._parse_weapon_archetype_term(self.KEY_WEAPON_ARCHETYPE)
         weapon_class = self._parse_str(self.KEY_WEAPON_CLASS, default_value='')
         damage_body = self._parse_float(self.KEY_DAMAGE_BODY)
         deploy_time_secs = self._parse_float(self.KEY_DEPLOY_TIME, default_value=0)
@@ -287,8 +323,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         tactical_reload_time, full_reload_time = self._parse_tactical_and_full_reload_time()
         spinup = self._parse_spinup()
 
-        return WeaponArchetype(name=weapon_name,
-                               active=active,
+        return WeaponArchetype(term=term,
                                weapon_class=weapon_class,
                                damage_body=damage_body,
                                deploy_time_secs=deploy_time_secs,

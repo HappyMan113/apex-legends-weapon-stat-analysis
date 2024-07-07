@@ -4,12 +4,16 @@ cd "$PSScriptRoot\.."
 python .\scripts\python_version_check.py
 if ($LASTEXITCODE -ne 0) { exit }
 
-$package_path = "package"
-$venv_path = "$package_path\venv"
+$install_path = $Env:APEX_ASSISTANT_INSTALL_PATH
+if (!($install_path)) {
+    $install_path = "install"
+}
+$venv_path = "$install_path\venv"
+echo $install_path
 
 # Clean.
 try {
-    Remove-Item -Recurse $package_path
+    Remove-Item -Recurse $venv_path
 } catch [System.Management.Automation.ItemNotFoundException] {}
 
 # Create virtual environement.

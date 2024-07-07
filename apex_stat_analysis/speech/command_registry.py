@@ -1,10 +1,10 @@
 import logging
-import typing
 from threading import Lock
+from typing import Generator
 
 from apex_stat_analysis.speech.command import Command
-from apex_stat_analysis.speech.term_translator import ApexTranslator, ParsedAndFollower
-from apex_stat_analysis.speech.terms import Words
+from apex_stat_analysis.speech.term import Words
+from apex_stat_analysis.speech.term_translator import Translator, ParsedAndFollower
 
 logger = logging.getLogger()
 
@@ -14,7 +14,7 @@ class CommandRegistry:
     LOCK = Lock()
 
     def __init__(self):
-        self._translator = ApexTranslator()
+        self._translator = Translator()
 
     def register_command(self, command: Command):
         name = command.get_name()
@@ -30,7 +30,7 @@ class CommandRegistry:
 
         return CommandRegistry.INSTANCE
 
-    def get_commands(self, words: Words) -> typing.Generator[ParsedAndFollower[Command], None, None]:
+    def get_commands(self, words: Words) -> Generator[ParsedAndFollower[Command], None, None]:
         for command_and_args in self._translator.translate_terms(words):
             logger.debug(f'Command: {command_and_args}')
             yield command_and_args
