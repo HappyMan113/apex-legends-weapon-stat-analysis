@@ -1,8 +1,8 @@
 import abc
-from enum import StrEnum
 import math
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Generic, Optional, Tuple, TypeVar
+from typing import Generator, Generic, Optional, Tuple, TypeVar, Union
 
 from apex_stat_analysis.checker import (check_bool,
                                         check_equal_length,
@@ -11,17 +11,19 @@ from apex_stat_analysis.checker import (check_bool,
                                         check_str,
                                         check_type,
                                         to_kwargs)
-from apex_stat_analysis.speech.term_translator import Translator
-from apex_stat_analysis.speech.term import RequiredTerm, Words
-from apex_stat_analysis.speech.terms import ALL_BOLT_TERMS, ALL_MAG_TERMS, ALL_STOCK_TERMS, \
+from apex_stat_analysis.speech.apex_terms import ALL_BOLT_TERMS, ALL_MAG_TERMS, ALL_STOCK_TERMS, \
     SWITCHING_TO_SIDEARM, WITH_RELOAD_TERM
+from apex_stat_analysis.speech.term import RequiredTerm, Words
+from apex_stat_analysis.speech.term_translator import Translator
 
 
 T = TypeVar('T')
 
 
 class StatBase(abc.ABC, Generic[T]):
-    def __init__(self, all_terms: RequiredTerm | tuple[RequiredTerm, ...] | None, *all_values: T):
+    def __init__(self,
+                 all_terms: Optional[Union[RequiredTerm, Tuple[RequiredTerm, ...]]],
+                 *all_values: T):
         if not isinstance(all_terms, tuple):
             all_terms: Tuple[Optional[RequiredTerm], ...] = (all_terms,)
         else:
@@ -31,23 +33,21 @@ class StatBase(abc.ABC, Generic[T]):
                            all_values=all_values,
                            **{'set(all_terms)': set(all_terms)})
 
-        term_to_val_dict: MappingProxyType[RequiredTerm | None, T] = MappingProxyType({
+        term_to_val_dict: MappingProxyType[Optional[RequiredTerm], T] = MappingProxyType({
             term: time for term, time in zip(all_terms, all_values)
         })
         self._default_stats = MappingProxyType({all_terms[-1]: all_values[-1]})
         self._translator = Translator({term: val
                                        for term, val in term_to_val_dict.items()
                                        if term is not None})
-        self._str_to_val_dict: MappingProxyType[str | None, T] = MappingProxyType({
-            (str(term) if term is not None else None): val
-            for term, val in term_to_val_dict.items()})
+        self._term_to_val_dict = term_to_val_dict
 
-    def get_stats(self, words: Words | None = None) -> MappingProxyType[str | None, T]:
+    def get_stats(self, words: Words | None = None) -> MappingProxyType[Optional[RequiredTerm], T]:
         check_type(Words, optional=True, words=words)
         if words is None:
-            return self._str_to_val_dict
+            return self._term_to_val_dict
 
-        terms = {str(parsed.get_term()): parsed.get_parsed()
+        terms = {parsed.get_term(): parsed.get_parsed()
                  for parsed in self._translator.translate_terms(words)}
         if len(terms) == 0:
             return self._default_stats
@@ -340,9 +340,14 @@ class SpinupNone(Spinup):
 
 
 class WeaponBase(abc.ABC):
-    def __init__(self, name: str):
+    def __init__(self, name: str, term: RequiredTerm):
         check_str(allow_blank=False, name=name)
+        check_type(RequiredTerm, term=term)
         self.name = name
+        self.term = term
+
+    def get_term(self):
+        return self.term
 
     @abc.abstractmethod
     def get_archetype(self) -> 'WeaponArchetype':
@@ -388,7 +393,8 @@ class WeaponBase(abc.ABC):
 
 class ReloadingWeapon(WeaponBase):
     def __init__(self, reloading_weapon: 'WeaponBase'):
-        super().__init__(f'{reloading_weapon.get_name()} {WITH_RELOAD_TERM}')
+        super().__init__(f'{reloading_weapon.get_name()} {WITH_RELOAD_TERM}',
+                         reloading_weapon.get_term().combine(WITH_RELOAD_TERM))
         assert reloading_weapon.get_tactical_reload_time_secs() is not None
         self.reloading_weapon = reloading_weapon
         self.reload_time_secs = float(reloading_weapon.get_tactical_reload_time_secs())
@@ -447,7 +453,8 @@ class CombinedWeapon(WeaponBase):
         assert isinstance(sidearm, ConcreteWeapon)
         self.main_weapon = main_weapon
         self.sidearm = sidearm
-        super().__init__(f'{main_weapon.name} {SWITCHING_TO_SIDEARM} {sidearm.name}')
+        super().__init__(f'{main_weapon.name} {SWITCHING_TO_SIDEARM} {sidearm.name}',
+                         main_weapon.get_term().combine(SWITCHING_TO_SIDEARM, sidearm.get_term()))
 
     def get_deploy_time_secs(self) -> float:
         return self.main_weapon.get_deploy_time_secs()
@@ -500,6 +507,7 @@ class ConcreteWeapon(WeaponBase):
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
+                 term: RequiredTerm,
                  weapon_class: str,
                  damage_body: float,
                  deploy_time_secs: float,
@@ -507,7 +515,7 @@ class ConcreteWeapon(WeaponBase):
                  magazine_capacity: int,
                  spinup: Spinup,
                  tactical_reload_time_secs: float | None):
-        super().__init__(name=name)
+        super().__init__(name=name, term=term)
         self.deploy_time_secs = deploy_time_secs
         self.archetype = archetype
         self.weapon_class = weapon_class
@@ -576,6 +584,7 @@ class ConcreteWeapon(WeaponBase):
 
 class WeaponArchetype:
     def __init__(self,
+                 name: str,
                  term: RequiredTerm,
                  weapon_class: str,
                  damage_body: float,
@@ -585,6 +594,8 @@ class WeaponArchetype:
                  tactical_reload_time: SingleReloadTime,
                  full_reload_time: SingleReloadTime,
                  spinup: Spinup):
+        self.name = name
+        self.term = term
         self.weapon_class = weapon_class
         self.damage_body = damage_body
         self.deploy_time_secs = deploy_time_secs
@@ -593,38 +604,47 @@ class WeaponArchetype:
         self.tactical_reload_time = tactical_reload_time
         self.full_reload_time = full_reload_time
         self.spinup = spinup
-        self.term = term
-        self.name = str(term)
         self.base_weapons = tuple(self._get_base_weapons(
             rpms=self.rounds_per_minute.get_stats(),
             mags=self.magazine_capacity.get_stats(),
             tactical_reload_times=self.tactical_reload_time.get_stats()))
 
-    def _get_base_weapons(self,
-                          rpms: MappingProxyType[str | None, float],
-                          mags: MappingProxyType[str | None, int],
-                          tactical_reload_times: MappingProxyType[str | None, float]) -> \
-            Generator[ConcreteWeapon, None, None]:
+    def _get_base_weapons(
+            self,
+            rpms: MappingProxyType[Optional[RequiredTerm], float],
+            mags: MappingProxyType[Optional[RequiredTerm], int],
+            tactical_reload_times: MappingProxyType[Optional[RequiredTerm], float]
+    ) -> Generator[ConcreteWeapon, None, None]:
         name = self.name
+        term = self.term
         weapon_class = self.weapon_class
         damage_body = self.damage_body
         deploy_time_secs = self.deploy_time_secs
         spinup = self.spinup
 
-        for rpm_idx, (rpm_name, rpm) in enumerate(reversed(rpms.items())):
-            rpm_name = f' ({rpm_name})' if rpm_name is not None else ''
+        for rpm_idx, (rpm_term, rpm) in enumerate(reversed(rpms.items())):
+            rpm_name = f' ({rpm_term})' if rpm_term is not None else ''
 
-            for mag_idx, (mag_name, mag) in enumerate(reversed(mags.items())):
-                mag_name = f' ({mag_name})' if mag_name is not None else ''
+            for mag_idx, (mag_term, mag) in enumerate(reversed(mags.items())):
+                mag_name = f' ({mag_term})' if mag_term is not None else ''
 
-                for stock_idx, (stock_name, tactical_reload_time) in enumerate(reversed(
+                for stock_idx, (stock_term, tactical_reload_time) in enumerate(reversed(
                         tactical_reload_times.items())):
-                    stock_name = f' ({stock_name})' if stock_name is not None else ''
+                    stock_name = f' ({stock_term})' if stock_term is not None else ''
 
                     full_name = f'{name}{rpm_name}{mag_name}{stock_name}'
+                    more_terms: Tuple[RequiredTerm, ...] = tuple(
+                        _term
+                        for _term in (rpm_term, mag_term, stock_term)
+                        if _term is not None)
+                    if len(more_terms) > 0:
+                        full_term = term.combine(*more_terms)
+                    else:
+                        full_term = term
                     base_weapon: ConcreteWeapon = ConcreteWeapon(
                         archetype=self,
                         name=full_name,
+                        term=full_term,
                         weapon_class=weapon_class,
                         damage_body=damage_body,
                         deploy_time_secs=deploy_time_secs,
@@ -634,7 +654,7 @@ class WeaponArchetype:
                         tactical_reload_time_secs=tactical_reload_time)
                     yield base_weapon
 
-    def get_term(self) -> RequiredTerm | None:
+    def get_term(self) -> RequiredTerm:
         return self.term
 
     def get_name(self) -> str:

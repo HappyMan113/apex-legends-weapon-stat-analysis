@@ -1,9 +1,9 @@
 import logging
 
+from apex_stat_analysis.speech.apex_terms import BEST, NUMBER_TERMS
 from apex_stat_analysis.speech.command import Command
-from apex_stat_analysis.speech.term_translator import Translator
 from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.terms import BEST, NUMBER_TERMS
+from apex_stat_analysis.speech.term_translator import Translator
 from apex_stat_analysis.weapon_database import ApexDatabase
 
 

@@ -1,26 +1,18 @@
 import abc
 import csv
+import logging
 import typing
 from enum import StrEnum
 from typing import Any, Generic, IO, Type, TypeVar
-import logging
 
+from apex_stat_analysis.speech.apex_terms import WEAPON_ARCHETYPE_TERMS
 from apex_stat_analysis.speech.term import RequiredTerm, Words
 from apex_stat_analysis.speech.term_translator import TermLookerUpper
-from apex_stat_analysis.speech.terms import WEAPON_ARCHETYPE_TERMS
 from apex_stat_analysis.ttk_datum import TTKDatum
-from apex_stat_analysis.weapon import (MagazineCapacity,
-                                       ReloadTime,
-                                       RoundsPerMinute,
-                                       SpinupDevotion,
-                                       SpinupHavoc,
-                                       SingleMagazineCapacity,
-                                       SpinupNone,
-                                       SingleReloadTime,
-                                       SingleRoundsPerMinute,
-                                       Spinup,
-                                       SpinupType,
-                                       WeaponArchetype)
+from apex_stat_analysis.weapon import (MagazineCapacity, ReloadTime, RoundsPerMinute,
+                                       SingleMagazineCapacity, SingleReloadTime,
+                                       SingleRoundsPerMinute, Spinup, SpinupDevotion, SpinupHavoc,
+                                       SpinupNone, SpinupType, WeaponArchetype)
 
 logger = logging.getLogger()
 T = TypeVar('T')
@@ -177,7 +169,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         super().__init__(fp)
         self._taken_terms: set[RequiredTerm] = set()
 
-    def _parse_weapon_archetype_term(self, key: str) -> RequiredTerm:
+    def _parse_weapon_archetype_term(self, key: str) -> tuple[str, RequiredTerm]:
         # Figure out what term matches the weapon name.
         read_name = self._parse_str(key)
         name_words = Words(read_name)
@@ -197,7 +189,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
             raise RuntimeError(f'Term {term} refers to another weapon. Can\'t use it.')
         self._taken_terms.add(term)
 
-        return term
+        return read_name, term
 
     def _parse_rpm(self) -> SingleRoundsPerMinute:
         rpm_base = self._parse_float(self.KEY_RPM_BASE)
@@ -313,7 +305,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
             return None
 
         # Parse basic stats
-        term = self._parse_weapon_archetype_term(self.KEY_WEAPON_ARCHETYPE)
+        name, term = self._parse_weapon_archetype_term(self.KEY_WEAPON_ARCHETYPE)
         weapon_class = self._parse_str(self.KEY_WEAPON_CLASS, default_value='')
         damage_body = self._parse_float(self.KEY_DAMAGE_BODY)
         deploy_time_secs = self._parse_float(self.KEY_DEPLOY_TIME, default_value=0)
@@ -323,7 +315,8 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         tactical_reload_time, full_reload_time = self._parse_tactical_and_full_reload_time()
         spinup = self._parse_spinup()
 
-        return WeaponArchetype(term=term,
+        return WeaponArchetype(name=name,
+                               term=term,
                                weapon_class=weapon_class,
                                damage_body=damage_body,
                                deploy_time_secs=deploy_time_secs,

@@ -8,11 +8,11 @@ from typing import Generator, Iterable
 import numpy as np
 
 from apex_stat_analysis.checker import check_int
+from apex_stat_analysis.speech.apex_terms import SWITCHING_TO_SIDEARM, WITHOUT_RELOAD
 from apex_stat_analysis.speech.term import Words
 from apex_stat_analysis.speech.term_translator import (ParsedAndFollower,
                                                        SingleTermFinder,
                                                        Translator)
-from apex_stat_analysis.speech.terms import SWITCHING_TO_SIDEARM, WITHOUT_RELOAD
 from apex_stat_analysis.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
 from apex_stat_analysis.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
 

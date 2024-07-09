@@ -2,9 +2,9 @@ import logging
 import re
 from enum import Enum
 
+from apex_stat_analysis.speech.apex_terms import COMPARE
 from apex_stat_analysis.speech.command import Command
 from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.terms import COMPARE
 from apex_stat_analysis.weapon import CombinedWeapon, WeaponBase
 from apex_stat_analysis.weapon_database import ApexDatabase
 
@@ -76,11 +76,11 @@ class CompareCommand(Command):
     @staticmethod
     def make_audible(weapon: WeaponBase, uniqueness: Uniqueness):
         if uniqueness is Uniqueness.SAY_MAIN_ARCHETYPE_NAMES:
-            weapon_name = weapon.get_archetype().get_name()
+            weapon_name = str(weapon.get_archetype().get_term())
         elif uniqueness is Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES:
             assert isinstance(weapon, CombinedWeapon)
-            weapon_name = f'sidearm {weapon.get_sidearm().get_archetype().get_name()}'
+            weapon_name = f'sidearm {weapon.get_sidearm().get_archetype().get_term()}'
         else:
-            weapon_name = weapon.get_name()
+            weapon_name = weapon.get_term()
         audible_name = re.sub('[()]', '', weapon_name)
         return audible_name

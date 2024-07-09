@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from apex_stat_analysis.speech.term import RequiredTerm, Term, IntTerm
+from apex_stat_analysis.speech.term import OptTerm, RequiredTerm, Term, IntTerm
 
 
 def _create_level_terms(attachment_base_name: RequiredTerm,
@@ -43,8 +43,8 @@ STOP = Term('stop')
 COMMANDS = (COMPARE, BEST, STOP)
 
 WITH = Term('with')
-OPT_WITH_INCL = WITH.opt(include_by_default=True)
-OPT_WITH_EXCL = WITH.opt(include_by_default=False)
+OPT_WITH_INCL: OptTerm = WITH.opt(include_by_default=True)
+OPT_WITH_EXCL: OptTerm = WITH.opt(include_by_default=False)
 SWITCHING_TO = WITH | Term('and', 'switching to', 'and switching to', 'and then switching to')
 SIDEARM = Term('sidearm', 'sidearm of', 'secondary weapon', 'secondary weapon of')
 SWITCHING_TO_SIDEARM = (SWITCHING_TO + SIDEARM) | SIDEARM
@@ -76,15 +76,16 @@ RELOAD = Term('reloads', 'reload', 'reloading')
 WITHOUT_RELOAD = WITHOUT + RELOAD
 WITH_RELOAD_TERM = OPT_WITH_INCL + RELOAD
 
-BOLT = Term('shotgun').opt() + Term('bolt')
-ALL_BOLT_TERMS = _create_level_terms(BOLT, Term('no-bolt'))
+BOLT = Term('bolt')
+SHOTGUN_BOLT = Term('shotgun').opt() + BOLT
+ALL_BOLT_TERMS = _create_level_terms(SHOTGUN_BOLT, Term('no-bolt'))
 
 SMG = Term('SMG')
 SMG_OPT = SMG.opt()
 
 THIRTY_THIRTY_REPEATER = \
     Term('30-30', '33', 'there are three', '30 seconds ready', 'very very', '3030')
-BOCEK = Term('Bocek', 'bow check')
+BOCEK = Term('Bocek', 'bow check', 'Bochek')
 CAR = Term('C.A.R.', 'car', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
 CARE_PACKAGE = Term('care package')
 ALTERNATOR = Term('Alternator', 'I don\'t need her', 'I\'ll do neither')
@@ -94,10 +95,10 @@ RAMPAGE = Term('Rampage', 'my page', 'webpage')
 DEVOTION = Term('Devotion', 'version', 'the ocean', 'lotion', 'the motion', 'motion', 'ocean')
 SHATTER_CAPS = Term('shatter caps', 'shattercaps', 'set our caps', 'share our caps', 'sorry caps',
                     'still our gaps', 'shower caps', 'shutter caps', 'shadowcaps')
-MINIMAL = Term('minimal', 'no more', 'I\'m in a moment', 'maybe more', 'minimal draw')
+MINIMAL_DRAW = Term('minimal draw', 'minimal', 'no more', 'I\'m in a moment', 'maybe more')
 SLOW = Term('slow', 'so', 'hello')
 QUICK = Term('quick', 'quit', 'pick')
-DRAWN = Term('drawn', 'drawing', 'John', 'drone', 'you\'re on', 'fully drawn', 'full draw')
+DRAWN = Term('full draw', 'drawn', 'drawing', 'John', 'drone', 'you\'re on', 'fully drawn')
 TURBOCHARGER = Term(
     'Turbocharger', 'dipper charger', 'gerber charger', 'to a charger', 'turbo charger',
     'temperature', 'timber charger', 'supercharger', 'derpacharger', 'double charger',
@@ -195,8 +196,8 @@ SPITFIRE = Term('Spitfire', 'step out of the car', 'is that her', 'it\'s a bit b
                 'skip her', 'zip fire', 'stay fire', 'set fire')
 TRIPLE_TAKE = Term('Triple Take', 'triple-tick', 'triple T', 'chipotle', 'sure thing', 'chilti',
                    'Chanté', 'triple-click', 'it\'s real thick')
-VOLT = Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'volts')
-VOLT = ((VOLT + SMG_OPT) | (Term('bolt') + SMG))
+VOLT = ((Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'volts') + SMG_OPT) |
+        (BOLT + SMG))
 WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
@@ -206,10 +207,17 @@ WEAPON_ARCHETYPE_TERMS: Tuple[RequiredTerm, ...] = (
     THIRTY_THIRTY_REPEATER,
     ALTERNATOR,
     ALTERNATOR.combine(OPT_WITH_INCL, DISRUPTOR),
-    BOCEK,
-    BOCEK.combine(DRAWN),
-    BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, MINIMAL),
-    BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, DRAWN),
+    # Want to make sure that "Bocek" resolves to a weapon till they switch back to not having
+    # shatter caps.
+    # BOCEK,
+    # BOCEK.combine(DRAWN),
+    # BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, OPT_WITH_INCL, MINIMAL),
+    # BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, DRAWN),
+    BOCEK.combine(OPT_WITH_EXCL, SHATTER_CAPS.opt(), OPT_WITH_INCL, MINIMAL_DRAW),
+    BOCEK.combine(OPT_WITH_EXCL,
+                  SHATTER_CAPS.opt(),
+                  OPT_WITH_INCL,
+                  DRAWN.opt(include_by_default=True)),
     CAR.combine(SMG_OPT),
     CHARGE_RIFLE,
     DEVOTION,
