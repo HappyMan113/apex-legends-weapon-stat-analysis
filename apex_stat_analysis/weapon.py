@@ -12,7 +12,7 @@ from apex_stat_analysis.checker import (check_bool,
                                         check_type,
                                         to_kwargs)
 from apex_stat_analysis.speech.apex_terms import ALL_BOLT_TERMS, ALL_MAG_TERMS, ALL_STOCK_TERMS, \
-    SWITCHING_TO_SIDEARM, WITH_RELOAD_TERM
+    SWITCHING_TO_SIDEARM, WITH_RELOAD_OPT
 from apex_stat_analysis.speech.term import RequiredTerm, Words
 from apex_stat_analysis.speech.term_translator import Translator
 
@@ -20,7 +20,7 @@ from apex_stat_analysis.speech.term_translator import Translator
 T = TypeVar('T')
 
 
-class StatBase(abc.ABC, Generic[T]):
+class StatsBase(abc.ABC, Generic[T]):
     def __init__(self,
                  all_terms: Optional[Union[RequiredTerm, Tuple[RequiredTerm, ...]]],
                  *all_values: T):
@@ -54,7 +54,7 @@ class StatBase(abc.ABC, Generic[T]):
         return MappingProxyType(terms)
 
 
-class MagazineCapacityBase(StatBase[int]):
+class MagazineCapacityBase(StatsBase[int]):
     pass
 
 
@@ -82,7 +82,7 @@ class MagazineCapacity(MagazineCapacityBase):
                          level_3_capacity)
 
 
-class ReloadTimeBase(StatBase[float | None]):
+class ReloadTimeBase(StatsBase[float | None]):
     pass
 
 
@@ -114,7 +114,7 @@ class ReloadTime(ReloadTimeBase):
                          level_3_reload_time_secs)
 
 
-class BaseRoundsPerMinute(StatBase[float]):
+class BaseRoundsPerMinute(StatsBase[float]):
     pass
 
 
@@ -393,8 +393,8 @@ class WeaponBase(abc.ABC):
 
 class ReloadingWeapon(WeaponBase):
     def __init__(self, reloading_weapon: 'WeaponBase'):
-        super().__init__(f'{reloading_weapon.get_name()} {WITH_RELOAD_TERM}',
-                         reloading_weapon.get_term().combine(WITH_RELOAD_TERM))
+        super().__init__(f'{reloading_weapon.get_name()} {WITH_RELOAD_OPT}',
+                         reloading_weapon.get_term().combine(WITH_RELOAD_OPT))
         assert reloading_weapon.get_tactical_reload_time_secs() is not None
         self.reloading_weapon = reloading_weapon
         self.reload_time_secs = float(reloading_weapon.get_tactical_reload_time_secs())

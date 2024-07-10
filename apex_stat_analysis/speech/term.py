@@ -1,9 +1,10 @@
 import abc
 import string
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Generator, Iterable, Iterator
 
-from apex_stat_analysis.checker import check_bool, check_str, check_tuple, check_type
+from apex_stat_analysis.checker import check_bool, check_int, check_str, check_tuple, check_type
 
 
 class Word:
@@ -70,81 +71,150 @@ class Words:
     def __len__(self):
         return len(self.words)
 
-    def get_first_word(self) -> Word | None:
-        return self.words[0] if len(self.words) > 0 else None
+    def get_first_word(self) -> Word:
+        if len(self.words) == 0:
+            raise RuntimeError('There is no first word!')
+        return self.words[0]
 
     def __iter__(self) -> Iterator[Word]:
         return self.words.__iter__()
 
 
+class _WordsAreForWhat(StrEnum):
+    FOR_SPEECH = 'for_speech'
+    FOR_TEXT = 'for_text'
+
+
 class _TermBase(abc.ABC):
     @abc.abstractmethod
     def get_max_variation_len(self) -> int:
+        """Gets upper bound of the maximum number of words that could translate into this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
     def get_min_variation_len(self) -> int:
+        """Gets lower bound of the minimum number of words that could translate into this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def has_variation(self, said_term: Words) -> bool:
+    def has_variation(self, said_words: Words) -> bool:
+        """Determines if the given words translate directly into this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def get_variation_lens(self, said_term: Words) -> Generator[int, None, None]:
+    def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
+        """Gets each number, n, where, said_words[:n] translates into this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def has_variation_len(self, n) -> bool:
+    def has_variation_len(self, n: int) -> bool:
+        """Determines if a number of words, n, can translate into this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def get_human_readable_words(self) -> Generator[Words, None, None]:
+    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+        """Gets the words in this term that would be good for speaking or printing."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Gets a technically detailed representation of this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     def __str__(self) -> str:
-        return ' '.join(map(str, self.get_human_readable_words()))
+        """Gets a string representation of this term that would be good for speaking or printing."""
+        return ' '.join(map(str, self.get_human_readable_words(_WordsAreForWhat.FOR_TEXT)))
+
+    def to_audible_str(self) -> str:
+        """Gets a string representation of this term that would be good for speaking or printing."""
+        return ' '.join(map(str, self.get_human_readable_words(_WordsAreForWhat.FOR_SPEECH)))
+
+    def __add__(self, next_term: '_TermBase') -> '_TermBase':
+        """Shorthand for self.combine(next_term)."""
+        check_type(_TermBase, other=next_term)
+        return self.combine(next_term)
+
+    @abc.abstractmethod
+    def combine(self, *next_terms: '_TermBase') -> '_TermBase':
+        """
+        For indices n_1, n_2, n_3,...n_m in ascending order, a given Words object, "words",
+        translates into a combined term self.combine(next_term_1, next_term_2,... next_term_m) if
+        words[:n_1] translates into self; words[n_1:n_2] translates into next_term_1; words[n_2:n_3]
+        translates into next_term_2;... and words[n_m:] translates into next_term_m.
+        """
+        raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
+
+    @abc.abstractmethod
+    def _insert_opt(self, term_to_insert: 'OptTerm') -> '_TermBase':
+        """
+        Gets a term that has the given optional term inserted before self, such that a Word, "word"
+        will translate into the resulting term if words translates into the wrapped term
+        contained in self, "wrapped"; or if words translates into (term_to_insert.wrapped +
+        wrapped).
+        """
+        raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
 
 class RequiredTerm(_TermBase):
     @abc.abstractmethod
     def get_possible_first_words(self) -> Generator[Word, None, None]:
+        """Gets the first word in each Words object that translates to this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
+
+    def __add__(self, next_term: '_TermBase') -> 'CombinedTerm':
+        check_type(_TermBase, next_term=next_term)
+        return self.combine(next_term)
 
     def combine(self, *next_terms: _TermBase) -> 'CombinedTerm':
         check_tuple(_TermBase, allow_empty=False, next_terms=next_terms)
         return CombinedTerm(self, *next_terms)
 
-    def opt(self, include_by_default: bool = False):
-        return OptTerm(self, include_by_default=include_by_default)
+    def opt(self, include_in_speech: bool = False):
+        """
+        A word translates into the resulting optional term if the word translates into self or if
+        the word is blank.
+        """
+        check_bool(include_in_speech=include_in_speech)
+        return OptTerm(self, include_in_speech=include_in_speech)
 
     def __or__(self, other: 'RequiredTerm') -> 'OrTerm':
-        assert isinstance(other, RequiredTerm)
-        return self.or_(other)
+        """Shorthand for self.or_any(other)."""
+        check_type(RequiredTerm, other=other)
+        return self.or_any(other)
 
-    def or_(self, *or_operands: 'RequiredTerm') -> 'OrTerm':
-        assert all(isinstance(operand, _TermBase) for operand in or_operands)
+    def or_any(self, *or_operands: 'RequiredTerm') -> 'OrTerm':
+        """
+        A given Words object, "words", translates into self.or_any(*or_operands) if words translates
+        into self, or if words translates into any of the operands in or_operands.
+        """
+        check_tuple(allowed_element_types=RequiredTerm, allow_empty=False, or_operands=or_operands)
         return OrTerm(*((self,) + or_operands))
 
-    def __add__(self, other: '_TermBase') -> 'RequiredTerm':
-        check_type(_TermBase, other=other)
-        return self.combine(other)
+    def _insert_opt(self, term_to_insert: 'OptTerm') -> 'RequiredTerm':
+        without_opt_term = self
+        with_opt_term = CombinedTerm(term_to_insert.get_wrapped_term(), without_opt_term)
+        if term_to_insert.included_by_default():
+            return with_opt_term | without_opt_term
+        return without_opt_term | with_opt_term
 
 
 class Term(RequiredTerm):
     @staticmethod
-    def _map_term(words: str | Iterable[str] | Words) -> Words:
+    def _map_term(words: str | Iterable[Word] | Words) -> Words:
+        """
+        Converts the given string or Iterable of "Word"s into a Words object, ensuring that there is
+        at least one resulting Word in the Words object to ensure that a first word can be extracted
+        from it.
+        """
         if not isinstance(words, Words):
             words = Words(words)
         if len(words) == 0:
             raise ValueError('Each "words" object should contain at least one word.')
         return words
 
-    def __init__(self, known_term: str | list[str] | Words, *variations: str | list[str] | Words):
+    def __init__(self,
+                 known_term: str | Iterable[Word] | Words,
+                 *variations: str | Iterable[Word] | Words):
         known_term = self._map_term(known_term)
         variations: tuple[Words, ...] = tuple(map(self._map_term, variations))
         variations_dict: dict[Word, set[Words]] = {}
@@ -161,12 +231,14 @@ class Term(RequiredTerm):
                                                            default=len(known_term)))
         self._max_variation_len = max(len(known_term), max(map(len, variations),
                                                            default=len(known_term)))
-        self._known_term = known_term
+        self._known_words = known_term
+        self._first_words: set[Word] = {known_term.get_first_word()} | set(self._variations_dict)
 
-    def get_variation_lens(self, said_term: Words) -> Generator[int, None, None]:
-        max_num_words = min(len(said_term), self.get_max_variation_len())
+    def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
+        check_type(Words, said_words=said_words)
+        max_num_words = min(len(said_words), self.get_max_variation_len())
         min_num_words = max(self.get_min_variation_len(), 1)
-        for num_words in filter(lambda nw: self.has_variation(said_term[:nw]),
+        for num_words in filter(lambda nw: self.has_variation(said_words[:nw]),
                                 range(max_num_words, min_num_words - 1, -1)):
             yield num_words
 
@@ -176,113 +248,122 @@ class Term(RequiredTerm):
     def get_min_variation_len(self) -> int:
         return self._min_variation_len
 
-    def has_variation(self, said_term: Words) -> bool:
-        assert isinstance(said_term, Words)
+    def has_variation(self, said_words: Words) -> bool:
+        check_type(Words, said_words=said_words)
+        if len(said_words) == 0:
+            return False
 
-        if said_term == self._known_term:
+        if said_words == self._known_words:
             return True
 
-        first_word = said_term.get_first_word()
+        first_word = said_words.get_first_word()
         variations_n = self._variations_dict.get(first_word, None)
-        return variations_n is not None and said_term in variations_n
+        return variations_n is not None and said_words in variations_n
 
     def has_variation_len(self, n) -> bool:
-        return n == len(self._known_term) or n in self._variations_dict
+        return n == len(self._known_words) or n in self._variations_dict
 
-    def get_human_readable_words(self) -> Generator[Words, None, None]:
-        yield self._known_term
+    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+        yield self._known_words
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         delim = '|'
-        words: list[Words] = [self._known_term]
+        words: list[Words] = [self._known_words]
         for values in self._variations_dict.values():
             words.extend(values)
-        return '(' + delim.join(map(repr, words)) + ')'
+        return '{' + delim.join(map(repr, words)) + '}'
 
-    def __hash__(self):
-        return self._known_term.__hash__()
+    def __hash__(self) -> int:
+        return self._known_words.__hash__()
 
-    def __eq__(self, other):
-        return self._known_term.__eq__(other)
+    def __eq__(self, other) -> bool:
+        return self._known_words.__eq__(other)
 
     def get_possible_first_words(self) -> Generator[Word | None, None, None]:
-        yield self._known_term.get_first_word()
-        for first_word in self._variations_dict:
+        for first_word in self._first_words:
             yield first_word
 
 
 class OptTerm(_TermBase):
-    def __init__(self, opt_word: RequiredTerm, include_by_default: bool):
+    def __init__(self, opt_word: RequiredTerm, include_in_speech: bool):
         check_type(RequiredTerm, opt_word=opt_word)
-        check_bool(include_by_default=include_by_default)
+        check_bool(include_in_speech=include_in_speech)
 
-        self.wrapped = opt_word
-        self.include_by_default = include_by_default
+        self._wrapped = opt_word
+        self._include_in_speech = include_in_speech
 
     def get_max_variation_len(self) -> int:
-        return self.wrapped.get_max_variation_len()
+        return self._wrapped.get_max_variation_len()
 
     def get_min_variation_len(self) -> int:
         return 0
 
-    def get_human_readable_words(self) -> Generator[Words, None, None]:
-        if self.include_by_default:
-            for words in self.wrapped.get_human_readable_words():
+    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+        check_type(_WordsAreForWhat, for_what=for_what)
+        if self._include_in_speech or (for_what is not _WordsAreForWhat.FOR_SPEECH):
+            for words in self._wrapped.get_human_readable_words(for_what):
                 yield words
 
     def __repr__(self):
-        return f'[{repr(self.wrapped)}]'
+        return f'[{repr(self._wrapped)}]'
 
-    def get_variation_lens(self, said_term: Words) -> Generator[int, None, None]:
-        for num_words in self.wrapped.get_variation_lens(said_term):
+    def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
+        check_type(Words, said_words=said_words)
+        for num_words in self._wrapped.get_variation_lens(said_words):
             yield num_words
         yield 0
 
-    def has_variation(self, said_term: Words) -> bool:
-        return self.wrapped.has_variation(said_term)
+    def has_variation(self, said_words: Words) -> bool:
+        check_type(Words, said_words=said_words)
+        return self._wrapped.has_variation(said_words)
 
-    def has_variation_len(self, n) -> bool:
-        return n == 0 or self.wrapped.has_variation_len(n)
+    def has_variation_len(self, n: int) -> bool:
+        check_int(min_value=0, n=n)
+        return n == 0 or self._wrapped.has_variation_len(n)
 
-    def __add__(self, other: 'RequiredTerm | OptTerm') -> '_TermBase':
-        return self.combine(other)
+    def combine(self, *next_terms: _TermBase) -> _TermBase:
+        check_tuple(_TermBase, allow_empty=False, next_terms=next_terms)
+        resulting_term: _TermBase = next_terms[0]._insert_opt(self)
+        if len(next_terms) > 1:
+            resulting_term.combine(*next_terms[1:])
+        return resulting_term
 
-    def combine(self, next_term: 'RequiredTerm | OptTerm') -> 'RequiredTerm | OptTerm':
-        check_type((RequiredTerm, OptTerm), next_term=next_term)
-        if isinstance(next_term, RequiredTerm):
-            with_opt_term = CombinedTerm(self.wrapped, next_term)
-            if self.include_by_default:
-                return with_opt_term | next_term
-            return next_term | with_opt_term
-        elif isinstance(next_term, OptTerm):
-            # We're gonna have to account for all 4 possible permutations.
-            self_wrapped = self.wrapped
-            next_wrapped = next_term.wrapped
-            self_and_next_wrapped = self_wrapped + next_wrapped
-            if self.include_by_default and next_term.include_by_default:
-                req_terms = (self_and_next_wrapped, self_wrapped, next_wrapped)
-                include_by_default = True
-            elif self.include_by_default:
-                req_terms = (self_wrapped, next_wrapped, self_and_next_wrapped)
-                include_by_default = True
-            elif next_term.include_by_default:
-                req_terms = (next_wrapped, self_wrapped, self_and_next_wrapped)
-                include_by_default = True
-            else:
-                req_terms = (next_wrapped, self_wrapped, self_and_next_wrapped)
-                include_by_default = False
-            return OrTerm(*req_terms).opt(include_by_default=include_by_default)
+    def _insert_opt(self, term_to_insert: 'OptTerm') -> 'OptTerm':
+        check_type(OptTerm, term_to_insert=term_to_insert)
+        # We're going to have to account for all 4 possible permutations.
+        term1: RequiredTerm = term_to_insert.get_wrapped_term()
+        term2: RequiredTerm = self.get_wrapped_term()
+        incl_term1 = term_to_insert.included_by_default()
+        incl_term2 = self.included_by_default()
+        both_terms = term1 + term2
+        if incl_term1 and incl_term2:
+            req_terms = (both_terms, term1, term2)
+            include_in_speech = True
+        elif incl_term2:
+            req_terms = (term2, term1, both_terms)
+            include_in_speech = True
         else:
-            raise TypeError('Can only combine optional or required terms.')
+            req_terms = (term1, term2, both_terms)
+            include_in_speech = incl_term1
+        return OrTerm(*req_terms).opt(include_in_speech=include_in_speech)
+
+    def get_wrapped_term(self) -> RequiredTerm:
+        """Gets the required term that is wrapped by this optional term."""
+        return self._wrapped
+
+    def included_by_default(self) -> bool:
+        """
+        Gets whether the wrapped required term is included by default in human-readable/speakable
+        strings.
+        """
+        return self._include_in_speech
 
 
 class CombinedTerm(RequiredTerm):
     def __init__(self, first_sub_term: RequiredTerm, *sub_terms: _TermBase):
         check_type(RequiredTerm, first_sub_term=first_sub_term)
-        check_tuple(_TermBase, sub_terms=sub_terms)
-        if len(sub_terms) < 1:
-            raise ValueError('Must provide at required term and at least one additional term '
-                             f'to combine into the {self.__class__.__name__} initializer.')
+        check_tuple(_TermBase, allow_empty=False, sub_terms=sub_terms)
+
         self.first_sub_term = first_sub_term
         sub_terms: tuple[_TermBase, ...] = (first_sub_term,) + sub_terms
         self.max_variation_len = sum(term.get_max_variation_len() for term in sub_terms)
@@ -295,48 +376,47 @@ class CombinedTerm(RequiredTerm):
     def get_min_variation_len(self) -> int:
         return self.min_variation_len
 
-    def has_variation(self, said_term: Words) -> bool:
-        return any(len(said_term) == num_words
-                   for num_words in self.get_variation_lens(said_term))
+    def has_variation(self, said_words: Words) -> bool:
+        check_type(Words, said_words=said_words)
+        return any(len(said_words) == num_words
+                   for num_words in self.get_variation_lens(said_words))
 
-    def get_variation_lens(self, said_term: Words) -> Generator[int, None, None]:
-        return self.__get_variation_lens(0, self.sub_terms, said_term)
+    def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
+        check_type(Words, said_words=said_words)
+        return self.__get_variation_lens(0, self.sub_terms, said_words)
 
     def __get_variation_lens(self,
                              tot_num_words: int,
                              sub_terms: tuple[_TermBase, ...],
-                             said_term: Words | None,
+                             said_words: Words | None,
                              already_yielded: set[int] = set[int]()) -> Generator[int, None, None]:
-        if len(sub_terms) == 0:
-            raise RuntimeError('Must call this method with at least one term. Makes no sense '
-                               'otherwise.')
-
         cur_term = sub_terms[0]
         if len(sub_terms) == 1:
-            for num_words in cur_term.get_variation_lens(said_term):
+            for num_words in cur_term.get_variation_lens(said_words):
                 result = tot_num_words + num_words
                 if result not in already_yielded:
                     already_yielded.add(result)
                 yield result
             return
 
-        for num_words in cur_term.get_variation_lens(said_term):
-            if num_words > len(said_term):
+        for num_words in cur_term.get_variation_lens(said_words):
+            if num_words > len(said_words):
                 continue
 
             for result in self.__get_variation_lens(tot_num_words=tot_num_words + num_words,
                                                     sub_terms=sub_terms[1:],
-                                                    said_term=said_term[num_words:],
+                                                    said_words=said_words[num_words:],
                                                     already_yielded=already_yielded):
                 yield result
 
-    def has_variation_len(self, n) -> bool:
+    def has_variation_len(self, n: int) -> bool:
+        check_int(min_value=0, n=n)
         # Not totally accurate, but good enough for now.
         return self.max_variation_len >= n >= self.min_variation_len
 
-    def get_human_readable_words(self) -> Generator[Words, None, None]:
+    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
         for sub_term in self.sub_terms:
-            for words in sub_term.get_human_readable_words():
+            for words in sub_term.get_human_readable_words(for_what):
                 yield words
 
     def __repr__(self) -> str:
@@ -349,8 +429,9 @@ class CombinedTerm(RequiredTerm):
 
 class OrTerm(RequiredTerm):
     def __init__(self, *or_operands: RequiredTerm):
-        assert all(isinstance(operand, RequiredTerm) for operand in or_operands)
-        assert len(or_operands) > 1
+        check_tuple(RequiredTerm, allow_empty=False, or_operands=or_operands)
+        if len(or_operands) < 2:
+            raise ValueError('Must specify at least two OR operands.')
         self.or_operands = or_operands
         self.max_variation_len = max(operand.get_max_variation_len()
                                      for operand in self.or_operands)
@@ -363,20 +444,23 @@ class OrTerm(RequiredTerm):
     def get_min_variation_len(self) -> int:
         return self.min_variation_len
 
-    def get_variation_lens(self, said_term: Words) -> Generator[int, None, None]:
+    def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
+        check_type(Words, said_words=said_words)
         accum = set[int]()
         for operand in self.or_operands:
-            for variation_len in operand.get_variation_lens(said_term):
+            for variation_len in operand.get_variation_lens(said_words):
                 if variation_len not in accum:
                     accum.add(variation_len)
                     yield variation_len
 
-    def has_variation_len(self, n) -> bool:
+    def has_variation_len(self, n: int) -> bool:
+        check_int(min_value=0, n=n)
         return any(operand.has_variation_len(n)
                    for operand in self.or_operands)
 
-    def has_variation(self, said_term: Words) -> bool:
-        return any(operand.has_variation(said_term)
+    def has_variation(self, said_words: Words) -> bool:
+        check_type(Words, said_words=said_words)
+        return any(operand.has_variation(said_words)
                    for operand in self.or_operands)
 
     def get_possible_first_words(self) -> Generator[Word, None, None]:
@@ -384,8 +468,8 @@ class OrTerm(RequiredTerm):
             for possible_first_word in operand.get_possible_first_words():
                 yield possible_first_word
 
-    def get_human_readable_words(self) -> Generator[Words, None, None]:
-        for words in self.or_operands[0].get_human_readable_words():
+    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+        for words in self.or_operands[0].get_human_readable_words(for_what):
             yield words
 
     def __repr__(self):
@@ -394,6 +478,7 @@ class OrTerm(RequiredTerm):
 
 class IntTerm(Term):
     def __init__(self, value: int, *variations: str):
+        check_int(min_value=0, value=value)
         super().__init__(str(value), *variations)
         self.value = value
 

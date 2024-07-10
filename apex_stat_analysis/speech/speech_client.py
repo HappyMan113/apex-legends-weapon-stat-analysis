@@ -1,6 +1,6 @@
 import logging
-import os.path
 import os
+import os.path
 import re
 from threading import Lock
 from time import sleep
@@ -64,7 +64,7 @@ def create_text_to_audio_stream():
 
 
 class SpeechClient:
-    def __init__(self):
+    def __init__(self, command_registry: CommandRegistry):
         assert isinstance(os.environ.get('OPENAI_API_KEY'), str)
         self._lock = Lock()
         self._sayings: list[str] = []
@@ -77,7 +77,7 @@ class SpeechClient:
 
         logger.info('STT and TTS initialized.')
 
-        self.command_registry = CommandRegistry.get_instance()
+        self.command_registry = command_registry
         self._closed = False
 
     def start(self):

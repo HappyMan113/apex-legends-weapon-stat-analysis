@@ -2,7 +2,7 @@ import logging
 from typing import Generator, Generic, Mapping, Tuple, TypeVar
 
 from apex_stat_analysis.checker import check_type
-from apex_stat_analysis.speech.term import RequiredTerm, Words, Word
+from apex_stat_analysis.speech.term import RequiredTerm, Word, Words
 
 
 logger = logging.getLogger()
@@ -75,7 +75,7 @@ class Translator(Generic[T]):
         return term in self._terms_by_first_words.get(first_first_word, {})
 
     def translate_terms(self, words: Words) -> Generator[ParsedAndFollower[T], None, None]:
-        assert isinstance(words, Words)
+        check_type(Words, words=words)
         if self._term_word_lim == 0:
             return
 
@@ -100,7 +100,10 @@ class Translator(Generic[T]):
             yield builder.build()
 
     def _translate_term(self, words: Words) -> tuple[RequiredTerm, T, int] | None:
-        assert isinstance(words, Words)
+        check_type(Words, words=words)
+        if len(words) == 0:
+            return None
+
         first_word = words.get_first_word()
         if first_word is None:
             return None

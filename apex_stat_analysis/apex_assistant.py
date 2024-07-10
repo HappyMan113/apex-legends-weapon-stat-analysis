@@ -8,15 +8,37 @@ from apex_stat_analysis.speech.best_command import BestCommand
 from apex_stat_analysis.speech.command_registry import CommandRegistry
 from apex_stat_analysis.speech.compare_command import CompareCommand
 from apex_stat_analysis.speech.speech_client import SpeechClient
-from apex_stat_analysis.weapon_database import ApexDatabase
+from apex_stat_analysis.weapon import WeaponArchetype
+from apex_stat_analysis.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
+from apex_stat_analysis.weapon_database import WeaponArchive, WeaponComparer
 
 
 logger = logging.getLogger()
 
-def register_commands():
-    registry = CommandRegistry.get_instance()
-    registry.register_command(CompareCommand())
-    registry.register_command(BestCommand())
+
+def register_commands() -> CommandRegistry:
+    # Load everything in.
+    self_path = os.path.dirname(__file__)
+
+    apex_stats_filename = os.path.join(self_path, 'weapon_stats.csv')
+    with open(apex_stats_filename, encoding='utf-8-sig') as fp:
+        dr = WeaponCsvReader(fp)
+        weapons: tuple[WeaponArchetype, ...] = tuple(dr)
+    archive = WeaponArchive(weapons)
+
+    # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
+    #  Active firing means counting one round period per round fired. i.e. You can multiply number
+    #  of rounds fired with round period and add reload time if you're in the open when reloading.
+    ttks_filename = os.path.join(self_path, 'historic_ttks.csv')
+    with open(ttks_filename, encoding='utf-8-sig') as fp:
+        dr = TTKCsvReader(fp)
+        ttk_entries = tuple(dr)
+    comparer = WeaponComparer(ttk_entries)
+
+    registry = CommandRegistry(
+        CompareCommand(weapon_archive=archive, weapon_comparer=comparer),
+        BestCommand(weapon_archive=archive, weapon_comparer=comparer))
+    return registry
 
 
 def set_up_logger(level):
@@ -42,13 +64,10 @@ def main():
     ensure_ffmpeg_installed()
     log_level = logging.INFO
     set_up_logger(log_level)
-    register_commands()
-
-    # Load everything in.
-    ApexDatabase.get_instance()
+    registry = register_commands()
 
     try:
-        with SpeechClient() as client:
+        with SpeechClient(registry) as client:
             client.start()
     except KeyboardInterrupt:
         logger.info('Done.')

@@ -1,12 +1,12 @@
 import logging
-import re
 from enum import Enum
 
+from apex_stat_analysis.checker import check_type
 from apex_stat_analysis.speech.apex_terms import COMPARE
 from apex_stat_analysis.speech.command import Command
 from apex_stat_analysis.speech.term import Words
 from apex_stat_analysis.weapon import CombinedWeapon, WeaponBase
-from apex_stat_analysis.weapon_database import ApexDatabase
+from apex_stat_analysis.weapon_database import WeaponArchive, WeaponComparer
 
 
 LOGGER = logging.getLogger()
@@ -19,11 +19,15 @@ class Uniqueness(Enum):
 
 
 class CompareCommand(Command):
-    def __init__(self):
+    def __init__(self, weapon_archive: WeaponArchive, weapon_comparer: WeaponComparer):
+        check_type(WeaponArchive, weapon_archive=weapon_archive)
+        check_type(WeaponComparer, weapon_comparer=weapon_comparer)
         super().__init__(COMPARE)
+        self._archive = weapon_archive
+        self._comparer = weapon_comparer
 
     def _execute(self, arguments: Words) -> str:
-        weapons = tuple(ApexDatabase.get_instance().get_base_weapons(arguments))
+        weapons = tuple(self._archive.get_base_weapons(arguments))
         unique_weapons = tuple(set(weapons))
         if len(unique_weapons) < 2:
             if len(unique_weapons) == 1:
@@ -40,7 +44,7 @@ class CompareCommand(Command):
         delim = '\n  - '
         weapons_str = delim.join(map(str, weapons))
         LOGGER.info(f'Comparing:{delim}{weapons_str}')
-        comparison_result = ApexDatabase.get_instance().compare_weapons(weapons)
+        comparison_result = self._comparer.compare_weapons(weapons)
         best_weapon, score = comparison_result.get_best_weapon()
         LOGGER.info(f'Best: {best_weapon}')
         audible_name = self.make_audible(best_weapon, uniqueness=uniqueness)
@@ -76,11 +80,11 @@ class CompareCommand(Command):
     @staticmethod
     def make_audible(weapon: WeaponBase, uniqueness: Uniqueness):
         if uniqueness is Uniqueness.SAY_MAIN_ARCHETYPE_NAMES:
-            weapon_name = str(weapon.get_archetype().get_term())
+            weapon_name: str = weapon.get_archetype().get_term().to_audible_str()
         elif uniqueness is Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES:
             assert isinstance(weapon, CombinedWeapon)
-            weapon_name = f'sidearm {weapon.get_sidearm().get_archetype().get_term()}'
+            sidearm_name: str = weapon.get_sidearm().get_archetype().get_term().to_audible_str()
+            weapon_name: str = f'sidearm {sidearm_name}'
         else:
-            weapon_name = weapon.get_term()
-        audible_name = re.sub('[()]', '', weapon_name)
-        return audible_name
+            weapon_name: str = weapon.get_term().to_audible_str()
+        return weapon_name

@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from apex_stat_analysis.speech.term import OptTerm, RequiredTerm, Term, IntTerm
+from apex_stat_analysis.speech.term import IntTerm, OptTerm, RequiredTerm, Term
 
 
 def _create_level_terms(attachment_base_name: RequiredTerm,
@@ -36,15 +36,15 @@ NUMBER_TERMS = (ONE,
                 IntTerm(8, 'eight'),
                 IntTerm(9, 'nine'),
                 IntTerm(10, 'ten'))
-COMPARE = Term('compare', 'which is better', 'which weapon is better',
-               'which one is better', 'what\'s better', 'air')
+COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
+               'what\'s better', 'air')
 BEST = Term('best') + Term('weapons').opt()
 STOP = Term('stop')
 COMMANDS = (COMPARE, BEST, STOP)
 
 WITH = Term('with')
-OPT_WITH_INCL: OptTerm = WITH.opt(include_by_default=True)
-OPT_WITH_EXCL: OptTerm = WITH.opt(include_by_default=False)
+OPT_WITH_INCL: OptTerm = WITH.opt(include_in_speech=True)
+OPT_WITH_EXCL: OptTerm = WITH.opt(include_in_speech=False)
 SWITCHING_TO = WITH | Term('and', 'switching to', 'and switching to', 'and then switching to')
 SIDEARM = Term('sidearm', 'sidearm of', 'secondary weapon', 'secondary weapon of')
 SWITCHING_TO_SIDEARM = (SWITCHING_TO + SIDEARM) | SIDEARM
@@ -56,25 +56,26 @@ WHITE = Term('white')
 BLUE = Term('blue')
 PURPLE = Term('purple')
 GOLDEN = Term('golden')
-LEVEL_1_TERM = (LEVEL + ONE) | WHITE
-LEVEL_2_TERM = (LEVEL + TWO) | BLUE
-LEVEL_3_TERM = (LEVEL + THREE) | PURPLE
-LEVEL_4_TERM = (LEVEL + FOUR) | GOLDEN
-LEVEL_3_OR_4_TERM = LEVEL_3_TERM | LEVEL_4_TERM | LEVEL.combine(THREE, OR, FOUR)
-LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1_TERM, LEVEL_2_TERM, LEVEL_3_OR_4_TERM)
+LEVEL_1 = (LEVEL + ONE) | WHITE
+LEVEL_2 = (LEVEL + TWO) | BLUE
+LEVEL_3 = (LEVEL + THREE) | PURPLE
+LEVEL_4 = (LEVEL + FOUR) | GOLDEN
+LEVEL_3_OR_4 = LEVEL_3 | LEVEL_4 | LEVEL.combine(THREE, OR, FOUR)
+LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1, LEVEL_2, LEVEL_3_OR_4)
 WITHOUT = Term('no', 'without', 'with no', 'without a', 'without any', 'without an')
+BASE = Term('base')
 
 MAG = (Term('extended').opt() +
        Term('sniper', 'light', 'energy', 'heavy').opt() +
        Term('mag', 'magazine'))
-ALL_MAG_TERMS = _create_level_terms(MAG, Term('nomag'))
+ALL_MAG_TERMS = _create_level_terms(MAG, Term('nomag', 'Nomad'))
 
 STOCK = Term('stock', 'standard stock', 'sniper stock')
 ALL_STOCK_TERMS = _create_level_terms(STOCK)
 
 RELOAD = Term('reloads', 'reload', 'reloading')
 WITHOUT_RELOAD = WITHOUT + RELOAD
-WITH_RELOAD_TERM = OPT_WITH_INCL + RELOAD
+WITH_RELOAD_OPT: RequiredTerm = ((WITH + RELOAD) | RELOAD).opt()
 
 BOLT = Term('bolt')
 SHOTGUN_BOLT = Term('shotgun').opt() + BOLT
@@ -97,7 +98,7 @@ SHATTER_CAPS = Term('shatter caps', 'shattercaps', 'set our caps', 'share our ca
                     'still our gaps', 'shower caps', 'shutter caps', 'shadowcaps')
 MINIMAL_DRAW = Term('minimal draw', 'minimal', 'no more', 'I\'m in a moment', 'maybe more')
 SLOW = Term('slow', 'so', 'hello')
-QUICK = Term('quick', 'quit', 'pick')
+QUICK_OPT = Term('quick', 'quit', 'pick').opt(include_in_speech=True)
 DRAWN = Term('full draw', 'drawn', 'drawing', 'John', 'drone', 'you\'re on', 'fully drawn')
 TURBOCHARGER = Term(
     'Turbocharger', 'dipper charger', 'gerber charger', 'to a charger', 'turbo charger',
@@ -105,8 +106,8 @@ TURBOCHARGER = Term(
     'There we are Roger', 'terroir charger', 'to butch rogers', 'gibber-chatter')
 EVA_8 = Term(
     'EVA-8', 'either eat', 'e-rate', 'eve at 8', 'eva 8', 'ebay', 'you\'re right', 'you bait',
-    'ev8', 'eva', 'you ate', 'evade', 'eva8', 'E-V-A-T-E', 'ebate', 'you wait', 'ewait',
-    'evate', 'eat the eat', 'you may', 'if a', 'every', 'elley')
+    'ev8', 'eva', 'you ate', 'evade', 'eva8', 'E-V-A-T-E', 'ebate', 'you wait', 'ewait', 'evate',
+    'eat the eat', 'you may', 'if a', 'every', 'elley')
 FLATLINE = Term(
     'Flatline', 'fly line', 'da-von', 'well then', 'batman', 'that one', 'it\'s fine',
     'that line', 'it\'s not mine', 'flatlined'
@@ -122,19 +123,15 @@ HAVOC = Term(
     'HAVOC', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC'
     # Also sounds like "Hammerpoint": 'have a good one',
 )
-HEMLOCK = Term(
-    'Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',
-    'M.L.A.', 'M-LOT', 'mwah', 'ma')
+HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',
+               'M.L.A.', 'M-LOT', 'mwah', 'ma')
 KRABER = Term(
-    'Kraber', 'credit', 'KBIR', 'paper', 'kripper', 'grayer', 'Creepers', 'Taylor',
-    'Creeper',
+    'Kraber', 'credit', 'KBIR', 'paper', 'kripper', 'grayer', 'Creepers', 'Taylor', 'Creeper',
     'covered', 'Khyber', 'Kramer', 'Krabber',
     # Sounds like 30-30: 'thank you'
 )
-LONGBOW = Term(
-    'Longbow', 'Wombo', 'I\'m well', 'Buh-bye', 'Bumbo', 'Number', 'Lambo', 'Lombo')
-L_STAR = Term(
-    'L-STAR', 'It is done', 'I\'ll star', 'L star', 'that\'ll start', 'I\'ll start')
+LONGBOW = Term('Longbow', 'Wombo', 'I\'m well', 'Buh-bye', 'Bumbo', 'Number', 'Lambo', 'Lombo')
+L_STAR = Term('L-STAR', 'It is done', 'I\'ll star', 'L star', 'that\'ll start', 'I\'ll start')
 MASTIFF = Term('Mastiff', 'Matthew', 'massive', 'bastard', 'next'
                # Also sounds like "Nemesis": 'that\'s it',
                )
@@ -143,12 +140,11 @@ MOZAMBIQUE = Term(
     'how\'s the beat', 'what does it beat', 'what does it be', 'well that\'s gonna be it',
     'that was in B', 'buzz-a-bee', 'that\'s a beat', 'was me', 'musts\'t be', 'let\'s meet',
     'wasn\'t me', 'was me', 'that\'s me', 'it wasn\'t me', 'must be', 'well it\'ll be',
-    'that was a beat', 'listen to the beat', 'how\'s it be', 'BuzzMe', 'Flows in B',
-    'more than me', 'was it me', 'it wasn\'t me', 'wasn\'t beat', 'Buzzard B', 'Wasn\'t big',
-    'BuzzBee', 'what does that mean', 'that was a bit', 'must be', 'with me', 'let\'s beat',
-    'bows and beats', 'Nozambique', 'oh it\'s a beak', 'that was a meek', 'was it weak',
-    'mosebeek', 'lithium beak', 'that was an Amiga', 'it was a Mieko', 'Lozenbeak', 'Rosenbeek',
-    'It doesn\'t make')
+    'that was a beat', 'listen to the beat', 'how\'s it be', 'BuzzMe', 'Flows in B', 'more than me',
+    'was it me', 'it wasn\'t me', 'wasn\'t beat', 'Buzzard B', 'Wasn\'t big', 'BuzzBee',
+    'what does that mean', 'that was a bit', 'must be', 'with me', 'let\'s beat', 'bows and beats',
+    'Nozambique', 'oh it\'s a beak', 'that was a meek', 'was it weak', 'mosebeek', 'lithium beak',
+    'that was an Amiga', 'it was a Mieko', 'Lozenbeak', 'Rosenbeek', 'It doesn\'t make')
 HAMMERPOINT = Term(
     'Hammerpoint', 'hemmorhoid', 'end report', 'Ember Hoyt', 'never mind', 'nevermind',
     'error point', 'airpoint', 'camera point', 'here I\'ll play it', 'him right point',
@@ -156,14 +152,13 @@ HAMMERPOINT = Term(
     'And we\'re playing', 'her point')
 NEMESIS = Term(
     'Nemesis', 'and this is', 'now what\'s this', 'Namaste', 'messes', 'nervousness', 'yes',
-    'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses',
-    'and that\'s just')
+    'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses', 'and that\'s just')
 P2020 = Term('P2020', 'be 2020', 'B-2020', 'P-220')
 PEACEKEEPER = Term('Peacekeeper', 'today', '2k', 'BK', 'P.K.')
 DISRUPTOR = Term('Disruptor', 'it\'s Raptor', 'the softer', 'stopping', 'disrupted')
 PROWLER = Term(
-    'Prowler', 'power', 'browler', 'howdy', 'probably', 'brawler', 'powler', 'howler',
-    'fowler', 'brother', 'totaler', 'teller', 'proudly')
+    'Prowler', 'power', 'browler', 'howdy', 'probably', 'brawler', 'powler', 'howler', 'fowler',
+    'brother', 'totaler', 'teller', 'proudly')
 R = Term('I\'ll', 'bye', 'or', 'I', 'oh I', 'wash', 'or I\'ll', 'that\'s')
 R3 = Term('R3', 'R2-D2')
 THREE_O_ALT = Term('ruined', 'a second', 'is there', 'see you all', 'forgot')
@@ -178,14 +173,14 @@ CARBINE_ = Term('to').opt() + Term(
     'Carbine', 'covering', 'caught mine', 'carbon', 'cop mine', 'car by then', 'comment', 'coming',
     'copying', 'cut me in', 'carpet', 'Karmine', 'carbene', 'come in', 'car bye', 'copy', 'copy me',
     'combine')
-R301_CARBINE = (((R301 + CARBINE_.opt(include_by_default=True)) |
+R301_CARBINE = (((R301 + CARBINE_.opt(include_in_speech=True)) |
                  Term('R31Carbine', 'R31cabine', 'I have to uncover him')))
 
 R99 = Term(
-    'R-99', 'R99', '$5.99', 'or nine nine', 'or nine-to-nine', 'or ninety-nine',
-    'I don\'t know', 'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99',
-    'all right any line', 'I don\'t need nine', 'irony 9', 'I already know',
-    'I already need a 9', '$1.99', 'R-89', 'iron 9', 'oh I don\'t even know')
+    'R-99', 'R99', '$5.99', 'or nine nine', 'or nine-to-nine', 'or ninety-nine', 'I don\'t know',
+    'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99', 'all right any line',
+    'I don\'t need nine', 'irony 9', 'I already know', 'I already need a 9', '$1.99', 'R-89',
+    'iron 9', 'oh I don\'t even know')
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')
 RE_45 = Term('RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45', 'R8-45')
@@ -204,11 +199,11 @@ BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
 
 WEAPON_ARCHETYPE_TERMS: Tuple[RequiredTerm, ...] = (
     THIRTY_THIRTY_REPEATER.combine(SLOW),
-    THIRTY_THIRTY_REPEATER,
+    THIRTY_THIRTY_REPEATER.combine(QUICK_OPT),
     ALTERNATOR,
     ALTERNATOR.combine(OPT_WITH_INCL, DISRUPTOR),
-    # Want to make sure that "Bocek" resolves to a weapon till they switch back to not having
-    # shatter caps.
+    # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
+    # back to not having shatter caps.
     # BOCEK,
     # BOCEK.combine(DRAWN),
     # BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, OPT_WITH_INCL, MINIMAL),
@@ -217,14 +212,16 @@ WEAPON_ARCHETYPE_TERMS: Tuple[RequiredTerm, ...] = (
     BOCEK.combine(OPT_WITH_EXCL,
                   SHATTER_CAPS.opt(),
                   OPT_WITH_INCL,
-                  DRAWN.opt(include_by_default=True)),
+                  DRAWN.opt(include_in_speech=True)),
     CAR.combine(SMG_OPT),
     CHARGE_RIFLE,
-    DEVOTION,
-    DEVOTION.combine(CARE_PACKAGE),
-    DEVOTION.combine(OPT_WITH_INCL, TURBOCHARGER),
-    EVA_8,
-    EVA_8.combine(CARE_PACKAGE),
+    # DEVOTION,
+    # DEVOTION.combine(CARE_PACKAGE),
+    # DEVOTION.combine(OPT_WITH_INCL, TURBOCHARGER),
+    DEVOTION.combine(CARE_PACKAGE.opt()),
+    # EVA_8,
+    # EVA_8.combine(CARE_PACKAGE),
+    EVA_8.combine(CARE_PACKAGE.opt()),
     FLATLINE,
     G7_SCOUT,
     HAVOC,
