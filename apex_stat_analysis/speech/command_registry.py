@@ -4,7 +4,7 @@ from typing import Generator
 from apex_stat_analysis.checker import check_tuple
 from apex_stat_analysis.speech.command import Command
 from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.term_translator import ParsedAndFollower, Translator
+from apex_stat_analysis.speech.term_translator import TranslatedTerm, Translator
 
 logger = logging.getLogger()
 
@@ -18,7 +18,7 @@ class CommandRegistry:
 
         self._translator = Translator({command.get_term(): command for command in commands})
 
-    def get_commands(self, words: Words) -> Generator[ParsedAndFollower[Command], None, None]:
+    def get_commands(self, words: Words) -> Generator[TranslatedTerm[Command], None, None]:
         for command_and_args in self._translator.translate_terms(words):
             logger.debug(f'Command: {command_and_args}')
             yield command_and_args

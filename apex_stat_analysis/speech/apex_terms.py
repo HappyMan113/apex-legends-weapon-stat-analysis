@@ -62,13 +62,14 @@ LEVEL_3 = (LEVEL + THREE) | PURPLE
 LEVEL_4 = (LEVEL + FOUR) | GOLDEN
 LEVEL_3_OR_4 = LEVEL_3 | LEVEL_4 | LEVEL.combine(THREE, OR, FOUR)
 LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1, LEVEL_2, LEVEL_3_OR_4)
-WITHOUT = Term('no', 'without', 'with no', 'without a', 'without any', 'without an')
 BASE = Term('base')
+WITHOUT = (Term('no', 'without', 'with no', 'without a', 'without any', 'without an') | BASE |
+           (WITH + BASE))
 
 MAG = (Term('extended').opt() +
        Term('sniper', 'light', 'energy', 'heavy').opt() +
        Term('mag', 'magazine'))
-ALL_MAG_TERMS = _create_level_terms(MAG, Term('nomag', 'Nomad'))
+ALL_MAG_TERMS = _create_level_terms(MAG, Term('nomag', 'nomad'))
 
 STOCK = Term('stock', 'standard stock', 'sniper stock')
 ALL_STOCK_TERMS = _create_level_terms(STOCK)

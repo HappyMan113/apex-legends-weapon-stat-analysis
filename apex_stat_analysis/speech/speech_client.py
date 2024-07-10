@@ -97,7 +97,7 @@ class SpeechClient:
     def process_text(self, words: Words):
         logger.info(f'Heard: {words}')
         for parsed in self.command_registry.get_commands(words):
-            command = parsed.get_parsed()
+            command = parsed.get_value()
             args = parsed.get_following_words()
             self._process_command(command, args)
 

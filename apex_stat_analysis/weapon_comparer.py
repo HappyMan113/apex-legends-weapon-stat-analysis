@@ -1,26 +1,20 @@
 import itertools
 import logging
 from types import MappingProxyType
-from typing import Generator, Iterable
+from typing import Iterable, Tuple
 
 import numpy as np
 
 from apex_stat_analysis.checker import check_int, check_tuple
-from apex_stat_analysis.speech.apex_terms import SWITCHING_TO_SIDEARM, WITHOUT_RELOAD
-from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.term_translator import (ParsedAndFollower,
-                                                       SingleTermFinder,
-                                                       Translator)
 from apex_stat_analysis.ttk_datum import TTKDatum
 from apex_stat_analysis.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
-
 
 logger = logging.getLogger()
 
 
 class _ComparisonResult:
     def __init__(self,
-                 sorted_archetypes: MappingProxyType[WeaponArchetype, tuple[float, WeaponBase]],
+                 sorted_archetypes: MappingProxyType[WeaponArchetype, Tuple[float, WeaponBase]],
                  sorted_weapons: MappingProxyType[WeaponBase, float]):
         self.sorted_archetypes = sorted_archetypes
         self.sorted_weapons = sorted_weapons
@@ -76,59 +70,6 @@ class _ComparisonResult:
 
         return _ComparisonResult(sorted_archetypes=archetypes,
                                  sorted_weapons=base_weapons)
-
-
-class WeaponArchive:
-    _WITH_SIDEARM_FINDER = SingleTermFinder(SWITCHING_TO_SIDEARM)
-    _NO_RELOAD_FINDER = SingleTermFinder(WITHOUT_RELOAD)
-
-    def __init__(self, weapon_archetypes: tuple[WeaponArchetype, ...]):
-        check_tuple(WeaponArchetype, weapon_archetypes=weapon_archetypes)
-        self._weapon_archetypes = weapon_archetypes
-
-        base_weapons: list[ConcreteWeapon] = []
-        for weapon_archetype in self._weapon_archetypes:
-            try:
-                base_weapons.extend(weapon_archetype.get_base_weapons())
-            except Exception as ex:
-                raise type(ex)(f'trouble with getting base weapons for {weapon_archetype}') from ex
-        self._base_weapons: tuple[ConcreteWeapon, ...] = tuple(base_weapons)
-        self._archetype_translator = Translator({weapon_archetype.get_term(): weapon_archetype
-                                                 for weapon_archetype in weapon_archetypes
-                                                 if weapon_archetype.get_term() is not None})
-
-    def get_all_weapon_archetypes(self) -> tuple[WeaponArchetype]:
-        return self._weapon_archetypes
-
-    def get_weapon_archetypes(self, words: Words) -> \
-            Generator[ParsedAndFollower[WeaponArchetype], None, None]:
-        for archetype in self._archetype_translator.translate_terms(words):
-            yield archetype
-
-    def get_all_base_weapons(self) -> tuple[ConcreteWeapon, ...]:
-        return self._base_weapons
-
-    def get_base_weapons(self, words: Words) -> Generator[ConcreteWeapon, None, None]:
-        assert isinstance(words, Words)
-        one_looking_for_sidearm: ConcreteWeapon | None = None
-        with_reloads = not self._NO_RELOAD_FINDER.find_term(words)
-
-        for parsed_archetype in self.get_weapon_archetypes(words):
-            archetype = parsed_archetype.get_parsed()
-            archetype_args = parsed_archetype.get_following_words()
-
-            best_match = archetype.get_best_match(archetype_args)
-            if one_looking_for_sidearm is not None:
-                best_match = one_looking_for_sidearm.combine_with_sidearm(best_match)
-            elif self._WITH_SIDEARM_FINDER.find_term(archetype_args):
-                one_looking_for_sidearm = best_match
-                continue
-
-            one_looking_for_sidearm = None
-            if with_reloads:
-                best_match = best_match.reload()
-
-            yield best_match
 
 
 class WeaponComparer:

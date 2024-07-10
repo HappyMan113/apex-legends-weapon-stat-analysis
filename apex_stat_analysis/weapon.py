@@ -2,7 +2,7 @@ import abc
 import math
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Generic, Optional, Tuple, TypeVar, Union
+from typing import Generator, Generic, Optional, Set, Tuple, TypeVar, Union
 
 from apex_stat_analysis.checker import (check_bool,
                                         check_equal_length,
@@ -12,7 +12,7 @@ from apex_stat_analysis.checker import (check_bool,
                                         check_type,
                                         to_kwargs)
 from apex_stat_analysis.speech.apex_terms import ALL_BOLT_TERMS, ALL_MAG_TERMS, ALL_STOCK_TERMS, \
-    SWITCHING_TO_SIDEARM, WITH_RELOAD_OPT
+    BASE, LEVEL_TERMS, SWITCHING_TO_SIDEARM, WITH_RELOAD_OPT
 from apex_stat_analysis.speech.term import RequiredTerm, Words
 from apex_stat_analysis.speech.term_translator import Translator
 
@@ -21,6 +21,9 @@ T = TypeVar('T')
 
 
 class StatsBase(abc.ABC, Generic[T]):
+    _LEVEL_TERMS: tuple[RequiredTerm, ...] = ((BASE,) + LEVEL_TERMS)
+    _LEVEL_TRANSLATOR = Translator[int]({term: level for level, term in enumerate(_LEVEL_TERMS)})
+
     def __init__(self,
                  all_terms: Optional[Union[RequiredTerm, Tuple[RequiredTerm, ...]]],
                  *all_values: T):
@@ -32,26 +35,46 @@ class StatsBase(abc.ABC, Generic[T]):
         check_equal_length(all_terms=all_terms,
                            all_values=all_values,
                            **{'set(all_terms)': set(all_terms)})
-
+        if len(all_terms) > len(self._LEVEL_TERMS):
+            raise ValueError('Cannot have more terms than levels.')
         term_to_val_dict: MappingProxyType[Optional[RequiredTerm], T] = MappingProxyType({
             term: time for term, time in zip(all_terms, all_values)
         })
-        self._default_stats = MappingProxyType({all_terms[-1]: all_values[-1]})
+        self._all_terms = all_terms
+        self._all_values = all_values
         self._translator = Translator({term: val
                                        for term, val in term_to_val_dict.items()
                                        if term is not None})
         self._term_to_val_dict = term_to_val_dict
 
-    def get_stats(self, words: Words | None = None) -> MappingProxyType[Optional[RequiredTerm], T]:
-        check_type(Words, optional=True, words=words)
-        if words is None:
-            return self._term_to_val_dict
+    def get_all_stats(self) -> MappingProxyType[Optional[RequiredTerm], T]:
+        return self._term_to_val_dict
 
-        terms = {parsed.get_term(): parsed.get_parsed()
-                 for parsed in self._translator.translate_terms(words)}
-        if len(terms) == 0:
-            return self._default_stats
-        return MappingProxyType(terms)
+    def translate_stats(self, words: Words) -> \
+            Tuple[MappingProxyType[Optional[RequiredTerm], T], Words]:
+        check_type(Words, words=words)
+        translated_terms = tuple(self._translator.translate_terms(words))
+        terms = {parsed.get_term(): parsed.get_value() for parsed in translated_terms}
+        untranslated_words = Translator.get_untranslated_words(
+            original_words=words,
+            translated_terms=translated_terms)
+        return MappingProxyType(terms), untranslated_words
+
+    @staticmethod
+    def translate_levels(words: Words) -> Set[int]:
+        return set(term.get_value() for term in StatsBase._LEVEL_TRANSLATOR.translate_terms(words))
+
+    def get_stats_for_levels(self, levels: set[int]) -> MappingProxyType[Optional[RequiredTerm], T]:
+        check_int(min_value=0, **to_kwargs(levels=tuple(levels)))
+        max_level = len(self._all_terms) - 1
+        if len(levels) == 0:
+            # Get the highest level by default.
+            levels = {max_level}
+        else:
+            levels: set[int] = set(min(level, max_level) for level in levels)
+
+        return MappingProxyType({self._all_terms[level]: self._all_values[level]
+                                 for level in levels})
 
 
 class MagazineCapacityBase(StatsBase[int]):
@@ -605,9 +628,9 @@ class WeaponArchetype:
         self.full_reload_time = full_reload_time
         self.spinup = spinup
         self.base_weapons = tuple(self._get_base_weapons(
-            rpms=self.rounds_per_minute.get_stats(),
-            mags=self.magazine_capacity.get_stats(),
-            tactical_reload_times=self.tactical_reload_time.get_stats()))
+            rpms=self.rounds_per_minute.get_all_stats(),
+            mags=self.magazine_capacity.get_all_stats(),
+            tactical_reload_times=self.tactical_reload_time.get_all_stats()))
 
     def _get_base_weapons(
             self,
@@ -679,8 +702,22 @@ class WeaponArchetype:
                 yield weapon
             return None
 
+        rpms, words = self.rounds_per_minute.translate_stats(words)
+        mags, words = self.magazine_capacity.translate_stats(words)
+        tactical_reload_times, words = self.tactical_reload_time.translate_stats(words)
+
+        # TODO: Consider allowing the word "base" or "level N" before weapon archetype instead of
+        #  requiring it to be after.
+        default_levels = StatsBase.translate_levels(words)
+        if len(rpms) == 0:
+            rpms = self.rounds_per_minute.get_stats_for_levels(default_levels)
+        if len(mags) == 0:
+            mags = self.magazine_capacity.get_stats_for_levels(default_levels)
+        if len(tactical_reload_times) == 0:
+            tactical_reload_times = self.tactical_reload_time.get_stats_for_levels(default_levels)
+
         for weapon in self._get_base_weapons(
-                rpms=self.rounds_per_minute.get_stats(words),
-                mags=self.magazine_capacity.get_stats(words),
-                tactical_reload_times=self.tactical_reload_time.get_stats(words)):
+                rpms=rpms,
+                mags=mags,
+                tactical_reload_times=tactical_reload_times):
             yield weapon

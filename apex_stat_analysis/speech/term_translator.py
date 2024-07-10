@@ -1,5 +1,5 @@
 import logging
-from typing import Generator, Generic, Mapping, Tuple, TypeVar
+from typing import Collection, Generator, Generic, Mapping, Tuple, TypeVar
 
 from apex_stat_analysis.checker import check_type
 from apex_stat_analysis.speech.term import RequiredTerm, Word, Words
@@ -8,39 +8,52 @@ from apex_stat_analysis.speech.term import RequiredTerm, Word, Words
 logger = logging.getLogger()
 T = TypeVar('T')
 
-class ParsedAndFollower(Generic[T]):
-    def __init__(self, term: RequiredTerm, value: T, following_words: Words):
+class TranslatedTerm(Generic[T]):
+    def __init__(self,
+                 term: RequiredTerm,
+                 value: T,
+                 preamble_words: Words,
+                 following_words: Words):
         check_type(RequiredTerm, term=term)
-        check_type(Words, following_words=following_words)
+        check_type(Words,
+                   following_words=following_words,
+                   preamble_words=preamble_words)
         self.term = term
         self.value = value
+        self.preamble_words = preamble_words
         self.following_words = following_words
 
     def get_term(self) -> RequiredTerm:
         return self.term
 
-    def get_parsed(self) -> T:
+    def get_value(self) -> T:
         return self.value
 
     def get_following_words(self) -> Words:
         return self.following_words
 
+    def get_untranslated_words(self) -> Words:
+        return self.preamble_words + self.following_words
 
-class ParsedAndFollowerBuilder(Generic[T]):
-    def __init__(self, term: RequiredTerm, value: T):
+
+class TranslatedTermBuilder(Generic[T]):
+    def __init__(self, term: RequiredTerm, value: T, preamble_words: Words):
         check_type(RequiredTerm, term=term)
+        check_type(Words, preamble_words=preamble_words)
         self.term = term
         self.value = value
+        self.preamble_words: Words = preamble_words
         self.follower_words: list[Word] = []
 
     def add_word(self, word: Word):
         check_type(Word, word=word)
         self.follower_words.append(word)
 
-    def build(self) -> ParsedAndFollower[T]:
-        return ParsedAndFollower(term=self.term,
-                                 value=self.value,
-                                 following_words=Words(self.follower_words))
+    def build(self) -> TranslatedTerm[T]:
+        return TranslatedTerm(term=self.term,
+                              value=self.value,
+                              preamble_words=self.preamble_words,
+                              following_words=Words(self.follower_words))
 
 
 class Translator(Generic[T]):
@@ -74,20 +87,25 @@ class Translator(Generic[T]):
         first_first_word = next(term.get_possible_first_words())
         return term in self._terms_by_first_words.get(first_first_word, {})
 
-    def translate_terms(self, words: Words) -> Generator[ParsedAndFollower[T], None, None]:
+    def translate_terms(self, words: Words) -> Generator[TranslatedTerm[T], None, None]:
         check_type(Words, words=words)
         if self._term_word_lim == 0:
             return
 
         idx = 0
-        builder: ParsedAndFollowerBuilder[T] | None = None
+        builder: TranslatedTermBuilder[T] | None = None
         while idx < len(words):
             res = self._translate_term(words[idx:idx + self._term_word_lim])
             if res is not None:
                 if builder is not None:
                     yield builder.build()
+                    preceding_words: Words = Words([])
+                else:
+                    preceding_words: Words = words[:idx]
                 term, val, words_inc = res
-                builder = ParsedAndFollowerBuilder(term=term, value=val)
+                builder = TranslatedTermBuilder(term=term,
+                                                value=val,
+                                                preamble_words=preceding_words)
             else:
                 if builder is not None:
                     word = words[idx]
@@ -99,7 +117,21 @@ class Translator(Generic[T]):
         if builder is not None:
             yield builder.build()
 
-    def _translate_term(self, words: Words) -> tuple[RequiredTerm, T, int] | None:
+    @staticmethod
+    def get_untranslated_words(original_words: Words,
+                               translated_terms: Collection[TranslatedTerm]) -> Words:
+        check_type(Words, original_words=original_words)
+        if len(translated_terms) == 0:
+            # Can't recover from what was parsed if no terms were parsed.
+            return original_words
+
+        words: list[Word] = []
+        for translated_term in translated_terms:
+            check_type(TranslatedTerm, translated_term=translated_term)
+            words.extend(translated_term.get_untranslated_words())
+        return Words(words)
+
+    def _translate_term(self, words: Words) -> Tuple[RequiredTerm, T, int] | None:
         check_type(Words, words=words)
         if len(words) == 0:
             return None
@@ -139,7 +171,7 @@ class TermLookerUpper:
         self._translator = Translator[RequiredTerm]({term: term for term in terms})
 
     def look_up_term(self, words: Words) -> tuple[RequiredTerm, ...]:
-        return tuple(parsed.get_parsed() for parsed in self._translator.translate_terms(words))
+        return tuple(parsed.get_value() for parsed in self._translator.translate_terms(words))
 
 
 class SingleTermFinder:

@@ -9,8 +9,9 @@ from apex_stat_analysis.speech.command_registry import CommandRegistry
 from apex_stat_analysis.speech.compare_command import CompareCommand
 from apex_stat_analysis.speech.speech_client import SpeechClient
 from apex_stat_analysis.weapon import WeaponArchetype
+from apex_stat_analysis.weapon_comparer import WeaponComparer
 from apex_stat_analysis.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
-from apex_stat_analysis.weapon_database import WeaponArchive, WeaponComparer
+from apex_stat_analysis.weapon_translator import WeaponTranslator
 
 
 logger = logging.getLogger()
@@ -24,7 +25,7 @@ def register_commands() -> CommandRegistry:
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:
         dr = WeaponCsvReader(fp)
         weapons: tuple[WeaponArchetype, ...] = tuple(dr)
-    archive = WeaponArchive(weapons)
+    translator = WeaponTranslator(weapons)
 
     # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
     #  Active firing means counting one round period per round fired. i.e. You can multiply number
@@ -36,8 +37,8 @@ def register_commands() -> CommandRegistry:
     comparer = WeaponComparer(ttk_entries)
 
     registry = CommandRegistry(
-        CompareCommand(weapon_archive=archive, weapon_comparer=comparer),
-        BestCommand(weapon_archive=archive, weapon_comparer=comparer))
+        CompareCommand(weapon_translator=translator, weapon_comparer=comparer),
+        BestCommand(weapon_translator=translator, weapon_comparer=comparer))
     return registry
 
 
