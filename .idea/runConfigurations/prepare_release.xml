@@ -1,0 +1,6 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="prepare_release" type="PowerShellRunType" factoryName="PowerShell" scriptUrl=".\scripts\prepare_release.ps1" workingDirectory="$Projectpath$" executablePath="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe">
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

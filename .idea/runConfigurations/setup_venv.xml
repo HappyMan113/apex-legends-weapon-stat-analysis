@@ -1,0 +1,6 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="setup_venv" type="PowerShellRunType" factoryName="PowerShell" scriptUrl=".\scripts\setup_venv.ps1" workingDirectory="$Projectpath$" executablePath="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe">
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>
