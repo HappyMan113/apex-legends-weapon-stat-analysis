@@ -8,8 +8,10 @@ $install_path = $Env:APEX_ASSISTANT_INSTALL_PATH
 if (!($install_path)) {
     $install_path = "install"
 }
+$install_path = "$install_path\Apex Assistant"
+
 $venv_path = "$install_path\venv"
-echo $install_path
+echo "Setting up venv in $install_path"
 
 # Clean.
 try {
@@ -17,7 +19,7 @@ try {
 } catch [System.Management.Automation.ItemNotFoundException] {}
 
 # Create virtual environement.
-python -m venv "$venv_path"
+python -m venv $venv_path
 if ($LASTEXITCODE -ne 0) { exit }
 
 # Activate virtual environment.
@@ -35,14 +37,12 @@ pip config set --site install.no-deps true
 # to resort to using the --no-compile flag instead.
 # pip config set --site install.no-compile true
 
-# Install RealtimeSTT and RealtimeTTS.
-pip install -r .\requirements-speech.txt --ignore-requires-python --no-compile
-if ($LASTEXITCODE -ne 0) { exit }
-
 # Install required packages.
 # https://download.pytorch.org/whl/cu121 has torch packages.
-pip install -r .\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121 --no-compile
+pip install -r .\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121 --ignore-requires-python --no-compile
 if ($LASTEXITCODE -ne 0) { exit }
+
+.\scripts\install.ps1
 
 echo ''
 echo 'Success!'

@@ -2,19 +2,29 @@
 TODO: Explain what the assistant does and the methods used to calculate "best" weapons.
 # About
 ## Methods
+- Speech-to-Text is done locally through faster-whisper, which is a reimplementation of OpenAI's 
+whisper model. Ideally you will be able to do this with a GPU. See prerequisites below.
+- Text-to-Speech is done through OpenAI's tts-1 model, with a fallback to being done locally. See 
+Prerequisites below.
 -->
 
 # Prerequisites
-See the [RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before) for more information. 
+See the
+[RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before) 
+for more information. 
 - Must be on Windows.
-- Must have a microphone.
-- Must have NVIDIA CUDA GPU.
-- Install [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
-- Set up OpenAI API key
+- Must have a microphone cause how else are you going to use voice commands?
+- Enable developer mode for the distil-large-v3 optimal performance.
+  https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development 
+- Set up OpenAI API key (for text-to-speech)
   - [Create a Project Key](https://platform.openai.com/api-keys)
-  - Set environment variable `OPENAI_API_KEY`
+  - Set environment variable `OPENAI_API_KEY` to your project key.
   - [Add funds](https://platform.openai.com/settings/organization/billing/overview) if needed (I
-  wasn't able to make any free requests, but maybe you'll have better luck.)
+    wasn't able to make any free requests, but maybe you'll have better luck.)
+  - NoteL Must have an internet connection for OpenAI Text-to-Speech engine to work.
+- Must have NVIDIA CUDA GPU to allow GPU-based Speech-to-Text to work on your machine (CPU-based STT
+may slow down your machine which wouldn't be ideal for playing Apex).
+  - Install [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
 - Install FFMpeg
   ```shell
   winget install Gyan.FFmpeg
@@ -41,15 +51,22 @@ See the [RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov
 
 ## User Installation
 Head over to the Releases page and download apex-assistant.7z. Extract the archive using 
-[7zip](https://www.7-zip.org/download.html).
+[7-Zip](https://www.7-zip.org/download.html).
 
 ## Usage
 Run `apex-assistant.bat` which you just extracted. Wait for audio recording to start.
 
+### Voice Command Syntax
+Note: Filler words between key terms will be ignored, but filler words within key terms with two or
+more words may result in that term failing to be translated.
+- `compare <weapon name>`
+
 ### Example Voice Commands:
 - "Compare wingman peacekeeper"
 - "Compare RE-45 with purple mag with P2020 with hammerpoint"
-- "Compare no reloads R-99 with level 2 stock with Flatline with level 1 magazine"
+- "Compare no reloads R-99 with level 2 stock with Flatline with level 1 extended heavy magazine"
+- "Compare R-301 level 2 sidearm wingman boosted loader Flatline with no mag purple standard stock
+sidearm peacekeeper with a white shotgun bolt and no standard stock"
 - "Best 5"
 
 
@@ -65,7 +82,7 @@ gets copied into the release archive. It can be used for development & testing, 
 packages for testing purposes only, be sure to uninstall them prior to release. Rerunning
 setup_venv.ps1 will accomplish this.
 ```shell
-.\scripts\install.ps1
+.\scripts\setup_venv.ps1
 ```
 
 ## Install this package
@@ -75,11 +92,11 @@ preparing a release.
 
 ### Regular Install
 ```shell
-.\package\venv\Scripts\python -m pip install .
+.\scripts\install.ps1
 ```
 ### Editable Install
 ```shell
-.\package\venv\Scripts\python -m pip install -e .
+.\scripts\install.ps1 -e
 ```
 
 ## Create Release Archive

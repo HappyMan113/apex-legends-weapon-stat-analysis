@@ -6,6 +6,9 @@ from threading import Lock
 from time import sleep
 from typing import Callable, TypeVar
 
+from huggingface_hub.file_download import are_symlinks_supported
+from torch.hub import get_dir
+
 from apex_stat_analysis.speech.command import Command
 from apex_stat_analysis.speech.command_registry import CommandRegistry
 from apex_stat_analysis.speech.term import Words
@@ -41,14 +44,39 @@ def _preserve_logging[T](func: Callable[[], 'T']) -> Callable[[], T]:
     return wrapped
 
 
+def ensure_trusted_repo():
+    filename = os.path.join(get_dir(), 'trusted_list')
+    owner_name = 'snakers4_silero-vad'
+    if not os.path.exists(filename):
+        trusted_repos = tuple()
+    else:
+        with open(filename, 'r') as fp:
+            trusted_repos = tuple(line.strip() for line in fp)
+
+    if owner_name not in trusted_repos:
+        os.makedirs(os.path.dirname(filename))
+        with open(filename, 'w+') as fp:
+            fp.writelines(trusted_repos + (owner_name,))
+        logger.info(f'Added {owner_name} to trusted repos list.')
+
+
 @_preserve_logging
 def create_audio_to_text_recorder():
     # Import locally because the import itself takes a long time.
     from RealtimeSTT import AudioToTextRecorder
+
+    if not are_symlinks_supported():
+        logger.warning('Developer mode is not enabled. Using large-v3 Speech-to-Text model instead '
+                       'of the faster distil-large-v3 model.')
+        model = 'large-v3'
+    else:
+        model = 'distil-large-v3'
+        ensure_trusted_repo()
+
     recorder = AudioToTextRecorder(spinner=False,
                                    device='cuda',
                                    language='en',
-                                   model='large-v2',
+                                   model=model,
                                    post_speech_silence_duration=1,
                                    level=logging.WARNING)
     return recorder

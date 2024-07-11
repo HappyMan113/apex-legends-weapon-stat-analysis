@@ -30,10 +30,14 @@ pvporcupine>=3.0.2
 PyAudio>=0.2.14
 pydantic>=2.8.2
 pydantic_core>=2.20.1
-pydub>=0.25.1
+# The pydub wheel on PyPi is missing the 'r' in the regular expression in utils.py,
+# which causes syntax warnings about invalid escape sequences.
+pydub @ git+https://github.com/jiaaro/pydub.git@master
 pywin32>=306
 PyYAML>=6.0.1
 pyttsx3>=2.90
+RealtimeSTT>=0.2.0
+RealtimeTTS>=0.4.1
 regex>=2024.5.15
 requests>=2.32.3
 scikit-learn>=1.5.1
