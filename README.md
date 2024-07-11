@@ -1,30 +1,51 @@
-<!-- 
-TODO: Explain what the assistant does and the methods used to calculate "best" weapons.
 # About
-## Methods
-- Speech-to-Text is done locally through faster-whisper, which is a reimplementation of OpenAI's 
-whisper model. Ideally you will be able to do this with a GPU. See prerequisites below.
-- Text-to-Speech is done through OpenAI's tts-1 model, with a fallback to being done locally. See 
-Prerequisites below.
--->
+
+The Apex Assistant client allows you to ask it to compare two or more weapons from the video game
+[Apex Legends](https://www.ea.com/games/apex-legends) via the "compare" voice command. It will then
+respond with a synthetic voice telling you which of the compared weapons will in theory give you the
+highest expected average damage ser second in close quarters combat.
+
+## Expected Mean DPS Calculation Algorithm
+
+1) For any given weapon, the assistant calculates the mean DPS up till time "t", assuming perfectly
+   accurate hits to an opponent's body. It does this for each "t" in a set of historic TTK values.
+    - These historic TTK values were derived from clips of my in-game deaths. They were calculated
+      starting at the time I first started taking damage and ending when I died, except that if
+      there
+      was a long enough time gap to reset before I died, that start of my taking damage did not
+      count.
+    - Weapon stats from the [Apex Legends Wiki](https://apexlegends.fandom.com/wiki/Weapon#General)
+      were supplemented with more up-to-date
+      [S20](https://www.ea.com/games/apex-legends/news/breakout-patch-notes) and
+      [S21](https://siege.gg/news/apex-legends-season-21-patch-notes) patch notes from Respawn.
+      These compiled stats are used to calculate cumulative damage up till time "t".
+    - When reloading is assumed (which it is by default), reload times are assumed to be tactical
+      reload times with only 1 bullet left in the magazine.
+2) The mean of these mean values is then calculated.
+3) This becomes the metric which determines which weapons are "best".
+
+## Speech-to-Text and Text-to-Speech
+
+- Speech-to-Text is done locally through faster-whisper, which is a reimplementation of OpenAI's
+  whisper model. Ideally you will be able to do this with a GPU. See prerequisites below.
+- Text-to-Speech is done through OpenAI's tts-1 model, with a fallback to being done locally. See
+  Prerequisites below.
 
 # Prerequisites
-See the
-[RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before) 
-for more information. 
+
 - Must be on Windows.
-- Must have a microphone cause how else are you going to use voice commands?
-- Enable developer mode for the distil-large-v3 optimal performance.
-  https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development 
-- Set up OpenAI API key (for text-to-speech)
-  - [Create a Project Key](https://platform.openai.com/api-keys)
-  - Set environment variable `OPENAI_API_KEY` to your project key.
-  - [Add funds](https://platform.openai.com/settings/organization/billing/overview) if needed (I
-    wasn't able to make any free requests, but maybe you'll have better luck.)
-  - NoteL Must have an internet connection for OpenAI Text-to-Speech engine to work.
+- Must have a microphone.
+- Must set up OpenAI API key for text-to-speech to be done using the OpenAI's tts-1 engine as
+  opposed to TTS being done locally on your machine.
+    - [Create a Project Key](https://platform.openai.com/api-keys)
+    - Set environment variable `OPENAI_API_KEY` to your project key.
+    - [Add funds](https://platform.openai.com/settings/organization/billing/overview) if needed (I
+      wasn't able to make API requests for free, but maybe you'll have better luck).
+    - Must have an internet connection to be able to make OpenAI API requests.
 - Must have NVIDIA CUDA GPU to allow GPU-based Speech-to-Text to work on your machine (CPU-based STT
-may slow down your machine which wouldn't be ideal for playing Apex).
-  - Install [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
+  may slow down your machine, which wouldn't be ideal for playing Apex).
+    - Make sure you've installed
+      [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
 - Install FFMpeg
   ```shell
   winget install Gyan.FFmpeg
@@ -33,6 +54,14 @@ may slow down your machine which wouldn't be ideal for playing Apex).
   ```shell
   winget install -e --id 7zip.7zip
   ```
+- (Recommended)
+  [Enable developer mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development)
+  to allow for symbolic links to work which is what's ideal when using the distil-large-v3 model. If
+  you leave developer mode disabled, the slower large-v2 model will be used.
+
+See the
+[RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before)
+for more information.
 
 <!--
 ## Get your Azure API keys:
@@ -50,56 +79,63 @@ may slow down your machine which wouldn't be ideal for playing Apex).
 -->
 
 ## User Installation
-Head over to the Releases page and download apex-assistant.7z. Extract the archive using 
-[7-Zip](https://www.7-zip.org/download.html).
+
+Head over to the
+[Releases](https://github.com/HappyMan113/apex-legends-weapon-stat-analysis/releases) page and
+download apex-assistant.7z. Extract the archive using [7-Zip](https://www.7-zip.org/download.html).
 
 ## Usage
+
 Run `apex-assistant.bat` which you just extracted. Wait for audio recording to start.
 
 ### Voice Command Syntax
-Note: Filler words between key terms will be ignored, but filler words within key terms with two or
-more words may result in that term failing to be translated.
-- `compare <weapon name>`
 
-### Example Voice Commands:
-- "Compare wingman peacekeeper"
-- "Compare RE-45 with purple mag with P2020 with hammerpoint"
-- "Compare no reloads R-99 with level 2 stock with Flatline with level 1 extended heavy magazine"
-- "Compare R-301 level 2 sidearm wingman boosted loader Flatline with no mag purple standard stock
-sidearm peacekeeper with a white shotgun bolt and no standard stock"
-- "Best 5"
+Filler words are ignored, and a lot of variations are allowed. However, the documented syntax is as
+follows:
 
+| Command | Description                                                                                                       | Syntax                                                                                                                                                                     | Examples                                                                                                                                                                                                                                                                                                                              |
+|---------|-------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Compare | Determines which of the given weapons has the highest expected mean DPS.                                          | `compare <weapon [hop-up] [<level <level> <attachment>>...]> <weapon [hop-up] [<level <level> <attachment>>...]> [<weapon [hop-up] [<level <level> <attachment>>...]>...]` | <ul><li>"Compare wingman peacekeeper"</li><li>"Compare RE-45 with purple mag with P2020 with hammerpoint"</li><li>"Compare no reloads R-99 with level 2 stock with Flatline with level 1 extended heavy magazine"</li><li>"Compare R-301 level 2 sidearm wingman boosted loader Flatline with no mag purple standard stock"</li></ul> | 
+| Best    | Tells you the highest ranked weapons in terms of expected mean DPS, assuming highest-level attachments available. | `best <number>`                                                                                                                                                            | <ul><li>"Best 3"</li><li>"Best 10"</li></ul>                                                                                                                                                                                                                                                                                          | 
 
 # Developer Guide
+
 <!--
 ## [Build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 Just get "Desktop development with C++"
 -->
 
 ## Set up Virtual Environment
+
 This virtual environment will contain all required dependencies. It's the virtual environment that
-gets copied into the release archive. It can be used for development & testing, but if you install 
+gets copied into the release archive. It can be used for development & testing, but if you install
 packages for testing purposes only, be sure to uninstall them prior to release. Rerunning
 setup_venv.ps1 will accomplish this.
+
 ```shell
 .\scripts\setup_venv.ps1
 ```
 
 ## Install this package
-You'll need to install this package before you can run it. While a regular install is done as part 
+
+You'll need to install this package before you can run it. While a regular install is done as part
 of the prepare_release script, you may want to install for development and testing purposes before
 preparing a release.
 
 ### Regular Install
+
 ```shell
 .\scripts\install.ps1
 ```
+
 ### Editable Install
+
 ```shell
 .\scripts\install.ps1 -e
 ```
 
 ## Create Release Archive
+
 <!--
 ### Prerequisite
 # TODO: Create process for creating an installer: http://ntsblog.homedev.com.au/index.php/2015/05/14/self-extracting-archive-runs-setup-exe-7zip-sfx-switch/
@@ -109,14 +145,12 @@ https://www.7-zip.org/sdk.html
 ###
 Zip up release package.
 -->
+
 ```shell
 .\scripts\prepare_release.ps1
 ```
 
 <!--
-## Install [RealtimeTTS](https://github.com/KoljaB/RealtimeTTS)
-- May have to install from source instead of pip install RealtimeTTS to get the latest version
-
 ## Create Standalone Executable
 - `pip install nuitka`
 - `python -m nuitka --standalone ./apex_stat_analysis/main.py --include-package-data=apex_stat_analysis --noinclude-numba-mode=nofollow --noinclude-custom-mode=transformers:nofollow` 
