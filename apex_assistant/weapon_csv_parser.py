@@ -5,17 +5,26 @@ import typing
 from enum import StrEnum
 from typing import Any, Generic, IO, Type, TypeVar
 
-from apex_stat_analysis.speech.apex_terms import WEAPON_ARCHETYPE_TERMS
-from apex_stat_analysis.speech.term import RequiredTerm, Words
-from apex_stat_analysis.speech.term_translator import TermLookerUpper
-from apex_stat_analysis.ttk_datum import TTKDatum
-from apex_stat_analysis.weapon import (MagazineCapacity, ReloadTime, RoundsPerMinute,
-                                       SingleMagazineCapacity, SingleReloadTime,
-                                       SingleRoundsPerMinute, Spinup, SpinupDevotion, SpinupHavoc,
-                                       SpinupNone, SpinupType, WeaponArchetype)
+from apex_assistant.speech.apex_terms import WEAPON_ARCHETYPE_TERMS
+from apex_assistant.speech.term import RequiredTerm, Words
+from apex_assistant.speech.term_translator import TermLookerUpper
+from apex_assistant.ttk_datum import TTKDatum
+from apex_assistant.weapon import (MagazineCapacity,
+                                   ReloadTime,
+                                   RoundsPerMinute,
+                                   SingleMagazineCapacity,
+                                   SingleReloadTime,
+                                   SingleRoundsPerMinute,
+                                   Spinup,
+                                   SpinupDevotion,
+                                   SpinupHavoc,
+                                   SpinupNone,
+                                   SpinupType,
+                                   WeaponArchetype)
 
 logger = logging.getLogger()
 T = TypeVar('T')
+
 
 class CsvReader(Generic[T]):
     VALUE_EMPTY = ''

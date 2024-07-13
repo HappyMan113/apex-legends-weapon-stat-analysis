@@ -4,7 +4,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Generator, Iterable, Iterator
 
-from apex_stat_analysis.checker import check_bool, check_int, check_str, check_tuple, check_type
+from apex_assistant.checker import check_bool, check_int, check_str, check_tuple, check_type
 
 
 class Word:

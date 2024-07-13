@@ -1,8 +1,8 @@
 import abc
 import logging
 
-from apex_stat_analysis.checker import check_type
-from apex_stat_analysis.speech.term import RequiredTerm, Words
+from apex_assistant.checker import check_type
+from apex_assistant.speech.term import RequiredTerm, Words
 
 
 class Command(abc.ABC):

@@ -4,14 +4,14 @@ import sys
 
 from pydub.utils import which
 
-from apex_stat_analysis.speech.best_command import BestCommand
-from apex_stat_analysis.speech.command_registry import CommandRegistry
-from apex_stat_analysis.speech.compare_command import CompareCommand
-from apex_stat_analysis.speech.speech_client import SpeechClient
-from apex_stat_analysis.weapon import WeaponArchetype
-from apex_stat_analysis.weapon_comparer import WeaponComparer
-from apex_stat_analysis.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
-from apex_stat_analysis.weapon_translator import WeaponTranslator
+from apex_assistant.speech.best_command import BestCommand
+from apex_assistant.speech.command_registry import CommandRegistry
+from apex_assistant.speech.compare_command import CompareCommand
+from apex_assistant.speech.speech_client import SpeechClient
+from apex_assistant.weapon import WeaponArchetype
+from apex_assistant.weapon_comparer import WeaponComparer
+from apex_assistant.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
+from apex_assistant.weapon_translator import WeaponTranslator
 
 
 logger = logging.getLogger()

@@ -1,10 +1,10 @@
 import logging
 from typing import Generator
 
-from apex_stat_analysis.checker import check_tuple
-from apex_stat_analysis.speech.command import Command
-from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.term_translator import TranslatedTerm, Translator
+from apex_assistant.checker import check_tuple
+from apex_assistant.speech.command import Command
+from apex_assistant.speech.term import Words
+from apex_assistant.speech.term_translator import TranslatedTerm, Translator
 
 logger = logging.getLogger()
 

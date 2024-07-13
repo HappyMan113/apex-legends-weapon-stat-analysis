@@ -1,12 +1,13 @@
 import logging
 from typing import Collection, Generator, Generic, Mapping, Tuple, TypeVar
 
-from apex_stat_analysis.checker import check_type
-from apex_stat_analysis.speech.term import RequiredTerm, Word, Words
+from apex_assistant.checker import check_type
+from apex_assistant.speech.term import RequiredTerm, Word, Words
 
 
 logger = logging.getLogger()
 T = TypeVar('T')
+
 
 class TranslatedTerm(Generic[T]):
     def __init__(self,

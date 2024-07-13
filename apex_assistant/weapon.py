@@ -4,17 +4,22 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Generator, Generic, Optional, Set, Tuple, TypeVar, Union
 
-from apex_stat_analysis.checker import (check_bool,
-                                        check_equal_length,
-                                        check_float,
-                                        check_int,
-                                        check_str,
-                                        check_type,
-                                        to_kwargs)
-from apex_stat_analysis.speech.apex_terms import ALL_BOLT_TERMS, ALL_MAG_TERMS, ALL_STOCK_TERMS, \
-    BASE, LEVEL_TERMS, SWITCHING_TO_SIDEARM, WITH_RELOAD_OPT
-from apex_stat_analysis.speech.term import RequiredTerm, Words
-from apex_stat_analysis.speech.term_translator import Translator
+from apex_assistant.checker import (check_bool,
+                                    check_equal_length,
+                                    check_float,
+                                    check_int,
+                                    check_str,
+                                    check_type,
+                                    to_kwargs)
+from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
+                                              ALL_MAG_TERMS,
+                                              ALL_STOCK_TERMS,
+                                              BASE,
+                                              LEVEL_TERMS,
+                                              SWITCHING_TO_SIDEARM,
+                                              WITH_RELOAD_OPT)
+from apex_assistant.speech.term import RequiredTerm, Words
+from apex_assistant.speech.term_translator import Translator
 
 
 T = TypeVar('T')

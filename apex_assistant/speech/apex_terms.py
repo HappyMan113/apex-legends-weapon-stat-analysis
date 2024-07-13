@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from apex_stat_analysis.speech.term import IntTerm, OptTerm, RequiredTerm, Term
+from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term
 
 
 def _create_level_terms(attachment_base_name: RequiredTerm,

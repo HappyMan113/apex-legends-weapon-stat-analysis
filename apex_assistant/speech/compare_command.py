@@ -1,13 +1,13 @@
 import logging
 from enum import Enum
 
-from apex_stat_analysis.checker import check_type
-from apex_stat_analysis.speech.apex_terms import COMPARE
-from apex_stat_analysis.speech.command import Command
-from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.weapon import CombinedWeapon, WeaponBase
-from apex_stat_analysis.weapon_comparer import WeaponComparer
-from apex_stat_analysis.weapon_translator import WeaponTranslator
+from apex_assistant.checker import check_type
+from apex_assistant.speech.apex_terms import COMPARE
+from apex_assistant.speech.command import Command
+from apex_assistant.speech.term import Words
+from apex_assistant.weapon import CombinedWeapon, WeaponBase
+from apex_assistant.weapon_comparer import WeaponComparer
+from apex_assistant.weapon_translator import WeaponTranslator
 
 
 LOGGER = logging.getLogger()

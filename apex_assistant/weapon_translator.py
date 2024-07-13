@@ -1,11 +1,10 @@
 from typing import Generator
 
-from apex_stat_analysis.checker import check_tuple, check_type
-from apex_stat_analysis.speech.apex_terms import SWITCHING_TO_SIDEARM, WITHOUT_RELOAD
-from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.term_translator import (SingleTermFinder,
-                                                       Translator)
-from apex_stat_analysis.weapon import ConcreteWeapon, WeaponArchetype
+from apex_assistant.checker import check_tuple, check_type
+from apex_assistant.speech.apex_terms import SWITCHING_TO_SIDEARM, WITHOUT_RELOAD
+from apex_assistant.speech.term import Words
+from apex_assistant.speech.term_translator import SingleTermFinder, Translator
+from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype
 
 
 class WeaponTranslator:

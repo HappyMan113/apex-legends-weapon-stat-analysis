@@ -1,12 +1,12 @@
 import logging
 
-from apex_stat_analysis.checker import check_type
-from apex_stat_analysis.speech.apex_terms import BEST, NUMBER_TERMS
-from apex_stat_analysis.speech.command import Command
-from apex_stat_analysis.speech.term import Words
-from apex_stat_analysis.speech.term_translator import Translator
-from apex_stat_analysis.weapon_comparer import WeaponComparer
-from apex_stat_analysis.weapon_translator import WeaponTranslator
+from apex_assistant.checker import check_type
+from apex_assistant.speech.apex_terms import BEST, NUMBER_TERMS
+from apex_assistant.speech.command import Command
+from apex_assistant.speech.term import Words
+from apex_assistant.speech.term_translator import Translator
+from apex_assistant.weapon_comparer import WeaponComparer
+from apex_assistant.weapon_translator import WeaponTranslator
 
 
 LOGGER = logging.getLogger()
@@ -34,7 +34,7 @@ class BestCommand(Command):
         number = next(num.get_value() for num in numbers)
 
         LOGGER.debug(f'Getting {number} best weapons.')
-        weapons = tuple(weapon.reload()
+        weapons = tuple(weapon.combine_with_sidearm(weapon).reload()
                         for weapon in self._weapon_translator.get_all_weapons())
         comparison_result = self._comparer.compare_weapons(weapons).limit_to_best_num(number)
         LOGGER.info(f'Best {number} weapons:\n'

@@ -8,7 +8,7 @@ if (!($install_path)) {
 $install_path = "$install_path\Apex Assistant"
 
 # Install Apex Assistant.
-& "$install_path\venv\Scripts\pip" install . $e
+& "$install_path\venv\Scripts\pip" install $args .
 if ($LASTEXITCODE -ne 0) { exit }
 
 # Copy setup script into package.

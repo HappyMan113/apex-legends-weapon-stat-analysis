@@ -9,13 +9,12 @@ from typing import Callable, TypeVar
 from huggingface_hub.file_download import are_symlinks_supported
 from torch.hub import get_dir
 
-from apex_stat_analysis.speech.command import Command
-from apex_stat_analysis.speech.command_registry import CommandRegistry
-from apex_stat_analysis.speech.term import Words
+from apex_assistant.speech.command import Command
+from apex_assistant.speech.command_registry import CommandRegistry
+from apex_assistant.speech.term import Words
 
 # Logger for this module.
 logger = logging.getLogger()
-
 
 T = TypeVar('T')
 
@@ -41,6 +40,7 @@ def _preserve_logging[T](func: Callable[[], 'T']) -> Callable[[], T]:
                 logger.removeHandler(handler)
 
         return result
+
     return wrapped
 
 
@@ -54,7 +54,7 @@ def ensure_trusted_repo():
             trusted_repos = tuple(line.strip() for line in fp)
 
     if owner_name not in trusted_repos:
-        os.makedirs(os.path.dirname(filename))
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, 'w+') as fp:
             fp.writelines(trusted_repos + (owner_name,))
         logger.info(f'Added {owner_name} to trusted repos list.')
@@ -65,6 +65,8 @@ def create_audio_to_text_recorder():
     # Import locally because the import itself takes a long time.
     from RealtimeSTT import AudioToTextRecorder
 
+    # Decide which STT model to use based on whether symbolic links are supported (i.e. whether
+    # developer mode is enabled).
     if not are_symlinks_supported():
         logger.warning('Developer mode is not enabled. Using large-v3 Speech-to-Text model instead '
                        'of the faster distil-large-v3 model.')
@@ -73,12 +75,17 @@ def create_audio_to_text_recorder():
         model = 'distil-large-v3'
         ensure_trusted_repo()
 
-    recorder = AudioToTextRecorder(spinner=False,
-                                   device='cuda',
-                                   language='en',
-                                   model=model,
-                                   post_speech_silence_duration=1,
-                                   level=logging.WARNING)
+    try:
+        recorder = AudioToTextRecorder(spinner=False,
+                                       device='cuda',
+                                       language='en',
+                                       model=model,
+                                       post_speech_silence_duration=1,
+                                       level=logging.WARNING)
+    except PermissionError as ex:
+        raise RuntimeError(
+            'Must run this script from a working directory in which you have write access.') from ex
+
     return recorder
 
 

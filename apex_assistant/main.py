@@ -1,6 +1,6 @@
 def main():
     # Import locally because stuff will get imported multiple times if not.
-    from apex_stat_analysis.apex_assistant import main
+    from apex_assistant.apex_assistant import main
     main()
 
 

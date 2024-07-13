@@ -5,9 +5,9 @@ from typing import Iterable, Tuple
 
 import numpy as np
 
-from apex_stat_analysis.checker import check_int, check_tuple
-from apex_stat_analysis.ttk_datum import TTKDatum
-from apex_stat_analysis.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
+from apex_assistant.checker import check_int, check_tuple
+from apex_assistant.ttk_datum import TTKDatum
+from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
 
 logger = logging.getLogger()
 

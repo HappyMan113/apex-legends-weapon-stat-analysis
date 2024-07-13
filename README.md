@@ -21,6 +21,9 @@ highest expected average damage ser second in close quarters combat.
       These compiled stats are used to calculate cumulative damage up till time "t".
     - When reloading is assumed (which it is by default), reload times are assumed to be tactical
       reload times with only 1 bullet left in the magazine.
+    - For Hammerpoint and Disruptor hop-ups, the DPS is calculated as the average of the DPS when
+      no bonus damage is applied and the DPS when the bonus damage does apply. Essentially a 50/50
+      split for shielded/unshielded shots.
 2) The mean of these mean values is then calculated.
 3) This becomes the metric which determines which weapons are "best".
 
@@ -153,7 +156,7 @@ Zip up release package.
 <!--
 ## Create Standalone Executable
 - `pip install nuitka`
-- `python -m nuitka --standalone ./apex_stat_analysis/main.py --include-package-data=apex_stat_analysis --noinclude-numba-mode=nofollow --noinclude-custom-mode=transformers:nofollow` 
+- `python -m nuitka --standalone ./apex_assistant/main.py --include-package-data=apex_assistant --noinclude-numba-mode=nofollow --noinclude-custom-mode=transformers:nofollow` 
 - 
 - `pip install py2exe`
 - 
@@ -164,6 +167,6 @@ Zip up release package.
 - `pip uninstall enum34`
 - https://www.gtk.org/docs/installations/ ?
 - ```shell
-  pyinstaller -c -F ./apex_stat_analysis/main.py -n apex-assistant --collect-data apex_stat_analysis --clean --collect-data pvporcupine --collect-binaries azure
+  pyinstaller -c -F ./apex_assistant/main.py -n apex-assistant --collect-data apex_assistant --clean --collect-data pvporcupine --collect-binaries azure
   ```
 -->

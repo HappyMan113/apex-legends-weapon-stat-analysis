@@ -9,16 +9,16 @@ version = "0.2.1"
 dynamic = ["dependencies"]
 
 [project.scripts]
-apex-assistant = "apex_stat_analysis.main:main"
+apex-assistant = "apex_assistant.main:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.package-data]
-apex_stat_analysis = ["*.csv"]
+apex_assistant = ["*.csv"]
 
 [tool.setuptools.packages.find]
-include = ["apex_stat_analysis*"]
+include = ["apex_assistant*"]
 
 [tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt", "requirements-speech.txt"]}
+dependencies = { file = ["requirements.txt", "requirements-speech.txt"] }
