@@ -5,6 +5,7 @@ install/
 *.dist/
 venv/
 *.egg-info/
+*.json
 *.log
 *.pyc
 *.spec

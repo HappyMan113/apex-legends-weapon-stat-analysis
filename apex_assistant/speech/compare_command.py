@@ -1,9 +1,8 @@
 import logging
 from enum import Enum
 
-from apex_assistant.checker import check_type
+from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.apex_terms import COMPARE
-from apex_assistant.speech.command import Command
 from apex_assistant.speech.term import Words
 from apex_assistant.weapon import CombinedWeapon, WeaponBase
 from apex_assistant.weapon_comparer import WeaponComparer
@@ -19,16 +18,14 @@ class _Uniqueness(Enum):
     SAY_EVERYTHING = 2
 
 
-class CompareCommand(Command):
+class CompareCommand(ApexCommand):
     def __init__(self, weapon_translator: WeaponTranslator, weapon_comparer: WeaponComparer):
-        check_type(WeaponTranslator, weapon_translator=weapon_translator)
-        check_type(WeaponComparer, weapon_comparer=weapon_comparer)
-        super().__init__(COMPARE)
-        self._translator = weapon_translator
-        self._comparer = weapon_comparer
+        super().__init__(term=COMPARE,
+                         weapon_translator=weapon_translator,
+                         weapon_comparer=weapon_comparer)
 
     def _execute(self, arguments: Words) -> str:
-        weapons = tuple(self._translator.translate_weapon_terms(arguments))
+        weapons = tuple(self.get_translator().translate_weapon_terms(arguments))
         unique_weapons = tuple(set(weapons))
         if len(unique_weapons) < 2:
             if len(unique_weapons) == 1:
@@ -47,8 +44,8 @@ class CompareCommand(Command):
         LOGGER.info(f'Comparing:{delim}{weapons_str}')
         comparison_result = self._comparer.compare_weapons(weapons)
         best_weapon, score = comparison_result.get_best_weapon()
-        LOGGER.info(f'Best: {best_weapon}')
-        audible_name = self._make_audible(best_weapon, uniqueness=uniqueness)
+        LOGGER.info(f'Comparison result: {comparison_result}')
+        audible_name = self._make_audible(best_weapon, uniqueness=uniqueness)\
 
         if len(weapons) == 2:
             _, second_best_score = comparison_result.get_nth_best_weapon(2)

@@ -20,5 +20,5 @@ class CommandRegistry:
 
     def get_commands(self, words: Words) -> Generator[TranslatedTerm[Command], None, None]:
         for command_and_args in self._translator.translate_terms(words):
-            logger.debug(f'Command: {command_and_args}')
+            logger.debug(f'Command: {command_and_args.get_value()}')
             yield command_and_args

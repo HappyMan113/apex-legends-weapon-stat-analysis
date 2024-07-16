@@ -4,9 +4,11 @@ import sys
 
 from pydub.utils import which
 
+from apex_assistant.speech.apex_config import ApexConfig
 from apex_assistant.speech.best_command import BestCommand
 from apex_assistant.speech.command_registry import CommandRegistry
 from apex_assistant.speech.compare_command import CompareCommand
+from apex_assistant.speech.configure_command import ConfigureCommand
 from apex_assistant.speech.speech_client import SpeechClient
 from apex_assistant.weapon import WeaponArchetype
 from apex_assistant.weapon_comparer import WeaponComparer
@@ -25,7 +27,10 @@ def register_commands() -> CommandRegistry:
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:
         dr = WeaponCsvReader(fp)
         weapons: tuple[WeaponArchetype, ...] = tuple(dr)
-    translator = WeaponTranslator(weapons)
+
+    apex_config_filename = os.path.join(self_path, 'apex_config.json')
+    apex_config = ApexConfig.load(apex_config_filename)
+    translator = WeaponTranslator(weapon_archetypes=weapons, apex_config=apex_config)
 
     # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
     #  Active firing means counting one round period per round fired. i.e. You can multiply number
@@ -38,7 +43,8 @@ def register_commands() -> CommandRegistry:
 
     registry = CommandRegistry(
         CompareCommand(weapon_translator=translator, weapon_comparer=comparer),
-        BestCommand(weapon_translator=translator, weapon_comparer=comparer))
+        BestCommand(weapon_translator=translator, weapon_comparer=comparer),
+        ConfigureCommand(weapon_translator=translator, weapon_comparer=comparer))
     return registry
 
 

@@ -147,7 +147,7 @@ class SpeechClient:
         text = re.sub('[()]', '', text)
         if not text.endswith(('.', '!', '?')):
             text = f'{text}.'
-        logger.info(f'Saying: {text}')
+        logger.debug(f'Saying: {text}')
         self.stream.feed(text).play()
 
     def __enter__(self):

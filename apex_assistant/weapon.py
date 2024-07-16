@@ -374,7 +374,7 @@ class WeaponBase(abc.ABC):
         self.name = name
         self.term = term
 
-    def get_term(self):
+    def get_term(self) -> RequiredTerm:
         return self.term
 
     @abc.abstractmethod

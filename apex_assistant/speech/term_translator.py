@@ -1,7 +1,7 @@
 import logging
 from typing import Collection, Generator, Generic, Mapping, Tuple, TypeVar
 
-from apex_assistant.checker import check_type
+from apex_assistant.checker import check_mapping, check_type
 from apex_assistant.speech.term import RequiredTerm, Word, Words
 
 
@@ -69,6 +69,7 @@ class Translator(Generic[T]):
         self.add_terms({term: val})
 
     def add_terms(self, terms: Mapping[RequiredTerm, T]):
+        check_mapping(RequiredTerm, terms=terms)
         self._term_word_lim = max(self._term_word_lim,
                                   max((term.get_max_variation_len() for term in terms), default=0))
         for term, val in terms.items():

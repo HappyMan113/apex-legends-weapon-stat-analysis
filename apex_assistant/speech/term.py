@@ -2,7 +2,7 @@ import abc
 import string
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Iterable, Iterator
+from typing import Generator, Iterable, Iterator, TypeAlias, Union
 
 from apex_assistant.checker import check_bool, check_int, check_str, check_tuple, check_type
 
@@ -85,6 +85,11 @@ class _WordsAreForWhat(StrEnum):
     FOR_TEXT = 'for_text'
 
 
+REQ_TERM: TypeAlias = 'RequiredTerm'
+OPT_TERM: TypeAlias = 'OptTerm'
+TERM: TypeAlias = Union[REQ_TERM, OPT_TERM]
+
+
 class _TermBase(abc.ABC):
     @abc.abstractmethod
     def get_max_variation_len(self) -> int:
@@ -129,13 +134,13 @@ class _TermBase(abc.ABC):
         """Gets a string representation of this term that would be good for speaking or printing."""
         return ' '.join(map(str, self.get_human_readable_words(_WordsAreForWhat.FOR_SPEECH)))
 
-    def __add__(self, next_term: '_TermBase') -> '_TermBase':
+    def __add__(self, next_term: TERM) -> TERM:
         """Shorthand for self.combine(next_term)."""
-        check_type(_TermBase, other=next_term)
+        check_type(_TermBase, next_term=next_term)
         return self.combine(next_term)
 
     @abc.abstractmethod
-    def combine(self, *next_terms: '_TermBase') -> '_TermBase':
+    def combine(self, *next_terms: TERM) -> TERM:
         """
         For indices n_1, n_2, n_3,...n_m in ascending order, a given Words object, "words",
         translates into a combined term self.combine(next_term_1, next_term_2,... next_term_m) if
@@ -145,7 +150,7 @@ class _TermBase(abc.ABC):
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def _insert_opt(self, term_to_insert: 'OptTerm') -> '_TermBase':
+    def _insert_opt(self, term_to_insert: OPT_TERM) -> TERM:
         """
         Gets a term that has the given optional term inserted before self, such that a Word, "word"
         will translate into the resulting term if words translates into the wrapped term
@@ -161,15 +166,15 @@ class RequiredTerm(_TermBase):
         """Gets the first word in each Words object that translates to this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
-    def __add__(self, next_term: '_TermBase') -> 'CombinedTerm':
+    def __add__(self, next_term: TERM) -> REQ_TERM:
         check_type(_TermBase, next_term=next_term)
         return self.combine(next_term)
 
-    def combine(self, *next_terms: _TermBase) -> 'CombinedTerm':
+    def combine(self, *next_terms: TERM) -> REQ_TERM:
         check_tuple(_TermBase, allow_empty=False, next_terms=next_terms)
         return CombinedTerm(self, *next_terms)
 
-    def opt(self, include_in_speech: bool = False):
+    def opt(self, include_in_speech: bool = False) -> OPT_TERM:
         """
         A word translates into the resulting optional term if the word translates into self or if
         the word is blank.
@@ -177,12 +182,12 @@ class RequiredTerm(_TermBase):
         check_bool(include_in_speech=include_in_speech)
         return OptTerm(self, include_in_speech=include_in_speech)
 
-    def __or__(self, other: 'RequiredTerm') -> 'OrTerm':
+    def __or__(self, other: REQ_TERM) -> REQ_TERM:
         """Shorthand for self.or_any(other)."""
         check_type(RequiredTerm, other=other)
         return self.or_any(other)
 
-    def or_any(self, *or_operands: 'RequiredTerm') -> 'OrTerm':
+    def or_any(self, *or_operands: REQ_TERM) -> REQ_TERM:
         """
         A given Words object, "words", translates into self.or_any(*or_operands) if words translates
         into self, or if words translates into any of the operands in or_operands.
@@ -190,7 +195,7 @@ class RequiredTerm(_TermBase):
         check_tuple(allowed_element_types=RequiredTerm, allow_empty=False, or_operands=or_operands)
         return OrTerm(*((self,) + or_operands))
 
-    def _insert_opt(self, term_to_insert: 'OptTerm') -> 'RequiredTerm':
+    def _insert_opt(self, term_to_insert: OPT_TERM) -> REQ_TERM:
         without_opt_term = self
         with_opt_term = CombinedTerm(term_to_insert.get_wrapped_term(), without_opt_term)
         if term_to_insert.included_by_default():
@@ -321,14 +326,15 @@ class OptTerm(_TermBase):
         check_int(min_value=0, n=n)
         return n == 0 or self._wrapped.has_variation_len(n)
 
-    def combine(self, *next_terms: _TermBase) -> _TermBase:
+    def combine(self, *next_terms: TERM) -> TERM:
         check_tuple(_TermBase, allow_empty=False, next_terms=next_terms)
-        resulting_term: _TermBase = next_terms[0]._insert_opt(self)
+        # noinspection PyProtectedMember
+        resulting_term: TERM = next_terms[0]._insert_opt(self)
         if len(next_terms) > 1:
-            resulting_term.combine(*next_terms[1:])
+            resulting_term = resulting_term.combine(*next_terms[1:])
         return resulting_term
 
-    def _insert_opt(self, term_to_insert: 'OptTerm') -> 'OptTerm':
+    def _insert_opt(self, term_to_insert: OPT_TERM) -> OPT_TERM:
         check_type(OptTerm, term_to_insert=term_to_insert)
         # We're going to have to account for all 4 possible permutations.
         term1: RequiredTerm = term_to_insert.get_wrapped_term()

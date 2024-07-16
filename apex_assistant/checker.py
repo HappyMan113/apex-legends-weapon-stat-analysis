@@ -1,10 +1,12 @@
 import operator
-from typing import Any, Dict, Sized, Tuple, Type, TypeVar
+from typing import Dict, Mapping, Optional, Sized, Tuple, Type, TypeVar, Union
 
 T = TypeVar('T')
+K = TypeVar('K')
+V = TypeVar('V')
 
 
-def check_type(allowed_types: type | tuple[type, ...], optional: bool = False, **values: Any):
+def check_type(allowed_types: Type[T] | Tuple[Type[T], ...], optional: bool = False, **values: T):
     for allowed_type in (
             (allowed_types,)
             if not isinstance(allowed_types, tuple)
@@ -76,11 +78,33 @@ def check_equal_length(**sized_objects: Sized):
                              f'{len(first_value)})')
 
 
-def check_tuple(allowed_element_types: Type | Tuple[Type, ...],
+def check_tuple(allowed_element_types: Type[T] | Tuple[Type[T], ...],
                 allow_empty: bool = True,
-                **single_or_tuple: Tuple):
+                **single_or_tuple: Tuple[T, ...]):
     check_type(tuple, **single_or_tuple)
     check_type(allowed_element_types, **to_kwargs(**single_or_tuple))
     for name, tup in single_or_tuple.items():
         if not allow_empty and len(tup) == 0:
             raise ValueError(f'{name} cannot be empty.')
+
+
+def check_mapping(allowed_key_types: Optional[Union[Type[K], Tuple[Type[K], ...]]] = None,
+                  allowed_value_types: Optional[Union[Type[V], Tuple[Type[V], ...]]] = None,
+                  allow_empty: bool = True,
+                  **dictionaries: Mapping[K, V]):
+    check_type(Mapping, **dictionaries)
+    if allowed_key_types is not None:
+        check_type(allowed_key_types, **{
+            f'Element {idx} in {dict_name}': elt_key
+            for dict_name, dictionary in dictionaries.items()
+            for idx, elt_key in enumerate(dictionary)
+        })
+    if allowed_value_types is not None:
+        check_type(allowed_value_types, **{
+            f'{dict_name}[{elt_key}]': elt_value
+            for dict_name, dictionary in dictionaries.items()
+            for elt_key, elt_value in dictionary.items()
+        })
+    for dict_name, dictionary in dictionaries.items():
+        if not allow_empty and len(dictionary) == 0:
+            raise ValueError(f'{dict_name} cannot be empty.')

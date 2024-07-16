@@ -16,7 +16,7 @@ try {
 } catch [System.Management.Automation.ItemNotFoundException] {}
 
 echo 'Zipping...'
-& "C:\Program Files\7-Zip\7z.exe" a $archive_path $install_path -mx9 -mmt=4 "-xr!.cache" "-xr!*.log" "-w$archive_path\.."
+& "C:\Program Files\7-Zip\7z.exe" a $archive_path $install_path -mx9 -mmt=4 "-xr!.cache" "-xr!*.log" "-xr!*.json" "-w$archive_path\.."
 if ($LASTEXITCODE -ne 0) { exit }
 
 echo 'Zipped!'

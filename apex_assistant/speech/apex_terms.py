@@ -11,11 +11,13 @@ def _create_level_terms(attachment_base_name: RequiredTerm,
     if alternate_none_term is not None:
         assert isinstance(alternate_none_term, RequiredTerm)
         none_term = none_term | alternate_none_term
-    all_levels_term = (
+    all_levels_term: tuple[RequiredTerm, ...] = (
             (none_term,) +
             tuple((OPT_WITH_EXCL + ((level_term + attachment_base_name) |
                                     (attachment_base_name + level_term)))
                   for level_term in LEVEL_TERMS))
+    for term in all_levels_term:
+        assert isinstance(term, RequiredTerm)
     return all_levels_term
 
 
@@ -40,7 +42,10 @@ COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which on
                'what\'s better', 'air')
 BEST = Term('best') + Term('weapons').opt()
 STOP = Term('stop')
-COMMANDS = (COMPARE, BEST, STOP)
+CONFIGURE: RequiredTerm = Term('configure', 'configure default', 'set default')
+
+TRUE = Term('true', 'on') | ONE
+FALSE = Term('false', 'off') | ZERO
 
 WITH = Term('with')
 OPT_WITH_INCL: OptTerm = WITH.opt(include_in_speech=True)
@@ -65,10 +70,11 @@ LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1, LEVEL_2, LEVEL_3_OR_4)
 BASE = Term('base')
 WITHOUT = (Term('no', 'without', 'with no', 'without a', 'without any', 'without an') | BASE |
            (WITH + BASE))
+NONE = Term('none', 'nun', 'left out', 'excluded')
 
-MAG = (Term('extended').opt() +
-       Term('sniper', 'light', 'energy', 'heavy').opt() +
-       Term('mag', 'magazine'))
+MAG: RequiredTerm = (Term('extended').opt() +
+                     Term('sniper', 'light', 'energy', 'heavy').opt() +
+                     Term('mag', 'magazine'))
 ALL_MAG_TERMS = _create_level_terms(MAG, Term('nomag', 'nomad'))
 
 STOCK = Term('stock', 'standard stock', 'sniper stock')
@@ -76,7 +82,8 @@ ALL_STOCK_TERMS = _create_level_terms(STOCK)
 
 RELOAD = Term('reloads', 'reload', 'reloading')
 WITHOUT_RELOAD = WITHOUT + RELOAD
-WITH_RELOAD_OPT: RequiredTerm = ((WITH + RELOAD) | RELOAD).opt()
+WITH_RELOAD: RequiredTerm = (WITH + RELOAD) | RELOAD
+WITH_RELOAD_OPT: OptTerm = WITH_RELOAD.opt()
 
 BOLT = Term('bolt')
 SHOTGUN_BOLT = Term('shotgun').opt() + BOLT
@@ -163,19 +170,19 @@ PROWLER = Term(
 R = Term('I\'ll', 'bye', 'or', 'I', 'oh I', 'wash', 'or I\'ll', 'that\'s')
 R3 = Term('R3', 'R2-D2')
 THREE_O_ALT = Term('ruined', 'a second', 'is there', 'see you all', 'forgot')
-OH_ONE_ALT = Term('everyone')
+O_ONE_ALT = Term('everyone')
 R301 = (Term('R-301', 'after they weren\'t', 'wash your own', 'R3-A1', 'R3-O1',
              'thanks everyone for', 'I\'ll also go into', 'I actually want', 'R3-O-1', 'R3-1') |
         Term('R31') |
         R.combine(THREE.combine_int(ONE) | THREE.combine_int(ZERO, ONE) |
-                  THREE.combine(OH_ONE_ALT) | THREE_O_ALT.combine(ONE)) |
-        R3.combine(ONE, ZERO.combine_int(ONE)))
-CARBINE_ = Term('to').opt() + Term(
+                  THREE.combine(O_ONE_ALT) | THREE_O_ALT.combine(ONE)) |
+        R3.combine(ONE, ZERO.combine_int(ONE)) |
+        R3)
+CARBINE = Term('to').opt() + Term(
     'Carbine', 'covering', 'caught mine', 'carbon', 'cop mine', 'car by then', 'comment', 'coming',
     'copying', 'cut me in', 'carpet', 'Karmine', 'carbene', 'come in', 'car bye', 'copy', 'copy me',
     'combine')
-R301_CARBINE = (((R301 + CARBINE_.opt(include_in_speech=True)) |
-                 Term('R31Carbine', 'R31cabine', 'I have to uncover him')))
+R301_CARBINE = (R301 + CARBINE.opt()) | Term('R31Carbine', 'R31cabine', 'I have to uncover him')
 
 R99 = Term(
     'R-99', 'R99', '$5.99', 'or nine nine', 'or nine-to-nine', 'or ninety-nine', 'I don\'t know',
@@ -184,7 +191,8 @@ R99 = Term(
     'iron 9', 'oh I don\'t even know')
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')
-RE_45 = Term('RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45', 'R8-45')
+RE_45 = Term('R/E 45', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45',
+             'R8-45')
 SENTINEL = Term('sentinel', 'what\'s that now', 'is that not', 'setting\' off', 'that\'s it now',
                 'techno', 'is that no', 'said no', 'such an old', '7-0')
 AMPED = Term('amped', 'ant', 'it', 'end', 'yipped')

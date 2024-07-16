@@ -71,6 +71,12 @@ class _ComparisonResult:
         return _ComparisonResult(sorted_archetypes=archetypes,
                                  sorted_weapons=base_weapons)
 
+    def __repr__(self) -> str:
+        delim = '\n'
+        return delim + delim.join(
+            f'  {weighted_avg_damage:4.2f}: {weapon}'
+            for weapon, weighted_avg_damage in self.get_sorted_weapons().items())
+
 
 class WeaponComparer:
     def __init__(self, ttk_entries: tuple[TTKDatum, ...]):
@@ -134,15 +140,13 @@ class WeaponComparer:
         return _ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
                                  sorted_weapons=MappingProxyType(sorted_weapons_dict))
 
-    def general_list(self, base_weapons: tuple[ConcreteWeapon, ...], show_plots: bool = False):
-        wingman: ConcreteWeapon | None = next((base_weapon
-                                               for base_weapon in base_weapons
-                                               if 'wingman' in base_weapon.get_name().lower()),
-                                              None)
-
+    def general_list(self,
+                     base_weapons: tuple[ConcreteWeapon, ...],
+                     sidearm: ConcreteWeapon | None = None,
+                     show_plots: bool = False):
         without_wingman_weapons = tuple(weapon.reload() for weapon in base_weapons)
-        if wingman is not None:
-            with_wingman_weapons = tuple(weapon.combine_with_sidearm(wingman).reload()
+        if sidearm is not None:
+            with_wingman_weapons = tuple(weapon.combine_with_sidearm(sidearm).reload()
                                          for weapon in base_weapons)
             base_weapons: tuple[WeaponBase, ...] = without_wingman_weapons + with_wingman_weapons
         else:
