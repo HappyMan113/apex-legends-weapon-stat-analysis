@@ -53,6 +53,11 @@ OPT_WITH_EXCL: OptTerm = WITH.opt(include_in_speech=False)
 SWITCHING_TO = WITH | Term('and', 'switching to', 'and switching to', 'and then switching to')
 SIDEARM = Term('sidearm', 'sidearm of', 'secondary weapon', 'secondary weapon of')
 SWITCHING_TO_SIDEARM = (SWITCHING_TO + SIDEARM) | SIDEARM
+MAIN = Term('main', 'may', 'name')
+WEAPON = Term('weapon', 'gun')
+THE_SAME_MAIN_WEAPON: RequiredTerm = (Term('the').opt() +
+                                      Term('same') +
+                                      (MAIN | WEAPON | (MAIN + WEAPON)))
 
 OR = Term('or')
 
@@ -188,11 +193,12 @@ R99 = Term(
     'R-99', 'R99', '$5.99', 'or nine nine', 'or nine-to-nine', 'or ninety-nine', 'I don\'t know',
     'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99', 'all right any line',
     'I don\'t need nine', 'irony 9', 'I already know', 'I already need a 9', '$1.99', 'R-89',
-    'iron 9', 'oh I don\'t even know')
+    'iron 9', 'oh I don\'t even know', 'R-9')
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')
 RE_45 = Term('R/E 45', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45',
-             'R8-45')
+             'R8-45', 'R445', 'RE 45', 'RE45', 'R. 45', 'R.A.45', 'R.E.45', 'R.A. 45', 'R.E. 45',
+             'R.E.45', 'RIA-45', 'r a forty five')
 SENTINEL = Term('sentinel', 'what\'s that now', 'is that not', 'setting\' off', 'that\'s it now',
                 'techno', 'is that no', 'said no', 'such an old', '7-0')
 AMPED = Term('amped', 'ant', 'it', 'end', 'yipped')

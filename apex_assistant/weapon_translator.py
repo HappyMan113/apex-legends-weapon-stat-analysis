@@ -1,14 +1,18 @@
+import logging
 from typing import Generator
 
 from apex_assistant.checker import check_bool, check_tuple, check_type
 from apex_assistant.speech.apex_config import ApexConfig
-from apex_assistant.speech.apex_terms import SWITCHING_TO_SIDEARM, WITHOUT_RELOAD
+from apex_assistant.speech.apex_terms import (SWITCHING_TO_SIDEARM,
+                                              THE_SAME_MAIN_WEAPON,
+                                              WITHOUT_RELOAD)
 from apex_assistant.speech.term import Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
 
 
 class WeaponTranslator:
+    _LOGGER = logging.getLogger()
     _WITH_SIDEARM_FINDER = SingleTermFinder(SWITCHING_TO_SIDEARM)
     _NO_RELOAD_FINDER = SingleTermFinder(WITHOUT_RELOAD)
 
@@ -18,10 +22,12 @@ class WeaponTranslator:
             base_weapon
             for weapon_archetype in weapon_archetypes
             for base_weapon in weapon_archetype.get_base_weapons())
-        self._archetype_translator = Translator[WeaponArchetype]({
+        archetype_translator = Translator[WeaponArchetype | None]({
             weapon_archetype.get_term(): weapon_archetype
             for weapon_archetype in weapon_archetypes
             if weapon_archetype.get_term() is not None})
+        archetype_translator.add_term(THE_SAME_MAIN_WEAPON, None)
+        self._archetype_translator = archetype_translator
         default_sidearm_name_prop = apex_config.get_default_sidearm_name()
         self._default_sidearm_name_prop = default_sidearm_name_prop
         self._default_sidearm_prop = default_sidearm_name_prop.map(
@@ -66,12 +72,15 @@ class WeaponTranslator:
     def translate_weapon_terms(self, words: Words) -> Generator[WeaponBase, None, None]:
         check_type(Words, words=words)
 
-        one_looking_for_sidearm: ConcreteWeapon | None = None
         if self._NO_RELOAD_FINDER.find_term(words):
             with_reloads = False
         else:
             with_reloads = self.get_reload_by_default()
-        default_sidearm: ConcreteWeapon | None = self.get_default_sidearm()
+
+        # The most recent concrete weapon parsed.
+        main_weapon: ConcreteWeapon | None = None
+        # Whether that most recent main weapon is intended to have a sidearm.
+        looking_for_sidearm: bool = False
 
         # TODO: Consider automatically adding hop-ups at levels 3 and 4 with no attachment
         #  specification.
@@ -79,21 +88,51 @@ class WeaponTranslator:
             archetype = parsed_archetype.get_value()
             archetype_args = parsed_archetype.get_following_words()
 
-            best_match = archetype.get_best_match(archetype_args)
-            if one_looking_for_sidearm is not None:
-                best_match = one_looking_for_sidearm.combine_with_sidearm(best_match)
+            if archetype is None:
+                if looking_for_sidearm:
+                    self._LOGGER.warning(
+                        'Cannot have sidearm of a main weapon, that makes no sense. Ignoring '
+                        'sidearm term.')
 
-            # TODO: This assumes that you can only have one sidearm, but maybe we should consider
-            #  Ballistic's third weapon and Rampart's "Sheila".
-            elif self._WITH_SIDEARM_FINDER.find_term(archetype_args):
-                one_looking_for_sidearm = best_match
+                if main_weapon is None:
+                    self._LOGGER.warning(
+                        f'No previous main weapon specified for "{parsed_archetype.get_term()}" to '
+                        'make sense. Term will be ignored.')
+                    continue
+                if self.is_asking_for_sidearm(archetype_args):
+                    looking_for_sidearm = True
+                    continue
+
+                weapon = self.add_default_sidearm(main_weapon)
+            elif looking_for_sidearm:
+                # TODO: This assumes that you can only have one sidearm, but maybe we should
+                #  consider Ballistic's third weapon and Rampart's "Sheila".
+                looking_for_sidearm = False
+                sidearm = archetype.get_best_match(archetype_args)
+                weapon = main_weapon.combine_with_sidearm(sidearm)
+            elif self.is_asking_for_sidearm(archetype_args):
+                main_weapon = archetype.get_best_match(archetype_args)
+                looking_for_sidearm = True
                 continue
+            else:
+                main_weapon = archetype.get_best_match(archetype_args)
+                weapon = self.add_default_sidearm(main_weapon)
 
-            elif default_sidearm is not None:
-                best_match = best_match.combine_with_sidearm(default_sidearm)
-
-            one_looking_for_sidearm = None
             if with_reloads:
-                best_match = best_match.reload()
+                weapon = weapon.reload()
 
-            yield best_match
+            yield weapon
+
+    @staticmethod
+    def is_asking_for_sidearm(archetype_args) -> bool:
+        return WeaponTranslator._WITH_SIDEARM_FINDER.find_term(archetype_args)
+
+    def add_default_sidearm(self, main_weapon: ConcreteWeapon) -> WeaponBase:
+        check_type(ConcreteWeapon, main_weapon=main_weapon)
+
+        default_sidearm = self.get_default_sidearm()
+        if default_sidearm is not None:
+            weapon = main_weapon.combine_with_sidearm(default_sidearm)
+        else:
+            weapon = main_weapon
+        return weapon

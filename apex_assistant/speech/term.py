@@ -221,7 +221,7 @@ class Term(RequiredTerm):
                  known_term: str | Iterable[Word] | Words,
                  *variations: str | Iterable[Word] | Words):
         known_term = self._map_term(known_term)
-        variations: tuple[Words, ...] = tuple(map(self._map_term, variations))
+        variations: set[Words, ...] = set(map(self._map_term, variations)) - {known_term}
         variations_dict: dict[Word, set[Words]] = {}
         for variation in variations:
             first_word = variation.get_first_word()

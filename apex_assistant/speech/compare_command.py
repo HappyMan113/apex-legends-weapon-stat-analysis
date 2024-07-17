@@ -39,9 +39,6 @@ class CompareCommand(ApexCommand):
 
         uniqueness = self._get_uniqueness(weapons)
 
-        delim = '\n  - '
-        weapons_str = delim.join(map(str, weapons))
-        LOGGER.info(f'Comparing:{delim}{weapons_str}')
         comparison_result = self._comparer.compare_weapons(weapons)
         best_weapon, score = comparison_result.get_best_weapon()
         LOGGER.info(f'Comparison result: {comparison_result}')

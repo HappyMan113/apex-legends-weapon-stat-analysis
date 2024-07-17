@@ -669,7 +669,7 @@ class WeaponArchetype:
                         full_term = term.combine(*more_terms)
                     else:
                         full_term = term
-                    base_weapon: ConcreteWeapon = ConcreteWeapon(
+                    base_weapon = ConcreteWeapon(
                         archetype=self,
                         name=full_name,
                         term=full_term,

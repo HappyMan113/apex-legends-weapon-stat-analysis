@@ -47,7 +47,8 @@ class CsvReader(Generic[T]):
                 raise ValueError(f'Value for {key} must be of type {clazz.__name__}') from ex
         elif default_value is None:
             if error_message is None:
-                error_message = f'Missing value for {key} in {self._cur_dict}.'
+                row_str = ' | '.join(map(str, self._cur_dict.values()))
+                error_message = f'Missing value for "{key}" in row: {row_str}.'
             raise KeyError(error_message)
         else:
             return default_value
@@ -317,7 +318,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         name, term = self._parse_weapon_archetype_term(self.KEY_WEAPON_ARCHETYPE)
         weapon_class = self._parse_str(self.KEY_WEAPON_CLASS, default_value='')
         damage_body = self._parse_float(self.KEY_DAMAGE_BODY)
-        deploy_time_secs = self._parse_float(self.KEY_DEPLOY_TIME, default_value=0)
+        deploy_time_secs = self._parse_float(self.KEY_DEPLOY_TIME)
 
         rpm = self._parse_rpm()
         mag = self._parse_mag()
