@@ -1,5 +1,5 @@
 import logging
-from typing import Generator
+from typing import Generator, Tuple
 
 from apex_assistant.checker import check_bool, check_tuple, check_type
 from apex_assistant.speech.apex_config import ApexConfig
@@ -7,25 +7,28 @@ from apex_assistant.speech.apex_terms import (SWITCHING_TO_SIDEARM,
                                               THE_SAME_MAIN_WEAPON,
                                               WITHOUT_RELOAD)
 from apex_assistant.speech.term import Words
-from apex_assistant.speech.term_translator import SingleTermFinder, Translator
-from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
+from apex_assistant.speech.term_translator import Translator
+from apex_assistant.weapon import ConcreteWeapon, WeaponArchetypes, Loadout
 
 
 class WeaponTranslator:
     _LOGGER = logging.getLogger()
-    _WITH_SIDEARM_FINDER = SingleTermFinder(SWITCHING_TO_SIDEARM)
-    _NO_RELOAD_FINDER = SingleTermFinder(WITHOUT_RELOAD)
 
-    def __init__(self, weapon_archetypes: tuple[WeaponArchetype, ...], apex_config: ApexConfig):
-        check_tuple(WeaponArchetype, weapon_archetypes=weapon_archetypes)
-        self._base_weapons: tuple[ConcreteWeapon, ...] = tuple(
+    def __init__(self, weapon_archetypes: tuple[WeaponArchetypes, ...], apex_config: ApexConfig):
+        check_tuple(WeaponArchetypes, weapon_archetypes=weapon_archetypes)
+        check_type(ApexConfig, apex_config=apex_config)
+
+        self._base_weapons: Tuple[ConcreteWeapon, ...] = tuple(
             base_weapon
             for weapon_archetype in weapon_archetypes
             for base_weapon in weapon_archetype.get_base_weapons())
-        archetype_translator = Translator[WeaponArchetype | None]({
-            weapon_archetype.get_term(): weapon_archetype
+        self._fully_kitted_weapons: Tuple[ConcreteWeapon, ...] = tuple(
+            weapon_archetype.get_fully_kitted_weapon()
+            for weapon_archetype in weapon_archetypes)
+        archetype_translator = Translator[WeaponArchetypes | None]({
+            weapon_archetype.get_base_term(): weapon_archetype
             for weapon_archetype in weapon_archetypes
-            if weapon_archetype.get_term() is not None})
+            if weapon_archetype.get_base_term() is not None})
         archetype_translator.add_term(THE_SAME_MAIN_WEAPON, None)
         self._archetype_translator = archetype_translator
         default_sidearm_name_prop = apex_config.get_default_sidearm_name()
@@ -60,19 +63,22 @@ class WeaponTranslator:
     def get_base_weapons(self) -> tuple[ConcreteWeapon, ...]:
         return self._base_weapons
 
-    def get_default_weapons(self) -> tuple[WeaponBase, ...]:
-        weapons = self._base_weapons
+    def _to_default_loadout(self, weapon: ConcreteWeapon) -> Loadout:
+        loadout = weapon
         default_sidearm = self.get_default_sidearm()
         if default_sidearm is not None:
-            weapons = tuple(weapon.combine_with_sidearm(default_sidearm) for weapon in weapons)
+            loadout = loadout.add_sidearm(default_sidearm)
         if self.get_reload_by_default():
-            weapons = tuple(weapon.reload() for weapon in weapons)
-        return weapons
+            loadout = loadout.reload()
+        return loadout
 
-    def translate_weapon_terms(self, words: Words) -> Generator[WeaponBase, None, None]:
+    def get_fully_kitted_loadouts(self) -> Tuple[Loadout, ...]:
+        return tuple(map(self._to_default_loadout, self._fully_kitted_weapons))
+
+    def translate_weapon_terms(self, words: Words) -> Generator[Loadout, None, None]:
         check_type(Words, words=words)
 
-        if self._NO_RELOAD_FINDER.find_term(words):
+        if WITHOUT_RELOAD in words:
             with_reloads = False
         else:
             with_reloads = self.get_reload_by_default()
@@ -109,7 +115,7 @@ class WeaponTranslator:
                 #  consider Ballistic's third weapon and Rampart's "Sheila".
                 looking_for_sidearm = False
                 sidearm = archetype.get_best_match(archetype_args)
-                weapon = main_weapon.combine_with_sidearm(sidearm)
+                weapon = main_weapon.add_sidearm(sidearm)
             elif self.is_asking_for_sidearm(archetype_args):
                 main_weapon = archetype.get_best_match(archetype_args)
                 looking_for_sidearm = True
@@ -124,15 +130,15 @@ class WeaponTranslator:
             yield weapon
 
     @staticmethod
-    def is_asking_for_sidearm(archetype_args) -> bool:
-        return WeaponTranslator._WITH_SIDEARM_FINDER.find_term(archetype_args)
+    def is_asking_for_sidearm(archetype_args: Words) -> bool:
+        return SWITCHING_TO_SIDEARM in archetype_args
 
-    def add_default_sidearm(self, main_weapon: ConcreteWeapon) -> WeaponBase:
+    def add_default_sidearm(self, main_weapon: ConcreteWeapon) -> Loadout:
         check_type(ConcreteWeapon, main_weapon=main_weapon)
 
         default_sidearm = self.get_default_sidearm()
         if default_sidearm is not None:
-            weapon = main_weapon.combine_with_sidearm(default_sidearm)
+            weapon = main_weapon.add_sidearm(default_sidearm)
         else:
             weapon = main_weapon
         return weapon

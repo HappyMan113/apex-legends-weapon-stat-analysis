@@ -31,10 +31,9 @@ class BestCommand(ApexCommand):
         number = next(num.get_value() for num in numbers)
 
         LOGGER.debug(f'Getting {number} best weapons.')
-        weapons = self.get_translator().get_default_weapons()
-        comparison_result = self._comparer.compare_weapons(weapons).limit_to_best_num(number)
-        LOGGER.info(f'Best {number} weapons:\n'
-                    f'  {comparison_result.get_archetypes()}')
+        loadouts = self.get_translator().get_fully_kitted_loadouts()
+        comparison_result = self._comparer.compare_loadouts(loadouts).limit_to_best_num(number)
+        LOGGER.info(f'Best {number} weapons: {comparison_result}')
         audible_names = ' '.join([weapon_archetype.get_term().to_audible_str()
                                   for weapon_archetype in comparison_result.get_archetypes()])
         return audible_names

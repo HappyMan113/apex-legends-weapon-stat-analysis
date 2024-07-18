@@ -1,21 +1,22 @@
 import itertools
 import logging
+import os
 from types import MappingProxyType
-from typing import Iterable, Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
 
-from apex_assistant.checker import check_int, check_tuple
+from apex_assistant.checker import check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
-from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype, WeaponBase
+from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype, Loadout
 
 logger = logging.getLogger()
 
 
 class _ComparisonResult:
     def __init__(self,
-                 sorted_archetypes: MappingProxyType[WeaponArchetype, Tuple[float, WeaponBase]],
-                 sorted_weapons: MappingProxyType[WeaponBase, float]):
+                 sorted_archetypes: MappingProxyType[WeaponArchetype, Tuple[float, Loadout]],
+                 sorted_weapons: MappingProxyType[Loadout, float]):
         self.sorted_archetypes = sorted_archetypes
         self.sorted_weapons = sorted_weapons
         self.weighted_average_damage = np.array(list(sorted_weapons.values()))
@@ -41,16 +42,16 @@ class _ComparisonResult:
             weapon: tup
             for weapon, tup in itertools.islice(weapon_dict.items(), num)})
 
-    def get_archetypes(self) -> MappingProxyType[WeaponArchetype, tuple[float, WeaponBase]]:
+    def get_archetypes(self) -> MappingProxyType[WeaponArchetype, tuple[float, Loadout]]:
         return self.sorted_archetypes
 
-    def get_sorted_weapons(self) -> MappingProxyType[WeaponBase, float]:
+    def get_sorted_weapons(self) -> MappingProxyType[Loadout, float]:
         return self.sorted_weapons
 
-    def get_best_weapon(self) -> tuple[WeaponBase, float]:
+    def get_best_weapon(self) -> tuple[Loadout, float]:
         return self.get_nth_best_weapon(1)
 
-    def get_nth_best_weapon(self, n_one_indexed: int) -> tuple[WeaponBase, float]:
+    def get_nth_best_weapon(self, n_one_indexed: int) -> tuple[Loadout, float]:
         assert n_one_indexed >= 1
         n_one_indexed = min(n_one_indexed, len(self.sorted_weapons))
         return list(itertools.islice(self.sorted_weapons.items(), n_one_indexed))[-1]
@@ -86,10 +87,11 @@ class WeaponComparer:
         ttks.sort()
         self.ttks = ttks
 
-    def compare_weapons(self, base_weapons: Iterable[WeaponBase]) -> _ComparisonResult:
-        if not isinstance(base_weapons, tuple):
-            base_weapons = tuple(base_weapons)
+    def get_expected_mean_dps(self, loadout: Loadout) -> float:
+        """Convenience method for the getting the expected mean DPS of a particular loadout."""
+        return next(iter(self.compare_loadouts((loadout,)).get_sorted_weapons().values()))
 
+    def compare_loadouts(self, loadouts: Sequence[Loadout]) -> _ComparisonResult:
         tiebreaker_time = 10
 
         ts = self.ttks
@@ -106,36 +108,31 @@ class WeaponComparer:
             ts = np.append(ts, tiebreaker_time)
             weights = np.append(weights, weights.sum() * 0.01)
 
-        num_base_weapons = len(base_weapons)
+        num_base_weapons = len(loadouts)
         damage_table: np.ndarray[np.floating] = np.empty((num_base_weapons, len(ts)))
-        for idx, base_weapon in enumerate(base_weapons):
-            base_weapon: ConcreteWeapon = base_weapon
-
-            # This could be made faster by using vectorized operations.
-            damages_cum = np.array([base_weapon.get_cumulative_damage(t) for t in ts])
-            damage_table[idx] = damages_cum
+        for idx, weapon in enumerate(loadouts):
+            check_type(Loadout, weapon=weapon)
+            weapon: Loadout = weapon
+            damage_table[idx] = np.array([weapon.get_cumulative_damage(t) for t in ts])
 
         # This is the mean dps up till time t for t in TTKs.
         mean_dps_till_time_t = damage_table * (1 / ts)
 
         # This one actually weights earlier damage more highly.
-        weighted_average_damage = np.average(mean_dps_till_time_t,
-                                             axis=1,
-                                             weights=weights)
-        sorti = weighted_average_damage.argsort()[::-1]
-        sorted_weapons: tuple[WeaponBase, ...] = tuple(base_weapons[idx] for idx in sorti)
+        expected_mean_dps = np.average(mean_dps_till_time_t, axis=1, weights=weights)
+        sorti = expected_mean_dps.argsort()[::-1]
 
-        sorted_weapons_dict: dict[WeaponBase, float] = {
-            weapon: weighted_avg_damage
-            for weapon, weighted_avg_damage in zip(sorted_weapons, weighted_average_damage[sorti])
+        sorted_weapons_dict: dict[Loadout, float] = {
+            loadouts[idx]: weighted_avg_damage
+            for idx, weighted_avg_damage in zip(sorti, expected_mean_dps[sorti])
         }
         if len(sorted_weapons_dict) < num_base_weapons:
             logger.warning('Duplicate weapons found. Only unique weapons will be compared.')
 
-        sorted_archetypes_dict: dict[WeaponArchetype, tuple[float, WeaponBase]] = {}
-        for weapon, weighted_avg_damage in sorted_weapons_dict.items():
-            if weapon.get_archetype() not in sorted_archetypes_dict:
-                sorted_archetypes_dict[weapon.get_archetype()] = (weighted_avg_damage, weapon)
+        sorted_archetypes_dict: dict[WeaponArchetype, tuple[float, Loadout]] = {}
+        for loadout, weighted_avg_damage in sorted_weapons_dict.items():
+            if loadout.get_archetype() not in sorted_archetypes_dict:
+                sorted_archetypes_dict[loadout.get_archetype()] = (weighted_avg_damage, loadout)
 
         return _ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
                                  sorted_weapons=MappingProxyType(sorted_weapons_dict))
@@ -144,25 +141,35 @@ class WeaponComparer:
                      base_weapons: tuple[ConcreteWeapon, ...],
                      sidearm: ConcreteWeapon | None = None,
                      show_plots: bool = False):
-        without_wingman_weapons = tuple(weapon.reload() for weapon in base_weapons)
+        check_tuple(ConcreteWeapon, allow_empty=False, base_weapons=base_weapons)
+
         if sidearm is not None:
-            with_wingman_weapons = tuple(weapon.combine_with_sidearm(sidearm).reload()
-                                         for weapon in base_weapons)
-            base_weapons: tuple[WeaponBase, ...] = without_wingman_weapons + with_wingman_weapons
+            sidearms = (sidearm,)
         else:
-            base_weapons: tuple[WeaponBase, ...] = without_wingman_weapons
+            sidearms = base_weapons
 
-        result = self.compare_weapons(base_weapons)
+        weapons: list[Loadout] = []
+        for sidearm in sidearms:
+            weapons.extend(weapon.add_sidearm(sidearm).reload() for weapon in base_weapons)
+        weapons.extend(weapon.reload() for weapon in base_weapons)
 
+        result = self.compare_loadouts(weapons)
+
+        dmg_format = '4.2f'
         sorted_weapons_str = '\n'.join(
-            f'  {weighted_avg_damage:4.2f}: {weapon}'
+            f'   {weapon}: {weighted_avg_damage:{dmg_format}}'
             for weapon, weighted_avg_damage in
             result.get_sorted_weapons().items())
-        logger.info(f'Sorted Weapons:\n{sorted_weapons_str}')
-
+        if sorted_weapons_str.count('\n') > 100:
+            filename = os.path.abspath('comparison_results.log')
+            with open(filename, 'w+') as fp:
+                fp.write(sorted_weapons_str)
+            logger.info(f'Wrote result to {filename}')
+        else:
+            logger.info(f'Sorted Weapons:\n{sorted_weapons_str}')
         archetypes_str = '\n'.join(
-            f'  {base_weapon}: {dmg:4.2f}'
-            for weapon, (dmg, base_weapon) in
+            f'  {base_weapon}: {weighted_avg_damage:{dmg_format}}'
+            for weapon, (weighted_avg_damage, base_weapon) in
             result.get_archetypes().items())
         logger.info(f'Sorted Weapon Archetypes:\n{archetypes_str}')
 

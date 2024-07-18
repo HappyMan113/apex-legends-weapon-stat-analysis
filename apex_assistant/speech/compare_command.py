@@ -4,7 +4,7 @@ from enum import Enum
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.apex_terms import COMPARE
 from apex_assistant.speech.term import Words
-from apex_assistant.weapon import CombinedWeapon, WeaponBase
+from apex_assistant.weapon import FullLoadout, Loadout
 from apex_assistant.weapon_comparer import WeaponComparer
 from apex_assistant.weapon_translator import WeaponTranslator
 
@@ -39,7 +39,7 @@ class CompareCommand(ApexCommand):
 
         uniqueness = self._get_uniqueness(weapons)
 
-        comparison_result = self._comparer.compare_weapons(weapons)
+        comparison_result = self._comparer.compare_loadouts(weapons)
         best_weapon, score = comparison_result.get_best_weapon()
         LOGGER.info(f'Comparison result: {comparison_result}')
         audible_name = self._make_audible(best_weapon, uniqueness=uniqueness)\
@@ -59,13 +59,13 @@ class CompareCommand(ApexCommand):
             return _Uniqueness.SAY_MAIN_ARCHETYPE_NAMES
 
         # This is kinda dumb, but I can't think of a better way right now.
-        if all(isinstance(weapon, CombinedWeapon) for weapon in weapons):
-            main_weapons = set(map(CombinedWeapon.get_main_weapon, weapons))
+        if all(isinstance(weapon, FullLoadout) for weapon in weapons):
+            main_weapons = set(map(FullLoadout.get_main_weapon, weapons))
             main_weapons_all_same = len(main_weapons) == 1
             if not main_weapons_all_same:
                 return _Uniqueness.SAY_EVERYTHING
 
-            sidearm_archetypes = set(map(CombinedWeapon.get_sidearm, weapons))
+            sidearm_archetypes = set(map(FullLoadout.get_sidearm, weapons))
             unique_sidearm_archetypes = len(sidearm_archetypes) == len(weapons)
             if unique_sidearm_archetypes:
                 return _Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES
@@ -73,11 +73,11 @@ class CompareCommand(ApexCommand):
         return _Uniqueness.SAY_EVERYTHING
 
     @staticmethod
-    def _make_audible(weapon: WeaponBase, uniqueness: _Uniqueness):
+    def _make_audible(weapon: Loadout, uniqueness: _Uniqueness):
         if uniqueness is _Uniqueness.SAY_MAIN_ARCHETYPE_NAMES:
             weapon_name: str = weapon.get_archetype().get_term().to_audible_str()
         elif uniqueness is _Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES:
-            assert isinstance(weapon, CombinedWeapon)
+            assert isinstance(weapon, FullLoadout)
             sidearm_name: str = weapon.get_sidearm().get_archetype().get_term().to_audible_str()
             weapon_name: str = f'sidearm {sidearm_name}'
         else:

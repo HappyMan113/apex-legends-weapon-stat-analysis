@@ -165,20 +165,3 @@ class Translator(Generic[T]):
             if term.has_variation(term_to_test):
                 return term, val
         return None
-
-
-class TermLookerUpper:
-    def __init__(self, terms: Tuple[RequiredTerm, ...]):
-        check_type(tuple, terms=terms)
-        self._translator = Translator[RequiredTerm]({term: term for term in terms})
-
-    def look_up_term(self, words: Words) -> tuple[RequiredTerm, ...]:
-        return tuple(parsed.get_value() for parsed in self._translator.translate_terms(words))
-
-
-class SingleTermFinder:
-    def __init__(self, term: RequiredTerm):
-        self._looker_upper = Translator[RequiredTerm]({term: term})
-
-    def find_term(self, words: Words) -> bool:
-        return next(self._looker_upper.translate_terms(words), None) is not None

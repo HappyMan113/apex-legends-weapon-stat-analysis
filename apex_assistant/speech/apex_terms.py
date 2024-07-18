@@ -1,6 +1,7 @@
-from typing import Tuple
+from types import MappingProxyType
+from typing import Mapping, Optional, Tuple, TypeAlias, Union
 
-from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term
+from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term, TermBase
 
 
 def _create_level_terms(attachment_base_name: RequiredTerm,
@@ -70,7 +71,7 @@ LEVEL_1 = (LEVEL + ONE) | WHITE
 LEVEL_2 = (LEVEL + TWO) | BLUE
 LEVEL_3 = (LEVEL + THREE) | PURPLE
 LEVEL_4 = (LEVEL + FOUR) | GOLDEN
-LEVEL_3_OR_4 = LEVEL_3 | LEVEL_4 | LEVEL.combine(THREE, OR, FOUR)
+LEVEL_3_OR_4 = LEVEL_3 | LEVEL_4 | LEVEL.append(THREE, OR, FOUR)
 LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1, LEVEL_2, LEVEL_3_OR_4)
 BASE = Term('base')
 WITHOUT = (Term('no', 'without', 'with no', 'without a', 'without any', 'without an') | BASE |
@@ -101,7 +102,7 @@ THIRTY_THIRTY_REPEATER = \
     Term('30-30', '33', 'there are three', '30 seconds ready', 'very very', '3030')
 BOCEK = Term('Bocek', 'bow check', 'Bochek')
 CAR = Term('C.A.R.', 'car', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
-CARE_PACKAGE = Term('care package')
+CARE_PACKAGE_OPT: OptTerm = Term('care package').opt()
 ALTERNATOR = Term('Alternator', 'I don\'t need her', 'I\'ll do neither')
 CHARGE_RIFLE = Term('Charge Rifle', 'charger full', 'charged rifle', 'Ciao Dreffel', 'charger')
 FAR = Term('far', 'bar', 'bark')
@@ -111,7 +112,7 @@ SHATTER_CAPS = Term('shatter caps', 'shattercaps', 'set our caps', 'share our ca
                     'still our gaps', 'shower caps', 'shutter caps', 'shadowcaps')
 MINIMAL_DRAW = Term('minimal draw', 'minimal', 'no more', 'I\'m in a moment', 'maybe more')
 SLOW = Term('slow', 'so', 'hello')
-QUICK_OPT = Term('quick', 'quit', 'pick').opt(include_in_speech=True)
+QUICK_OPT: OptTerm = Term('quick', 'quit', 'pick').opt(include_in_speech=True)
 DRAWN = Term('full draw', 'drawn', 'drawing', 'John', 'drone', 'you\'re on', 'fully drawn')
 TURBOCHARGER = Term(
     'Turbocharger', 'dipper charger', 'gerber charger', 'to a charger', 'turbo charger',
@@ -179,9 +180,9 @@ O_ONE_ALT = Term('everyone')
 R301 = (Term('R-301', 'after they weren\'t', 'wash your own', 'R3-A1', 'R3-O1',
              'thanks everyone for', 'I\'ll also go into', 'I actually want', 'R3-O-1', 'R3-1') |
         Term('R31') |
-        R.combine(THREE.combine_int(ONE) | THREE.combine_int(ZERO, ONE) |
-                  THREE.combine(O_ONE_ALT) | THREE_O_ALT.combine(ONE)) |
-        R3.combine(ONE, ZERO.combine_int(ONE)) |
+        R.append(THREE.append_int(ONE) | THREE.append_int(ZERO, ONE) |
+                 THREE.append(O_ONE_ALT) | THREE_O_ALT.append(ONE)) |
+        R3.append(ONE, ZERO.append_int(ONE)) |
         R3)
 CARBINE = Term('to').opt() + Term(
     'Carbine', 'covering', 'caught mine', 'carbon', 'cop mine', 'car by then', 'comment', 'coming',
@@ -212,60 +213,47 @@ WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
 
-WEAPON_ARCHETYPE_TERMS: Tuple[RequiredTerm, ...] = (
-    THIRTY_THIRTY_REPEATER.combine(SLOW),
-    THIRTY_THIRTY_REPEATER.combine(QUICK_OPT),
-    ALTERNATOR,
-    ALTERNATOR.combine(OPT_WITH_INCL, DISRUPTOR),
+_T: TypeAlias = MappingProxyType[
+    RequiredTerm,
+    Union[Optional[TermBase], Tuple[Optional[TermBase], ...]]]
+ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
+    THIRTY_THIRTY_REPEATER: (SLOW, QUICK_OPT),
+    ALTERNATOR: (None, DISRUPTOR),
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
-    # BOCEK,
-    # BOCEK.combine(DRAWN),
-    # BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, OPT_WITH_INCL, MINIMAL),
-    # BOCEK.combine(OPT_WITH_INCL, SHATTER_CAPS, DRAWN),
-    BOCEK.combine(OPT_WITH_EXCL, SHATTER_CAPS.opt(), OPT_WITH_INCL, MINIMAL_DRAW),
-    BOCEK.combine(OPT_WITH_EXCL,
-                  SHATTER_CAPS.opt(),
-                  OPT_WITH_INCL,
-                  DRAWN.opt(include_in_speech=True)),
-    CAR.combine(SMG_OPT),
-    CHARGE_RIFLE,
-    # DEVOTION,
-    # DEVOTION.combine(CARE_PACKAGE),
-    # DEVOTION.combine(OPT_WITH_INCL, TURBOCHARGER),
-    DEVOTION.combine(CARE_PACKAGE.opt()),
-    # EVA_8,
-    # EVA_8.combine(CARE_PACKAGE),
-    EVA_8.combine(CARE_PACKAGE.opt()),
-    FLATLINE,
-    G7_SCOUT,
-    HAVOC,
-    HAVOC.combine(OPT_WITH_INCL, TURBOCHARGER),
-    HEMLOCK,
-    KRABER,
-    LONGBOW,
-    L_STAR,
-    MASTIFF,
-    MOZAMBIQUE,
-    MOZAMBIQUE.combine(OPT_WITH_INCL, HAMMERPOINT),
-    NEMESIS,
-    P2020,
-    P2020.combine(OPT_WITH_INCL, HAMMERPOINT),
-    PEACEKEEPER,
-    PEACEKEEPER.combine(OPT_WITH_INCL, DISRUPTOR),
-    PROWLER,
-    PROWLER.combine(CARE_PACKAGE),
-    R301_CARBINE,
-    R99,
-    RAMPAGE,
-    RAMPAGE.combine(REVVED),
-    RE_45,
-    RE_45.combine(OPT_WITH_INCL, HAMMERPOINT),
-    SENTINEL,
-    SENTINEL.combine(AMPED),
-    SPITFIRE,
-    TRIPLE_TAKE,
-    VOLT.combine(SMG_OPT),
-    WINGMAN,
-    WINGMAN.combine(OPT_WITH_INCL, BOOSTED_LOADER)
-)
+    # BOCEK: (MINIMAL_DRAW.opt(),
+    #         DRAWN,
+    #         SHATTER_CAPS + OPT_WITH_INCL + MINIMAL_DRAW,
+    #         SHATTER_CAPS + DRAWN),
+    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): (MINIMAL_DRAW,
+                                                      DRAWN.opt(include_in_speech=True),),
+    CAR.append(SMG_OPT): (None,),
+    CHARGE_RIFLE: (None,),
+    # Devotion is in the care package right now.
+    # DEVOTION: (None, TURBOCHARGER),
+    DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): (None,),
+    # EVA_8: (None,),
+    EVA_8.append_order_agnostic(CARE_PACKAGE_OPT): (None,),
+    FLATLINE: (None,),
+    G7_SCOUT: (None,),
+    HAVOC: (None, TURBOCHARGER),
+    HEMLOCK: (None,),
+    KRABER: (None,),
+    LONGBOW: (None,),
+    L_STAR: (None,),
+    MASTIFF: (None,),
+    MOZAMBIQUE: (None, HAMMERPOINT),
+    NEMESIS: (None,),
+    P2020: (None, HAMMERPOINT),
+    PEACEKEEPER: (None, DISRUPTOR),
+    PROWLER: (None,),
+    R301_CARBINE: (None,),
+    R99: (None,),
+    RAMPAGE: (None, REVVED),
+    RE_45: (None, HAMMERPOINT),
+    SENTINEL: (None, AMPED),
+    SPITFIRE: (None,),
+    TRIPLE_TAKE: (None,),
+    VOLT.append(SMG_OPT): (None,),
+    WINGMAN: (None, BOOSTED_LOADER)
+})

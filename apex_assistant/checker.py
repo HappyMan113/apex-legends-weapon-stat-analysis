@@ -1,5 +1,5 @@
 import operator
-from typing import Dict, Mapping, Optional, Sized, Tuple, Type, TypeVar, Union
+from typing import Dict, Iterable, Mapping, Optional, Sized, Tuple, Type, TypeVar, Union
 
 T = TypeVar('T')
 K = TypeVar('K')
@@ -61,7 +61,7 @@ def check_str(allow_blank: bool = True, optional: bool = False, **values: str):
             raise ValueError(f'{name} cannot be blank.')
 
 
-def to_kwargs[T](**tuples: Tuple['T', ...]) -> Dict[str, T]:
+def to_kwargs(**tuples: Iterable[T]) -> Dict[str, T]:
     return {f'{name}[{idx}]': value
             for name, tup in tuples.items()
             for idx, value in enumerate(tup)}
@@ -78,33 +78,48 @@ def check_equal_length(**sized_objects: Sized):
                              f'{len(first_value)})')
 
 
-def check_tuple(allowed_element_types: Type[T] | Tuple[Type[T], ...],
-                allow_empty: bool = True,
-                **single_or_tuple: Tuple[T, ...]):
-    check_type(tuple, **single_or_tuple)
-    check_type(allowed_element_types, **to_kwargs(**single_or_tuple))
-    for name, tup in single_or_tuple.items():
-        if not allow_empty and len(tup) == 0:
+def check_iterable(allowed_element_types: Type[T] | Tuple[Type[T], ...],
+                   allowed_iterable_types: Type[T] | Tuple[Type[T], ...] = Iterable,
+                   values_optional: bool = False,
+                   allow_empty: bool = True,
+                   **iterable: Iterable[T]):
+    check_type(allowed_iterable_types, **iterable)
+    check_type(allowed_element_types, optional=values_optional, **to_kwargs(**iterable))
+    for name, tup in iterable.items():
+        if not allow_empty and next(iter(tup), None) is None:
             raise ValueError(f'{name} cannot be empty.')
 
 
+def check_tuple(allowed_element_types: Type[T] | Tuple[Type[T], ...],
+                values_optional: bool = False,
+                allow_empty: bool = True,
+                **tup: Tuple[T, ...]):
+    check_iterable(allowed_element_types=allowed_element_types,
+                   allowed_iterable_types=tuple,
+                   values_optional=values_optional,
+                   allow_empty=allow_empty,
+                   **tup)
+
+
 def check_mapping(allowed_key_types: Optional[Union[Type[K], Tuple[Type[K], ...]]] = None,
+                  keys_optional: bool = False,
                   allowed_value_types: Optional[Union[Type[V], Tuple[Type[V], ...]]] = None,
+                  values_optional: bool = False,
                   allow_empty: bool = True,
                   **dictionaries: Mapping[K, V]):
     check_type(Mapping, **dictionaries)
     if allowed_key_types is not None:
-        check_type(allowed_key_types, **{
-            f'Element {idx} in {dict_name}': elt_key
-            for dict_name, dictionary in dictionaries.items()
-            for idx, elt_key in enumerate(dictionary)
-        })
+        check_type(allowed_key_types,
+                   optional=keys_optional,
+                   **{f'Element {idx} in {dict_name}': elt_key
+                      for dict_name, dictionary in dictionaries.items()
+                      for idx, elt_key in enumerate(dictionary)})
     if allowed_value_types is not None:
-        check_type(allowed_value_types, **{
-            f'{dict_name}[{elt_key}]': elt_value
-            for dict_name, dictionary in dictionaries.items()
-            for elt_key, elt_value in dictionary.items()
-        })
+        check_type(allowed_value_types,
+                   optional=values_optional,
+                   **{f'{dict_name}[{elt_key}]': elt_value
+                      for dict_name, dictionary in dictionaries.items()
+                      for elt_key, elt_value in dictionary.items()})
     for dict_name, dictionary in dictionaries.items():
         if not allow_empty and len(dictionary) == 0:
             raise ValueError(f'{dict_name} cannot be empty.')

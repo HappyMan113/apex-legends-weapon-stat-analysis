@@ -1,13 +1,22 @@
 import abc
-import math
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Generic, Optional, Set, Tuple, TypeVar, Union
+from typing import (Dict,
+                    Generator,
+                    Generic,
+                    Iterable,
+                    Optional,
+                    Set,
+                    Tuple,
+                    TypeVar,
+                    Union,
+                    final)
 
 from apex_assistant.checker import (check_bool,
                                     check_equal_length,
                                     check_float,
                                     check_int,
+                                    check_iterable,
                                     check_str,
                                     check_type,
                                     to_kwargs)
@@ -18,7 +27,7 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               LEVEL_TERMS,
                                               SWITCHING_TO_SIDEARM,
                                               WITH_RELOAD_OPT)
-from apex_assistant.speech.term import RequiredTerm, Words
+from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import Translator
 
 
@@ -367,7 +376,7 @@ class SpinupNone(Spinup):
         return isinstance(other, SpinupNone)
 
 
-class WeaponBase(abc.ABC):
+class Loadout(abc.ABC):
     def __init__(self, name: str, term: RequiredTerm):
         check_str(allow_blank=False, name=name)
         check_type(RequiredTerm, term=term)
@@ -379,10 +388,6 @@ class WeaponBase(abc.ABC):
 
     @abc.abstractmethod
     def get_archetype(self) -> 'WeaponArchetype':
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def get_deploy_time_secs(self) -> float:
         raise NotImplementedError()
 
     def get_name(self):
@@ -400,17 +405,6 @@ class WeaponBase(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def get_tactical_reload_time_secs(self) -> float | None:
-        raise NotImplementedError()
-
-    def reload(self) -> 'WeaponBase':
-        return ReloadingWeapon(self) if self.get_tactical_reload_time_secs() is not None else self
-
-    @abc.abstractmethod
     def __hash__(self):
         raise NotImplementedError()
 
@@ -419,70 +413,87 @@ class WeaponBase(abc.ABC):
         raise NotImplementedError()
 
 
-class ReloadingWeapon(WeaponBase):
-    def __init__(self, reloading_weapon: 'WeaponBase'):
-        super().__init__(f'{reloading_weapon.get_name()} {WITH_RELOAD_OPT}',
-                         reloading_weapon.get_term().combine(WITH_RELOAD_OPT))
-        assert reloading_weapon.get_tactical_reload_time_secs() is not None
-        self.reloading_weapon = reloading_weapon
-        self.reload_time_secs = float(reloading_weapon.get_tactical_reload_time_secs())
+class NonReloadingLoadout(Loadout, abc.ABC):
+    @abc.abstractmethod
+    def get_deploy_time_secs(self) -> float:
+        """
+        Note: Given that reloading should be the final step when considering a loadout, deploy time
+        should be irrelevant.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_tactical_reload_time_secs(self) -> float | None:
+        raise NotImplementedError()
+
+    @final
+    def reload(self) -> Loadout:
+        return ReloadingLoadout(self) if self.get_tactical_reload_time_secs() is not None else self
+
+    @abc.abstractmethod
+    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
+        raise NotImplementedError()
+
+
+class ReloadingLoadout(Loadout):
+    def __init__(self, wrapped_loadout: NonReloadingLoadout):
+        check_type(NonReloadingLoadout, wrapped_loadout=wrapped_loadout)
+        tac_reload_time_secs = wrapped_loadout.get_tactical_reload_time_secs()
+        if tac_reload_time_secs is None:
+            raise ValueError(f'Weapon {wrapped_loadout} cannot be reloaded.')
+
+        super().__init__(f'{wrapped_loadout.get_name()} {WITH_RELOAD_OPT}',
+                         wrapped_loadout.get_term().append(WITH_RELOAD_OPT))
+        self.wrapped_loadout = wrapped_loadout
+        self.reload_time_secs = float(wrapped_loadout.get_tactical_reload_time_secs())
 
     def get_archetype(self) -> 'WeaponArchetype':
-        return self.reloading_weapon.get_archetype()
-
-    def get_deploy_time_secs(self) -> float:
-        return self.reloading_weapon.get_deploy_time_secs()
+        return self.wrapped_loadout.get_archetype()
 
     def get_instantaneous_damage(self, time_seconds: float, include_deployment=False) -> float:
         reload_time_seconds = self.reload_time_secs
-        mag_duration_seconds = self.reloading_weapon.get_magazine_duration_seconds(tactical=True)
+        mag_duration_seconds = self.wrapped_loadout.get_magazine_duration_seconds(tactical=True)
         cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
         rel_time_seconds = time_seconds % cycle_duration_seconds
-        return (self.reloading_weapon.get_instantaneous_damage(rel_time_seconds)
+        return (self.wrapped_loadout.get_instantaneous_damage(rel_time_seconds)
                 if rel_time_seconds < mag_duration_seconds
                 else 0)
 
     def get_cumulative_damage(self, time_seconds: float, include_deployment=False) -> float:
-        dt = self.get_deploy_time_secs() if include_deployment else 0
+        dt = self.wrapped_loadout.get_deploy_time_secs() if include_deployment else 0
         time_seconds -= dt
         if time_seconds <= 0:
             return 0
 
         reload_time_seconds = self.reload_time_secs
-        mag_duration_seconds = self.reloading_weapon.get_magazine_duration_seconds(tactical=True)
+        mag_duration_seconds = self.wrapped_loadout.get_magazine_duration_seconds(tactical=True)
         cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
         num_completed_cycles, rel_time_seconds = divmod(time_seconds, cycle_duration_seconds)
         if rel_time_seconds >= mag_duration_seconds:
             cum_damage = 0
             num_completed_cycles += 1
         else:
-            cum_damage = self.reloading_weapon.get_cumulative_damage(rel_time_seconds)
+            cum_damage = self.wrapped_loadout.get_cumulative_damage(rel_time_seconds)
         cum_damage += (num_completed_cycles *
-                       self.reloading_weapon.get_cumulative_damage(mag_duration_seconds))
+                       self.wrapped_loadout.get_cumulative_damage(mag_duration_seconds))
         return cum_damage
 
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        return math.inf
-
-    def get_tactical_reload_time_secs(self) -> float | None:
-        return self.reloading_weapon.get_tactical_reload_time_secs()
-
     def __hash__(self):
-        return hash(self.__class__) ^ hash(self.reloading_weapon)
+        return hash(self.__class__) ^ hash(self.wrapped_loadout)
 
     def __eq__(self, other):
-        return (isinstance(other, ReloadingWeapon) and
-                other.reloading_weapon == self.reloading_weapon)
+        return (isinstance(other, ReloadingLoadout) and
+                other.wrapped_loadout == self.wrapped_loadout)
 
 
-class CombinedWeapon(WeaponBase):
+class FullLoadout(NonReloadingLoadout):
     def __init__(self, main_weapon: 'ConcreteWeapon', sidearm: 'ConcreteWeapon'):
         assert isinstance(main_weapon, ConcreteWeapon)
         assert isinstance(sidearm, ConcreteWeapon)
         self.main_weapon = main_weapon
         self.sidearm = sidearm
         super().__init__(f'{main_weapon.name} {SWITCHING_TO_SIDEARM} {sidearm.name}',
-                         main_weapon.get_term().combine(SWITCHING_TO_SIDEARM, sidearm.get_term()))
+                         main_weapon.get_term().append(SWITCHING_TO_SIDEARM, sidearm.get_term()))
 
     def get_deploy_time_secs(self) -> float:
         return self.main_weapon.get_deploy_time_secs()
@@ -521,7 +532,7 @@ class CombinedWeapon(WeaponBase):
         return hash(self.__class__) ^ hash((self.main_weapon, self.sidearm))
 
     def __eq__(self, other):
-        return (isinstance(other, CombinedWeapon) and
+        return (isinstance(other, FullLoadout) and
                 other.main_weapon == self.main_weapon and other.sidearm == self.sidearm)
 
     def get_main_weapon(self) -> 'ConcreteWeapon':
@@ -531,7 +542,7 @@ class CombinedWeapon(WeaponBase):
         return self.sidearm
 
 
-class ConcreteWeapon(WeaponBase):
+class ConcreteWeapon(NonReloadingLoadout):
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
@@ -606,14 +617,15 @@ class ConcreteWeapon(WeaponBase):
                 self.spinup == other.spinup and
                 self.tactical_reload_time_secs == other.tactical_reload_time_secs)
 
-    def combine_with_sidearm(self, sidearm: 'ConcreteWeapon') -> 'CombinedWeapon':
-        return CombinedWeapon(self, sidearm)
+    def add_sidearm(self, sidearm: 'ConcreteWeapon') -> 'FullLoadout':
+        return FullLoadout(self, sidearm)
 
 
 class WeaponArchetype:
     def __init__(self,
                  name: str,
-                 term: RequiredTerm,
+                 base_term: RequiredTerm,
+                 suffix: Optional[TermBase],
                  weapon_class: str,
                  damage_body: float,
                  deploy_time_secs: float,
@@ -623,7 +635,9 @@ class WeaponArchetype:
                  full_reload_time: SingleReloadTime,
                  spinup: Spinup):
         self.name = name
-        self.term = term
+        self.base_term = base_term
+        self.suffix = suffix
+        self.full_term: RequiredTerm = ((base_term + suffix) if suffix is not None else base_term)
         self.weapon_class = weapon_class
         self.damage_body = damage_body
         self.deploy_time_secs = deploy_time_secs
@@ -644,7 +658,7 @@ class WeaponArchetype:
             tactical_reload_times: MappingProxyType[Optional[RequiredTerm], float]
     ) -> Generator[ConcreteWeapon, None, None]:
         name = self.name
-        term = self.term
+        term = self.get_term()
         weapon_class = self.weapon_class
         damage_body = self.damage_body
         deploy_time_secs = self.deploy_time_secs
@@ -666,7 +680,7 @@ class WeaponArchetype:
                         for _term in (rpm_term, mag_term, stock_term)
                         if _term is not None)
                     if len(more_terms) > 0:
-                        full_term = term.combine(*more_terms)
+                        full_term = term.append(*more_terms)
                     else:
                         full_term = term
                     base_weapon = ConcreteWeapon(
@@ -682,8 +696,14 @@ class WeaponArchetype:
                         tactical_reload_time_secs=tactical_reload_time)
                     yield base_weapon
 
+    def get_base_term(self) -> RequiredTerm:
+        return self.base_term
+
+    def get_suffix(self) -> Optional[TermBase]:
+        return self.suffix
+
     def get_term(self) -> RequiredTerm:
-        return self.term
+        return self.full_term
 
     def get_name(self) -> str:
         return self.name
@@ -699,7 +719,12 @@ class WeaponArchetype:
 
     def get_best_match(self, words: Words) -> ConcreteWeapon:
         # We assume that it'll give us something.
+        check_type(Words, words=words)
         return next(self.get_base_weapons(words))
+
+    def get_best_weapon(self):
+        # We assume that it'll give us something and that the best one will come first.
+        return next(self.get_base_weapons(None))
 
     def get_base_weapons(self, words: Words | None = None) -> Generator[ConcreteWeapon, None, None]:
         if words is None:
@@ -726,3 +751,74 @@ class WeaponArchetype:
                 mags=mags,
                 tactical_reload_times=tactical_reload_times):
             yield weapon
+
+
+class WeaponArchetypes:
+    def __init__(self, weapon_archetypes: Iterable[WeaponArchetype]):
+        """
+        Initializes this object.
+
+        Args:
+            weapon_archetypes (Iterable[WeaponArchetype]): Weapon archetypes. Should be sorted in
+                descending order of expected mean DPS.
+        """
+        check_iterable(WeaponArchetype, allow_empty=False, weapon_archetypes=weapon_archetypes)
+
+        base_terms = set(archetype.get_base_term() for archetype in weapon_archetypes)
+        if len(base_terms) != 1:
+            raise ValueError('All weapon archetypes must have the same base term.')
+        base_term = next(iter(base_terms))
+
+        # We assume they were already sorted.
+        best_archetype = next(iter(weapon_archetypes))
+
+        with_suffix_archetypes: Dict[TermBase, WeaponArchetype] = {}
+        no_suffix_archetype: WeaponArchetype | None = None
+        for archetype in weapon_archetypes:
+            suffix = archetype.get_suffix()
+            if suffix is not None:
+                if suffix in with_suffix_archetypes:
+                    raise ValueError(f'Suffix {suffix} is shared by more than one archetype.')
+                with_suffix_archetypes[suffix] = archetype
+            elif no_suffix_archetype is not None:
+                raise ValueError(
+                    f'More than one archetype with base term {base_term} has no suffix.')
+            else:
+                no_suffix_archetype = archetype
+
+        self._with_suffix_archetypes = MappingProxyType(with_suffix_archetypes)
+        self._no_suffix_archetype = no_suffix_archetype
+        self._best_archetype = best_archetype
+        self._base_term = base_term
+
+    def _get_archetype(self, words: Words) -> WeaponArchetype | None:
+        check_type(Words, words=words)
+        for suffix, archetype in self._with_suffix_archetypes.items():
+            if suffix in words:
+                return archetype
+        return self._no_suffix_archetype
+
+    def _get_archetypes(self) -> Generator[WeaponArchetype, None, None]:
+        for archetype in self._with_suffix_archetypes.values():
+            yield archetype
+        if self._no_suffix_archetype is not None:
+            yield self._no_suffix_archetype
+
+    def get_base_weapons(self, words: Words | None = None) -> Generator[ConcreteWeapon, None, None]:
+        if words is None:
+            for archetype in self._get_archetypes():
+                for base_weapon in archetype.get_base_weapons():
+                    yield base_weapon
+            return
+
+        for base_weapon in self._get_archetype(words).get_base_weapons(words):
+            yield base_weapon
+
+    def get_base_term(self) -> RequiredTerm:
+        return self._base_term
+
+    def get_fully_kitted_weapon(self) -> ConcreteWeapon:
+        return self._best_archetype.get_best_weapon()
+
+    def get_best_match(self, words: Words):
+        return self._get_archetype(words).get_best_match(words)

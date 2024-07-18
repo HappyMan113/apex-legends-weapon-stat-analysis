@@ -5,7 +5,7 @@ from apex_assistant.checker import check_type
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.term import RequiredTerm, Term, Words
-from apex_assistant.speech.term_translator import SingleTermFinder, TranslatedTerm, Translator
+from apex_assistant.speech.term_translator import TranslatedTerm, Translator
 from apex_assistant.weapon import ConcreteWeapon
 from apex_assistant.weapon_comparer import WeaponComparer
 from apex_assistant.weapon_translator import WeaponTranslator
@@ -29,7 +29,6 @@ class ConfigureCommand(ApexCommand):
         })
         self._bool_translator: Translator[bool] = Translator({apex_terms.TRUE: True,
                                                               apex_terms.FALSE: False})
-        self._none_finder = SingleTermFinder(apex_terms.NONE)
         self._log_level_translator: Translator[int] = Translator({
             Term('debug', 'verbose', 'trace'): logging.DEBUG,
             Term('info'): logging.INFO,
@@ -64,7 +63,7 @@ class ConfigureCommand(ApexCommand):
             _LOGGER.info(f'Default sidearm is {sidearm}).')
             return f'Current default sidearm is {self._get_term(sidearm)}.'
 
-        if self._none_finder.find_term(arguments):
+        if apex_terms.NONE.find_term(arguments):
             old_sidearm = translator.set_default_sidearm(None)
             _LOGGER.info(f'Set default sidearm to None (was {old_sidearm}).')
             return f'Set default sidearm to none. Was {self._get_term(old_sidearm)}.'
@@ -82,7 +81,7 @@ class ConfigureCommand(ApexCommand):
     @staticmethod
     def _get_term(weapon: Optional[ConcreteWeapon]) -> str:
         check_type(ConcreteWeapon, optional=True, weapon=weapon)
-        return str(weapon.get_term()) if weapon is not None else 'none'
+        return weapon.get_term().to_audible_str() if weapon is not None else 'none'
 
     def _parse_log_level_term(self, arguments: Words) -> str:
         check_type(Words, arguments=arguments)
@@ -97,7 +96,7 @@ class ConfigureCommand(ApexCommand):
         log_level, term = next(iter(values.items()))
         _LOGGER.setLevel(log_level)
         _LOGGER.info(f'Set log level to {logging.getLevelName(log_level)}.')
-        return f'Set log level to {term}.'
+        return f'Set log level to {term.to_audible_str()}.'
 
     def _execute(self, arguments: Words) -> str:
         results: dict[_METHOD, TranslatedTerm[_METHOD]] = {}

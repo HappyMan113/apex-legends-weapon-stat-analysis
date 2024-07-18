@@ -79,6 +79,16 @@ class Words:
     def __iter__(self) -> Iterator[Word]:
         return self.words.__iter__()
 
+    def __contains__(self, term: Union['TermBase', Word]):
+        if isinstance(term, Word):
+            return term in self.words
+        if isinstance(term, TermBase):
+            # noinspection PyProtectedMember
+            return term._is_contained_in_words(self)
+
+        raise TypeError(
+            f'__contains__ only accepts objects of type Word or TermBase, which {term} is not')
+
 
 class _WordsAreForWhat(StrEnum):
     FOR_SPEECH = 'for_speech'
@@ -87,10 +97,10 @@ class _WordsAreForWhat(StrEnum):
 
 REQ_TERM: TypeAlias = 'RequiredTerm'
 OPT_TERM: TypeAlias = 'OptTerm'
-TERM: TypeAlias = Union[REQ_TERM, OPT_TERM]
+TERM: TypeAlias = Union[REQ_TERM, OPT_TERM, 'TermBase']
 
 
-class _TermBase(abc.ABC):
+class TermBase(abc.ABC):
     @abc.abstractmethod
     def get_max_variation_len(self) -> int:
         """Gets upper bound of the maximum number of words that could translate into this term."""
@@ -135,15 +145,15 @@ class _TermBase(abc.ABC):
         return ' '.join(map(str, self.get_human_readable_words(_WordsAreForWhat.FOR_SPEECH)))
 
     def __add__(self, next_term: TERM) -> TERM:
-        """Shorthand for self.combine(next_term)."""
-        check_type(_TermBase, next_term=next_term)
-        return self.combine(next_term)
+        """Shorthand for self.append(next_term)."""
+        check_type(TermBase, next_term=next_term)
+        return self.append(next_term)
 
     @abc.abstractmethod
-    def combine(self, *next_terms: TERM) -> TERM:
+    def append(self, *next_terms: TERM) -> TERM:
         """
         For indices n_1, n_2, n_3,...n_m in ascending order, a given Words object, "words",
-        translates into a combined term self.combine(next_term_1, next_term_2,... next_term_m) if
+        translates into a combined term self.append(next_term_1, next_term_2,... next_term_m) if
         words[:n_1] translates into self; words[n_1:n_2] translates into next_term_1; words[n_2:n_3]
         translates into next_term_2;... and words[n_m:] translates into next_term_m.
         """
@@ -159,19 +169,28 @@ class _TermBase(abc.ABC):
         """
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
+    @abc.abstractmethod
+    def _is_contained_in_words(self, said_words: Words) -> bool:
+        """Determines if any slice of the given words translates into this term."""
+        raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
-class RequiredTerm(_TermBase):
+    @abc.abstractmethod
+    def _insert_order_agnostic(self, other_term: TERM) -> REQ_TERM:
+        raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
+
+
+class RequiredTerm(TermBase):
     @abc.abstractmethod
     def get_possible_first_words(self) -> Generator[Word, None, None]:
         """Gets the first word in each Words object that translates to this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     def __add__(self, next_term: TERM) -> REQ_TERM:
-        check_type(_TermBase, next_term=next_term)
-        return self.combine(next_term)
+        check_type(TermBase, next_term=next_term)
+        return self.append(next_term)
 
-    def combine(self, *next_terms: TERM) -> REQ_TERM:
-        check_tuple(_TermBase, allow_empty=False, next_terms=next_terms)
+    def append(self, *next_terms: TERM) -> REQ_TERM:
+        check_tuple(TermBase, allow_empty=False, next_terms=next_terms)
         return CombinedTerm(self, *next_terms)
 
     def opt(self, include_in_speech: bool = False) -> OPT_TERM:
@@ -201,6 +220,17 @@ class RequiredTerm(_TermBase):
         if term_to_insert.included_by_default():
             return with_opt_term | without_opt_term
         return without_opt_term | with_opt_term
+
+    def _is_contained_in_words(self, said_words: Words) -> bool:
+        check_type(Words, said_words=said_words)
+        return any(next(self.get_variation_lens(said_words[start_idx:]), None) is not None
+                   for start_idx in range(len(said_words)))
+
+    def _insert_order_agnostic(self, other_term: REQ_TERM) -> REQ_TERM:
+        return (self + other_term) | (self + other_term)
+
+    def append_order_agnostic(self, other_term: TERM) -> REQ_TERM:
+        return other_term._insert_order_agnostic(self)
 
 
 class Term(RequiredTerm):
@@ -289,7 +319,7 @@ class Term(RequiredTerm):
             yield first_word
 
 
-class OptTerm(_TermBase):
+class OptTerm(TermBase):
     def __init__(self, opt_word: RequiredTerm, include_in_speech: bool):
         check_type(RequiredTerm, opt_word=opt_word)
         check_bool(include_in_speech=include_in_speech)
@@ -326,12 +356,12 @@ class OptTerm(_TermBase):
         check_int(min_value=0, n=n)
         return n == 0 or self._wrapped.has_variation_len(n)
 
-    def combine(self, *next_terms: TERM) -> TERM:
-        check_tuple(_TermBase, allow_empty=False, next_terms=next_terms)
+    def append(self, *next_terms: TERM) -> TERM:
+        check_tuple(TermBase, allow_empty=False, next_terms=next_terms)
         # noinspection PyProtectedMember
         resulting_term: TERM = next_terms[0]._insert_opt(self)
         if len(next_terms) > 1:
-            resulting_term = resulting_term.combine(*next_terms[1:])
+            resulting_term = resulting_term.append(*next_terms[1:])
         return resulting_term
 
     def _insert_opt(self, term_to_insert: OPT_TERM) -> OPT_TERM:
@@ -358,20 +388,26 @@ class OptTerm(_TermBase):
         return self._wrapped
 
     def included_by_default(self) -> bool:
-        """
-        Gets whether the wrapped required term is included by default in human-readable/speakable
-        strings.
-        """
+        """Gets whether the wrapped required term is included by default in speakable strings."""
         return self._include_in_speech
+
+    def _is_contained_in_words(self, said_words: Words) -> bool:
+        return True
+
+    def _insert_order_agnostic(self, other_term: REQ_TERM) -> REQ_TERM:
+        wrapped = self.get_wrapped_term()
+        return (((wrapped + other_term) | (other_term + wrapped) | other_term)
+                if self.included_by_default() else
+                (other_term | (wrapped + other_term) | (other_term + wrapped)))
 
 
 class CombinedTerm(RequiredTerm):
-    def __init__(self, first_sub_term: RequiredTerm, *sub_terms: _TermBase):
+    def __init__(self, first_sub_term: RequiredTerm, *sub_terms: TermBase):
         check_type(RequiredTerm, first_sub_term=first_sub_term)
-        check_tuple(_TermBase, allow_empty=False, sub_terms=sub_terms)
+        check_tuple(TermBase, allow_empty=False, sub_terms=sub_terms)
 
         self.first_sub_term = first_sub_term
-        sub_terms: tuple[_TermBase, ...] = (first_sub_term,) + sub_terms
+        sub_terms: tuple[TermBase, ...] = (first_sub_term,) + sub_terms
         self.max_variation_len = sum(term.get_max_variation_len() for term in sub_terms)
         self.min_variation_len = sum(term.get_min_variation_len() for term in sub_terms)
         self.sub_terms = sub_terms
@@ -393,7 +429,7 @@ class CombinedTerm(RequiredTerm):
 
     def __get_variation_lens(self,
                              tot_num_words: int,
-                             sub_terms: tuple[_TermBase, ...],
+                             sub_terms: tuple[TermBase, ...],
                              said_words: Words | None,
                              already_yielded: set[int] = set[int]()) -> Generator[int, None, None]:
         cur_term = sub_terms[0]
@@ -491,6 +527,6 @@ class IntTerm(Term):
     def __int__(self):
         return self.value
 
-    def combine_int(self, *next_terms: 'IntTerm'):
+    def append_int(self, *next_terms: 'IntTerm'):
         ints_str = ''.join(map(str, map(int, next_terms)))
-        return super().combine(*next_terms) | Term(ints_str)
+        return super().append(*next_terms) | Term(ints_str)
