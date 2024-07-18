@@ -1,65 +1,22 @@
 import logging
-from typing import Collection, Generator, Generic, Mapping, Tuple, TypeVar
+from typing import Generic, Mapping, Optional, Tuple, TypeVar
 
 from apex_assistant.checker import check_mapping, check_type
-from apex_assistant.speech.term import RequiredTerm, Word, Words
+from apex_assistant.speech.term import RequiredTerm, TermBase, Word, Words
+from apex_assistant.speech.translations import (FindResult,
+                                                FoundTerm,
+                                                TranslatedTerm,
+                                                TranslatedTermBuilder,
+                                                Translation)
 
 
-logger = logging.getLogger()
+_LOGGER = logging.getLogger()
 T = TypeVar('T')
-
-
-class TranslatedTerm(Generic[T]):
-    def __init__(self,
-                 term: RequiredTerm,
-                 value: T,
-                 preamble_words: Words,
-                 following_words: Words):
-        check_type(RequiredTerm, term=term)
-        check_type(Words,
-                   following_words=following_words,
-                   preamble_words=preamble_words)
-        self.term = term
-        self.value = value
-        self.preamble_words = preamble_words
-        self.following_words = following_words
-
-    def get_term(self) -> RequiredTerm:
-        return self.term
-
-    def get_value(self) -> T:
-        return self.value
-
-    def get_following_words(self) -> Words:
-        return self.following_words
-
-    def get_untranslated_words(self) -> Words:
-        return self.preamble_words + self.following_words
-
-
-class TranslatedTermBuilder(Generic[T]):
-    def __init__(self, term: RequiredTerm, value: T, preamble_words: Words):
-        check_type(RequiredTerm, term=term)
-        check_type(Words, preamble_words=preamble_words)
-        self.term = term
-        self.value = value
-        self.preamble_words: Words = preamble_words
-        self.follower_words: list[Word] = []
-
-    def add_word(self, word: Word):
-        check_type(Word, word=word)
-        self.follower_words.append(word)
-
-    def build(self) -> TranslatedTerm[T]:
-        return TranslatedTerm(term=self.term,
-                              value=self.value,
-                              preamble_words=self.preamble_words,
-                              following_words=Words(self.follower_words))
 
 
 class Translator(Generic[T]):
     def __init__(self, terms: Mapping[RequiredTerm, T] | None = None):
-        self._term_word_lim = 0
+        self._max_term_variation_len = 0
         self._terms_by_first_words: dict[Word, dict[RequiredTerm, T]] = {}
         self._values = set()
         if terms is not None:
@@ -70,8 +27,9 @@ class Translator(Generic[T]):
 
     def add_terms(self, terms: Mapping[RequiredTerm, T]):
         check_mapping(RequiredTerm, terms=terms)
-        self._term_word_lim = max(self._term_word_lim,
-                                  max((term.get_max_variation_len() for term in terms), default=0))
+        self._max_term_variation_len = max(self._max_term_variation_len,
+                                           max((term.get_max_variation_len() for term in terms),
+                                               default=0))
         for term, val in terms.items():
             self._values.add(val)
 
@@ -89,49 +47,36 @@ class Translator(Generic[T]):
         first_first_word = next(term.get_possible_first_words())
         return term in self._terms_by_first_words.get(first_first_word, {})
 
-    def translate_terms(self, words: Words) -> Generator[TranslatedTerm[T], None, None]:
+    def translate_terms(self, words: Words) -> Translation[T]:
         check_type(Words, words=words)
-        if self._term_word_lim == 0:
-            return
+        if self._max_term_variation_len == 0:
+            return Translation(words, tuple())
 
-        idx = 0
+        prev_hit_idx: int = -1
+        hit_idx: int = 0
         builder: TranslatedTermBuilder[T] | None = None
-        while idx < len(words):
-            res = self._translate_term(words[idx:idx + self._term_word_lim])
+        translated_terms: list[TranslatedTerm[T]] = []
+        while hit_idx < len(words):
+            res = self._translate_term(words[hit_idx:hit_idx + self._max_term_variation_len])
             if res is not None:
                 if builder is not None:
-                    yield builder.build()
-                    preceding_words: Words = Words([])
-                else:
-                    preceding_words: Words = words[:idx]
+                    translated_terms.append(builder.build())
                 term, val, words_inc = res
                 builder = TranslatedTermBuilder(term=term,
                                                 value=val,
-                                                preamble_words=preceding_words)
+                                                preceding_words=words[prev_hit_idx + 1:hit_idx])
+                prev_hit_idx = hit_idx
             else:
                 if builder is not None:
-                    word = words[idx]
+                    word = words[hit_idx]
                     builder.add_word(word)
                 words_inc = 1
 
-            idx += words_inc
+            hit_idx += words_inc
 
         if builder is not None:
-            yield builder.build()
-
-    @staticmethod
-    def get_untranslated_words(original_words: Words,
-                               translated_terms: Collection[TranslatedTerm]) -> Words:
-        check_type(Words, original_words=original_words)
-        if len(translated_terms) == 0:
-            # Can't recover from what was parsed if no terms were parsed.
-            return original_words
-
-        words: list[Word] = []
-        for translated_term in translated_terms:
-            check_type(TranslatedTerm, translated_term=translated_term)
-            words.extend(translated_term.get_untranslated_words())
-        return Words(words)
+            translated_terms.append(builder.build())
+        return Translation(words, tuple(translated_terms))
 
     def _translate_term(self, words: Words) -> Tuple[RequiredTerm, T, int] | None:
         check_type(Words, words=words)
@@ -146,9 +91,9 @@ class Translator(Generic[T]):
         if term_to_val_dict is None:
             return None
 
-        for num_words in range(self._term_word_lim, 0, -1):
+        for num_words in range(self._max_term_variation_len, 0, -1):
             term_to_test = words[:num_words]
-            term_and_val: tuple[RequiredTerm, T] | None = self._translate_term2(
+            term_and_val: Tuple[RequiredTerm, T] | None = self._translate_term_directly(
                 term_to_test=term_to_test,
                 term_to_val_dict=term_to_val_dict)
             if term_and_val is not None:
@@ -158,10 +103,43 @@ class Translator(Generic[T]):
         return None
 
     @staticmethod
-    def _translate_term2(term_to_test: Words, term_to_val_dict: dict[RequiredTerm, T]) -> \
+    def _translate_term_directly(term_to_test: Words, term_to_val_dict: dict[RequiredTerm, T]) -> \
             tuple[RequiredTerm, T] | None:
         assert isinstance(term_to_test, Words)
         for term, val in term_to_val_dict.items():
             if term.has_variation(term_to_test):
                 return term, val
         return None
+
+
+class BoolTranslator:
+    def __init__(self, true_term: RequiredTerm, false_term: RequiredTerm):
+        self._translator = Translator({true_term: True,
+                                       false_term: False})
+
+    def translate(self, words: Words, default_value: bool) -> FindResult:
+        translation = self._translator.translate_terms(words)
+        if len(translation) > 1:
+            _LOGGER.warning('More than one value found. Only the last one will be used.')
+            value = translation.get_latest_value()
+        else:
+            value = next(iter(translation), default_value)
+        return FindResult(found_any=value,
+                          found_terms=translation.terms(),
+                          untranslated_words=translation.get_untranslated_words())
+
+
+class SingleTermFinder:
+    def __init__(self, term: TermBase):
+        check_type(TermBase, term=term)
+        req_term, is_opt = term.unwrap()
+
+        self._translator = Translator({req_term: None})
+        self._is_opt = is_opt
+
+    def find_all(self, said_words: Words) -> FindResult:
+        check_type(Words, said_words=said_words)
+        translation = self._translator.translate_terms(said_words)
+        return FindResult(found_any=(len(translation) > 0 or self._is_opt),
+                          found_terms=translation.terms(),
+                          untranslated_words=translation.get_untranslated_words())

@@ -1,5 +1,5 @@
 from types import MappingProxyType
-from typing import Mapping, Optional, Tuple, TypeAlias, Union
+from typing import Optional, TypeAlias, Union
 
 from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term, TermBase
 
@@ -91,6 +91,9 @@ WITHOUT_RELOAD = WITHOUT + RELOAD
 WITH_RELOAD: RequiredTerm = (WITH + RELOAD) | RELOAD
 WITH_RELOAD_OPT: OptTerm = WITH_RELOAD.opt()
 
+FULLY_KITTED: RequiredTerm = (Term('fully', 'full').opt() + Term('kitted', 'kidded') |
+                              Term('fully-kitted'))
+
 BOLT = Term('bolt')
 SHOTGUN_BOLT = Term('shotgun').opt() + BOLT
 ALL_BOLT_TERMS = _create_level_terms(SHOTGUN_BOLT, Term('no-bolt'))
@@ -123,7 +126,7 @@ EVA_8 = Term(
     'ev8', 'eva', 'you ate', 'evade', 'eva8', 'E-V-A-T-E', 'ebate', 'you wait', 'ewait', 'evate',
     'eat the eat', 'you may', 'if a', 'every', 'elley')
 FLATLINE = Term(
-    'Flatline', 'fly line', 'da-von', 'well then', 'batman', 'that one', 'it\'s fine',
+    'Flatline', 'flat line', 'fly line', 'da-von', 'well then', 'batman', 'that one', 'it\'s fine',
     'that line', 'it\'s not mine', 'flatlined'
     # Also sounds like "Prowler": 'bye-bye'
 )
@@ -163,7 +166,7 @@ HAMMERPOINT = Term(
     'Hammerpoint', 'hemmorhoid', 'end report', 'Ember Hoyt', 'never mind', 'nevermind',
     'error point', 'airpoint', 'camera point', 'here I\'ll play it', 'him right point',
     'fair point', 'him our point', 'hear my point', 'your own point', 'hammer point',
-    'And we\'re playing', 'her point')
+    'hammer points', 'And we\'re playing', 'her point')
 NEMESIS = Term(
     'Nemesis', 'and this is', 'now what\'s this', 'Namaste', 'messes', 'nervousness', 'yes',
     'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses', 'and that\'s just')
@@ -213,47 +216,46 @@ WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
 
-_T: TypeAlias = MappingProxyType[
-    RequiredTerm,
-    Union[Optional[TermBase], Tuple[Optional[TermBase], ...]]]
+_T: TypeAlias = MappingProxyType[RequiredTerm, Union[Optional[TermBase], Optional[TermBase]]]
 ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
-    THIRTY_THIRTY_REPEATER: (SLOW, QUICK_OPT),
-    ALTERNATOR: (None, DISRUPTOR),
+    THIRTY_THIRTY_REPEATER.append(SLOW): None,
+    THIRTY_THIRTY_REPEATER.append(QUICK_OPT): None,
+    ALTERNATOR: DISRUPTOR,
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
     # BOCEK: (MINIMAL_DRAW.opt(),
     #         DRAWN,
     #         SHATTER_CAPS + OPT_WITH_INCL + MINIMAL_DRAW,
     #         SHATTER_CAPS + DRAWN),
-    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): (MINIMAL_DRAW,
-                                                      DRAWN.opt(include_in_speech=True),),
-    CAR.append(SMG_OPT): (None,),
-    CHARGE_RIFLE: (None,),
+    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt(), MINIMAL_DRAW): None,
+    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt(), DRAWN.opt(include_in_speech=True)): None,
+    CAR.append(SMG_OPT): None,
+    CHARGE_RIFLE: None,
     # Devotion is in the care package right now.
-    # DEVOTION: (None, TURBOCHARGER),
-    DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): (None,),
-    # EVA_8: (None,),
-    EVA_8.append_order_agnostic(CARE_PACKAGE_OPT): (None,),
-    FLATLINE: (None,),
-    G7_SCOUT: (None,),
-    HAVOC: (None, TURBOCHARGER),
-    HEMLOCK: (None,),
-    KRABER: (None,),
-    LONGBOW: (None,),
-    L_STAR: (None,),
-    MASTIFF: (None,),
-    MOZAMBIQUE: (None, HAMMERPOINT),
-    NEMESIS: (None,),
-    P2020: (None, HAMMERPOINT),
-    PEACEKEEPER: (None, DISRUPTOR),
-    PROWLER: (None,),
-    R301_CARBINE: (None,),
-    R99: (None,),
-    RAMPAGE: (None, REVVED),
-    RE_45: (None, HAMMERPOINT),
-    SENTINEL: (None, AMPED),
-    SPITFIRE: (None,),
-    TRIPLE_TAKE: (None,),
-    VOLT.append(SMG_OPT): (None,),
-    WINGMAN: (None, BOOSTED_LOADER)
+    # DEVOTION: TURBOCHARGER),
+    DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
+    # EVA_8: None,
+    EVA_8.append_order_agnostic(CARE_PACKAGE_OPT): None,
+    FLATLINE: None,
+    G7_SCOUT: None,
+    HAVOC: TURBOCHARGER,
+    HEMLOCK: None,
+    KRABER: None,
+    LONGBOW: None,
+    L_STAR: None,
+    MASTIFF: None,
+    MOZAMBIQUE: HAMMERPOINT,
+    NEMESIS: None,
+    P2020: HAMMERPOINT,
+    PEACEKEEPER: DISRUPTOR,
+    PROWLER: None,
+    R301_CARBINE: None,
+    R99: None,
+    RAMPAGE: REVVED,
+    RE_45: HAMMERPOINT,
+    SENTINEL: AMPED,
+    SPITFIRE: None,
+    TRIPLE_TAKE: None,
+    VOLT.append(SMG_OPT): None,
+    WINGMAN: BOOSTED_LOADER
 })

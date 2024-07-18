@@ -6,7 +6,7 @@ from typing import (Any,
                     Callable,
                     Generic,
                     IO,
-                    Iterator,
+                    Iterable, Iterator,
                     Optional,
                     Tuple,
                     Type,
@@ -30,8 +30,7 @@ from apex_assistant.weapon import (MagazineCapacity,
                                    SpinupHavoc,
                                    SpinupNone,
                                    SpinupType,
-                                   WeaponArchetype, WeaponArchetypes)
-from apex_assistant.weapon_comparer import WeaponComparer
+                                   WeaponArchetype)
 
 logger = logging.getLogger()
 T = TypeVar('T')
@@ -42,15 +41,16 @@ class CsvReader(Generic[T]):
     CSV_DICT_TYPE = dict[str, str]
 
     def __init__(self, fp: IO):
-        self._dict_reader = csv.DictReader(fp)
+        self._dict_reader: Iterable[CsvReader.CSV_DICT_TYPE] = csv.DictReader(fp)
 
     def __iter__(self) -> Iterator[T]:
-        for item in self._parse_items(iter(map(CsvRow, self._dict_reader))):
+        for row in self._dict_reader:
+            item = self._parse_item(CsvRow(row))
             if item is not None:
                 yield item
 
     @abc.abstractmethod
-    def _parse_items(self, items: Iterator['CsvRow']) -> Iterator[T]:
+    def _parse_item(self, items: 'CsvRow') -> Optional[T]:
         raise NotImplementedError()
 
 
@@ -151,19 +151,18 @@ class TTKCsvReader(CsvReader[TTKDatum]):
     KEY_FRAMES_TO_KILL = 'Frames to Kill'
     KEY_FPS = 'FPS'
 
-    def _parse_items(self, items: Iterator['CsvRow']) -> Iterator[TTKDatum]:
-        for item in items:
-            try:
-                clip_name = item.parse_str(self.KEY_CLIP)
-            except KeyError:
-                clip_name = None
-            frames_to_kill = item.parse_int(self.KEY_FRAMES_TO_KILL)
-            fps = item.parse_float(self.KEY_FPS)
-            ttk_seconds = frames_to_kill / fps
-            yield TTKDatum(clip_name, ttk_seconds)
+    def _parse_item(self, item: CsvRow) -> TTKDatum:
+        try:
+            clip_name = item.parse_str(self.KEY_CLIP)
+        except KeyError:
+            clip_name = None
+        frames_to_kill = item.parse_int(self.KEY_FRAMES_TO_KILL)
+        fps = item.parse_float(self.KEY_FPS)
+        ttk_seconds = frames_to_kill / fps
+        return TTKDatum(clip_name, ttk_seconds)
 
 
-class WeaponCsvReader(CsvReader[WeaponArchetypes]):
+class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = "Weapon"
     KEY_WEAPON_CLASS = "Weapon Class"
     KEY_DAMAGE_BODY = "Damage (body)"
@@ -191,32 +190,27 @@ class WeaponCsvReader(CsvReader[WeaponArchetypes]):
 
     _ARCHETYPE_TRANSLATOR = Translator(ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT)
 
-    def __init__(self, fp: IO, weapon_comparer: WeaponComparer):
-        check_type(WeaponComparer, weapon_comparer=weapon_comparer)
+    def __init__(self, fp: IO):
         super().__init__(fp)
-        self._taken_terms: set[Tuple[RequiredTerm, _SUFFIX_T]] = set()
-        self._comparer = weapon_comparer
+        self._taken_terms: dict[Tuple[RequiredTerm, _SUFFIX_T], str] = {}
 
     @staticmethod
     def get_term_and_suffix(name: Words) -> Tuple[RequiredTerm, _SUFFIX_T]:
         check_type(Words, name=name)
 
         result: Optional[Tuple[RequiredTerm, _SUFFIX_T]] = None
-        warning = (f'More than one term for weapon archetype {name} found. We\'ll assume that the '
-                   'first one is right.')
         for translated_term in WeaponCsvReader._ARCHETYPE_TRANSLATOR.translate_terms(name):
-            has_none: bool = False
-            for suffix in translated_term.get_value():
-                if suffix is None:
-                    has_none = True
-                elif suffix.has_variation(translated_term.get_following_words()):
-                    if result is not None:
-                        logging.warning(warning)
-                        return result
+            suffix = translated_term.get_value()
+            if suffix is not None and suffix.has_variation(translated_term.get_following_words()):
+                if result is not None:
+                    logging.warning(
+                        f'More than one term for weapon archetype {name} found. We\'ll assume that '
+                        'the first one is right.')
+                    return result
 
-                    result = translated_term.get_term(), suffix
+                result = translated_term.get_term(), suffix
 
-            if has_none and result is None:
+            if result is None:
                 result = translated_term.get_term(), None
 
         if result is None:
@@ -232,8 +226,9 @@ class WeaponCsvReader(CsvReader[WeaponArchetypes]):
         name_words = Words(read_name)
         tup = self.get_term_and_suffix(name_words)
         if tup in self._taken_terms:
-            raise RuntimeError(f'Term {tup} refers to another weapon. Can\'t use it.')
-        self._taken_terms.add(tup)
+            raise RuntimeError(f'Term {tup} refers to another weapon: {self._taken_terms[tup]}. '
+                               f'Can\'t use it for {read_name}.')
+        self._taken_terms[tup] = read_name
 
         term, suffix = tup
         return read_name, term, suffix
@@ -327,7 +322,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetypes]):
                                              SpinupType,
                                              SpinupType.NONE)
         if spinup_type is SpinupType.NONE:
-            spinup = SpinupNone()
+            spinup = SpinupNone.get_instance()
             csv_row.ensure_empty(
                 lambda key: f'{key} must be empty for spinup type of {spinup_type}',
                 self.KEY_RPM_INITIAL,
@@ -348,50 +343,32 @@ class WeaponCsvReader(CsvReader[WeaponArchetypes]):
 
         return spinup
 
-    def _parse_items(self, rows: Iterator[CsvRow]) -> Iterator[WeaponArchetypes]:
-        weapon_archetypes_dict: dict[RequiredTerm, list[WeaponArchetype]] = {}
+    def _parse_item(self, row: CsvRow) -> Optional[WeaponArchetype]:
+        active = row.parse_bool(self.KEY_ACTIVE)
+        if not active:
+            name = row.parse_str(self.KEY_WEAPON_ARCHETYPE)
+            logger.info(f'Weapon "{name}" is not active. Skipping.')
+            return None
 
-        for row in rows:
-            active = row.parse_bool(self.KEY_ACTIVE)
-            if not active:
-                name = row.parse_str(self.KEY_WEAPON_ARCHETYPE)
-                logger.info(f'Weapon "{name}" is not active. Skipping.')
-                continue
+        # Parse basic stats
+        name, term, suffix = self._parse_weapon_archetype_term(row, self.KEY_WEAPON_ARCHETYPE)
+        weapon_class = row.parse_str(self.KEY_WEAPON_CLASS, default_value='')
+        damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
+        deploy_time_secs = row.parse_float(self.KEY_DEPLOY_TIME)
 
-            # Parse basic stats
-            name, term, suffix = self._parse_weapon_archetype_term(row, self.KEY_WEAPON_ARCHETYPE)
-            weapon_class = row.parse_str(self.KEY_WEAPON_CLASS, default_value='')
-            damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
-            deploy_time_secs = row.parse_float(self.KEY_DEPLOY_TIME)
+        rpm = self._parse_rpm(row)
+        mag = self._parse_mag(row)
+        tactical_reload_time, full_reload_time = self._parse_tactical_and_full_reload_time(row)
+        spinup = self._parse_spinup(row)
 
-            rpm = self._parse_rpm(row)
-            mag = self._parse_mag(row)
-            tactical_reload_time, full_reload_time = self._parse_tactical_and_full_reload_time(row)
-            spinup = self._parse_spinup(row)
-
-            archetype = WeaponArchetype(name=name,
-                                        base_term=term,
-                                        suffix=suffix,
-                                        weapon_class=weapon_class,
-                                        damage_body=damage_body,
-                                        deploy_time_secs=deploy_time_secs,
-                                        rounds_per_minute=rpm,
-                                        magazine_capacity=mag,
-                                        tactical_reload_time=tactical_reload_time,
-                                        full_reload_time=full_reload_time,
-                                        spinup=spinup)
-
-            if term not in weapon_archetypes_dict:
-                archetypes = []
-                weapon_archetypes_dict[term] = archetypes
-            else:
-                archetypes = weapon_archetypes_dict[term]
-            archetypes.append(archetype)
-
-        for base_term, archetypes in weapon_archetypes_dict.items():
-            yield WeaponArchetypes(tuple(sorted(archetypes,
-                                                key=self.get_expected_mean_dps,
-                                                reverse=True)))
-
-    def get_expected_mean_dps(self, archetype: WeaponArchetype):
-        return self._comparer.get_expected_mean_dps(archetype.get_best_weapon())
+        return WeaponArchetype(name=name,
+                               base_term=term,
+                               hopup_suffix=suffix,
+                               weapon_class=weapon_class,
+                               damage_body=damage_body,
+                               deploy_time_secs=deploy_time_secs,
+                               rounds_per_minute=rpm,
+                               magazine_capacity=mag,
+                               tactical_reload_time=tactical_reload_time,
+                               full_reload_time=full_reload_time,
+                               spinup=spinup)

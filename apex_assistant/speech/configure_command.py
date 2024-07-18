@@ -5,7 +5,7 @@ from apex_assistant.checker import check_type
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.term import RequiredTerm, Term, Words
-from apex_assistant.speech.term_translator import TranslatedTerm, Translator
+from apex_assistant.speech.term_translator import BoolTranslator, TranslatedTerm, Translator
 from apex_assistant.weapon import ConcreteWeapon
 from apex_assistant.weapon_comparer import WeaponComparer
 from apex_assistant.weapon_translator import WeaponTranslator
@@ -27,8 +27,7 @@ class ConfigureCommand(ApexCommand):
             apex_terms.SIDEARM: self._parse_with_sidearm_term,
             log_level: self._parse_log_level_term,
         })
-        self._bool_translator: Translator[bool] = Translator({apex_terms.TRUE: True,
-                                                              apex_terms.FALSE: False})
+        self._bool_translator = BoolTranslator(apex_terms.TRUE, apex_terms.FALSE)
         self._log_level_translator: Translator[int] = Translator({
             Term('debug', 'verbose', 'trace'): logging.DEBUG,
             Term('info'): logging.INFO,
@@ -39,12 +38,7 @@ class ConfigureCommand(ApexCommand):
 
     def _parse_with_reload_term(self, arguments: Words) -> str:
         check_type(Words, arguments=arguments)
-        values: set[bool] = {term.get_value()
-                             for term in self._bool_translator.translate_terms(arguments)}
-        if len(values) > 1:
-            _LOGGER.debug('More than one boolean value specified for reload by default.')
-            return 'Must specify either true or false for reload by default'
-        reload_by_default = next(iter(values), True)
+        reload_by_default = bool(self._bool_translator.translate(arguments, True))
         return self._set_reload_by_default(reload_by_default)
 
     def _parse_without_reload_term(self, arguments: Words) -> str:

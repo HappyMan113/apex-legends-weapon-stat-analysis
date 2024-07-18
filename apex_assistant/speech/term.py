@@ -2,7 +2,7 @@ import abc
 import string
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Iterable, Iterator, TypeAlias, Union
+from typing import Generator, Iterable, Iterator, Tuple, TypeAlias, Union
 
 from apex_assistant.checker import check_bool, check_int, check_str, check_tuple, check_type
 
@@ -78,16 +78,6 @@ class Words:
 
     def __iter__(self) -> Iterator[Word]:
         return self.words.__iter__()
-
-    def __contains__(self, term: Union['TermBase', Word]):
-        if isinstance(term, Word):
-            return term in self.words
-        if isinstance(term, TermBase):
-            # noinspection PyProtectedMember
-            return term._is_contained_in_words(self)
-
-        raise TypeError(
-            f'__contains__ only accepts objects of type Word or TermBase, which {term} is not')
 
 
 class _WordsAreForWhat(StrEnum):
@@ -170,8 +160,7 @@ class TermBase(abc.ABC):
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def _is_contained_in_words(self, said_words: Words) -> bool:
-        """Determines if any slice of the given words translates into this term."""
+    def unwrap(self) -> Tuple['RequiredTerm', bool]:
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
@@ -221,10 +210,8 @@ class RequiredTerm(TermBase):
             return with_opt_term | without_opt_term
         return without_opt_term | with_opt_term
 
-    def _is_contained_in_words(self, said_words: Words) -> bool:
-        check_type(Words, said_words=said_words)
-        return any(next(self.get_variation_lens(said_words[start_idx:]), None) is not None
-                   for start_idx in range(len(said_words)))
+    def unwrap(self) -> Tuple['RequiredTerm', bool]:
+        return self, False
 
     def _insert_order_agnostic(self, other_term: REQ_TERM) -> REQ_TERM:
         return (self + other_term) | (self + other_term)
@@ -308,12 +295,6 @@ class Term(RequiredTerm):
             words.extend(values)
         return '{' + delim.join(map(repr, words)) + '}'
 
-    def __hash__(self) -> int:
-        return self._known_words.__hash__()
-
-    def __eq__(self, other) -> bool:
-        return self._known_words.__eq__(other)
-
     def get_possible_first_words(self) -> Generator[Word | None, None, None]:
         for first_word in self._first_words:
             yield first_word
@@ -391,8 +372,8 @@ class OptTerm(TermBase):
         """Gets whether the wrapped required term is included by default in speakable strings."""
         return self._include_in_speech
 
-    def _is_contained_in_words(self, said_words: Words) -> bool:
-        return True
+    def unwrap(self) -> Tuple['RequiredTerm', bool]:
+        return self.get_wrapped_term(), True
 
     def _insert_order_agnostic(self, other_term: REQ_TERM) -> REQ_TERM:
         wrapped = self.get_wrapped_term()

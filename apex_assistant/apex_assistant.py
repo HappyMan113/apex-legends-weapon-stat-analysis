@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from typing import Iterable, Iterator, Tuple
 
 from pydub.utils import which
 
@@ -10,7 +11,7 @@ from apex_assistant.speech.command_registry import CommandRegistry
 from apex_assistant.speech.compare_command import CompareCommand
 from apex_assistant.speech.configure_command import ConfigureCommand
 from apex_assistant.speech.speech_client import SpeechClient
-from apex_assistant.weapon import WeaponArchetypes
+from apex_assistant.weapon import WeaponArchetype, WeaponArchetypes
 from apex_assistant.weapon_comparer import WeaponComparer
 from apex_assistant.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
 from apex_assistant.weapon_translator import WeaponTranslator
@@ -34,8 +35,8 @@ def register_commands() -> CommandRegistry:
 
     apex_stats_filename = os.path.join(self_path, 'weapon_stats.csv')
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:
-        dr = WeaponCsvReader(fp, weapon_comparer=comparer)
-        weapons: tuple[WeaponArchetypes, ...] = tuple(dr)
+        dr = WeaponCsvReader(fp)
+        weapons: Tuple[WeaponArchetypes, ...] = WeaponArchetypes.group_archetypes(dr)
 
     apex_config_filename = os.path.join(self_path, 'apex_config.json')
     apex_config = ApexConfig.load(apex_config_filename)
