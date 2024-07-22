@@ -25,11 +25,12 @@ def _create_level_terms(attachment_base_name: RequiredTerm,
 ZERO = IntTerm(0, 'zero', 'oh', 'you', 'out', 'own', 'we\'re', 'go', 'I go', 'you at')
 ONE = IntTerm(1, 'one', 'won', 'a', 'on', 'in', 'run', 'when in', 'learn', 'the', 'in a', 'when',
               'the', 'of', 'into')
-TWO = IntTerm(2, 'two')
+TWO = IntTerm(2, 'two', 'too', 'to')
 THREE = IntTerm(3, 'three', 'see', 'think', 'say', 'fear', 'throw', 'threw', 'should', 'show',
                 'a lot', 'stay', 'day', 'take')
 FOUR = IntTerm(4, 'four')
-NUMBER_TERMS = (ONE,
+NUMBER_TERMS = (ZERO,
+                ONE,
                 TWO,
                 THREE,
                 FOUR,
@@ -41,9 +42,18 @@ NUMBER_TERMS = (ONE,
                 IntTerm(10, 'ten'))
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
                'what\'s better', 'air')
-BEST = Term('best') + Term('weapons').opt()
+BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss')
+WEAPON: RequiredTerm = Term('weapon', 'gun')
+WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
+_SIDE = Term('side', 'secondary', 'starred')
+_ARM = Term('arm', 'weapon')
+_ARMS = Term('arms', 'weapons')
+SIDEARM: RequiredTerm = Term('sidearm', 'sodarm') | (_SIDE + _ARM)
+SIDEARMS: RequiredTerm = Term('sidearms') | (_SIDE + _ARMS)
+LOADOUT: RequiredTerm = Term('loadout', 'load out', 'load up', 'ludo')
+LOADOUTS: RequiredTerm = Term('loadouts', 'load outs', 'loanouts')
 STOP = Term('stop')
-CONFIGURE: RequiredTerm = Term('configure', 'configure default', 'set default')
+CONFIGURE: RequiredTerm = Term('configure', 'set') + Term('default').opt()
 
 TRUE = Term('true', 'on') | ONE
 FALSE = Term('false', 'off') | ZERO
@@ -52,10 +62,9 @@ WITH = Term('with')
 OPT_WITH_INCL: OptTerm = WITH.opt(include_in_speech=True)
 OPT_WITH_EXCL: OptTerm = WITH.opt(include_in_speech=False)
 SWITCHING_TO = WITH | Term('and', 'switching to', 'and switching to', 'and then switching to')
-SIDEARM = Term('sidearm', 'sidearm of', 'secondary weapon', 'secondary weapon of')
-SWITCHING_TO_SIDEARM = (SWITCHING_TO + SIDEARM) | SIDEARM
-MAIN = Term('main', 'may', 'name')
-WEAPON = Term('weapon', 'gun')
+SIDEARM_OPT_OF = SIDEARM + Term('of').opt()
+WITH_SIDEARM = (SWITCHING_TO + SIDEARM_OPT_OF) | SIDEARM_OPT_OF
+MAIN = Term('main', 'may', 'name', 'primary')
 THE_SAME_MAIN_WEAPON: RequiredTerm = (Term('the').opt() +
                                       Term('same') +
                                       (MAIN | WEAPON | (MAIN + WEAPON)))
@@ -67,13 +76,14 @@ WHITE = Term('white')
 BLUE = Term('blue')
 PURPLE = Term('purple')
 GOLDEN = Term('golden')
+_LEVEL_0 = (LEVEL + ZERO)
 LEVEL_1 = (LEVEL + ONE) | WHITE
 LEVEL_2 = (LEVEL + TWO) | BLUE
 LEVEL_3 = (LEVEL + THREE) | PURPLE
 LEVEL_4 = (LEVEL + FOUR) | GOLDEN
 LEVEL_3_OR_4 = LEVEL_3 | LEVEL_4 | LEVEL.append(THREE, OR, FOUR)
 LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1, LEVEL_2, LEVEL_3_OR_4)
-BASE = Term('base')
+BASE = Term('base') | _LEVEL_0
 WITHOUT = (Term('no', 'without', 'with no', 'without a', 'without any', 'without an') | BASE |
            (WITH + BASE))
 NONE = Term('none', 'nun', 'left out', 'excluded')
@@ -104,7 +114,7 @@ SMG_OPT = SMG.opt()
 THIRTY_THIRTY_REPEATER = \
     Term('30-30', '33', 'there are three', '30 seconds ready', 'very very', '3030')
 BOCEK = Term('Bocek', 'bow check', 'Bochek')
-CAR = Term('C.A.R.', 'car', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
+CAR = Term('car', 'C.A.R.', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
 CARE_PACKAGE_OPT: OptTerm = Term('care package').opt()
 ALTERNATOR = Term('Alternator', 'I don\'t need her', 'I\'ll do neither')
 CHARGE_RIFLE = Term('Charge Rifle', 'charger full', 'charged rifle', 'Ciao Dreffel', 'charger')
@@ -137,7 +147,7 @@ G7_SCOUT = Term(
     'she\'s having a scowl', 'd7', 'you seven', 'This is XanathScout', 'G-Zone Scout',
     'let\'s go', 'ciao')
 HAVOC = Term(
-    'HAVOC', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC'
+    'havoc', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC'
     # Also sounds like "Hammerpoint": 'have a good one',
 )
 HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',
@@ -170,39 +180,41 @@ HAMMERPOINT = Term(
 NEMESIS = Term(
     'Nemesis', 'and this is', 'now what\'s this', 'Namaste', 'messes', 'nervousness', 'yes',
     'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses', 'and that\'s just')
-P2020 = Term('P2020', 'be 2020', 'B-2020', 'P-220')
+P2020 = Term('P2020', 'be 2020', 'B-2020', 'P-220', 'P20')
 PEACEKEEPER = Term('Peacekeeper', 'today', '2k', 'BK', 'P.K.')
 DISRUPTOR = Term('Disruptor', 'it\'s Raptor', 'the softer', 'stopping', 'disrupted')
 PROWLER = Term(
     'Prowler', 'power', 'browler', 'howdy', 'probably', 'brawler', 'powler', 'howler', 'fowler',
     'brother', 'totaler', 'teller', 'proudly')
-R = Term('I\'ll', 'bye', 'or', 'I', 'oh I', 'wash', 'or I\'ll', 'that\'s')
-R3 = Term('R3', 'R2-D2')
-THREE_O_ALT = Term('ruined', 'a second', 'is there', 'see you all', 'forgot')
-O_ONE_ALT = Term('everyone')
-R301 = (Term('R-301', 'after they weren\'t', 'wash your own', 'R3-A1', 'R3-O1',
-             'thanks everyone for', 'I\'ll also go into', 'I actually want', 'R3-O-1', 'R3-1') |
-        Term('R31') |
-        R.append(THREE.append_int(ONE) | THREE.append_int(ZERO, ONE) |
-                 THREE.append(O_ONE_ALT) | THREE_O_ALT.append(ONE)) |
-        R3.append(ONE, ZERO.append_int(ONE)) |
-        R3)
-CARBINE = Term('to').opt() + Term(
+_R = Term('I\'ll', 'bye', 'or', 'I', 'oh I', 'wash', 'or I\'ll', 'that\'s', 'I\'m')
+_R3 = Term('R3', 'R2-D2')
+_THREE_O_ALT = Term('ruined', 'a second', 'is there', 'see you all', 'forgot')
+_O_ONE_ALT = Term('everyone')
+_R301 = (Term('R-301', 'after they weren\'t', 'wash your own', 'R3-A1', 'R3-O1',
+              'thanks everyone for', 'I\'ll also go into', 'I actually want', 'R3-O-1', 'R3-1') |
+         Term('R31') |
+         _R.append(THREE.append_int(ONE) | THREE.append_int(ZERO, ONE) |
+                   THREE.append(_O_ONE_ALT) | _THREE_O_ALT.append(ONE)) |
+         _R3.append(ONE, ZERO.append_int(ONE)) |
+         _R3)
+_CARBINE = Term('to').opt() + Term(
     'Carbine', 'covering', 'caught mine', 'carbon', 'cop mine', 'car by then', 'comment', 'coming',
     'copying', 'cut me in', 'carpet', 'Karmine', 'carbene', 'come in', 'car bye', 'copy', 'copy me',
     'combine')
-R301_CARBINE = (R301 + CARBINE.opt()) | Term('R31Carbine', 'R31cabine', 'I have to uncover him')
+R301_CARBINE = (_R301 + _CARBINE.opt()) | Term('R31Carbine', 'R31cabine', 'I have to uncover him')
 
-R99 = Term(
-    'R-99', 'R99', '$5.99', 'or nine nine', 'or nine-to-nine', 'or ninety-nine', 'I don\'t know',
-    'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99', 'all right any line',
-    'I don\'t need nine', 'irony 9', 'I already know', 'I already need a 9', '$1.99', 'R-89',
-    'iron 9', 'oh I don\'t even know', 'R-9')
+R99 = \
+    (Term('R 99', 'R-99', 'R99', '$5.99', 'or nine nine', 'or nine-to-nine', 'or ninety-nine',
+          'I don\'t know', 'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99',
+          'all right any line', 'I don\'t need nine', 'irony 9', 'I already know',
+          'I already need a 9', '$1.99', 'R-89', 'iron 9', 'oh I don\'t even know', 'R-9', 'are 99',
+          'I\'m 99', 'on and none') |
+     (_R + Term('99')))
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')
-RE_45 = Term('R/E 45', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45', 'are you 45',
-             'R8-45', 'R445', 'RE 45', 'RE45', 'R. 45', 'R.A.45', 'R.E.45', 'R.A. 45', 'R.E. 45',
-             'R.E.45', 'RIA-45', 'r a forty five')
+RE_45 = Term('are e forty five', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45',
+             'are you 45', 'R8-45', 'R445', 'RE 45', 'RE45', 'R. 45', 'R.A.45', 'R.E.45',
+             'R.A. 45', 'R.E. 45', 'R.E.45', 'RIA-45', 'r a forty five', 'R435')
 SENTINEL = Term('sentinel', 'what\'s that now', 'is that not', 'setting\' off', 'that\'s it now',
                 'techno', 'is that no', 'said no', 'such an old', '7-0')
 AMPED = Term('amped', 'ant', 'it', 'end', 'yipped')
@@ -218,8 +230,7 @@ BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
 
 _T: TypeAlias = MappingProxyType[RequiredTerm, Union[Optional[TermBase], Optional[TermBase]]]
 ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
-    THIRTY_THIRTY_REPEATER.append(SLOW): None,
-    THIRTY_THIRTY_REPEATER.append(QUICK_OPT): None,
+    THIRTY_THIRTY_REPEATER: SLOW,
     ALTERNATOR: DISRUPTOR,
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
@@ -227,12 +238,11 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
     #         DRAWN,
     #         SHATTER_CAPS + OPT_WITH_INCL + MINIMAL_DRAW,
     #         SHATTER_CAPS + DRAWN),
-    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt(), MINIMAL_DRAW): None,
-    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt(), DRAWN.opt(include_in_speech=True)): None,
+    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): MINIMAL_DRAW,
     CAR.append(SMG_OPT): None,
     CHARGE_RIFLE: None,
     # Devotion is in the care package right now.
-    # DEVOTION: TURBOCHARGER),
+    # DEVOTION: TURBOCHARGER,
     DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
     # EVA_8: None,
     EVA_8.append_order_agnostic(CARE_PACKAGE_OPT): None,

@@ -6,7 +6,7 @@ K = TypeVar('K')
 V = TypeVar('V')
 
 
-def check_type(allowed_types: Type[T] | Tuple[Type[T], ...], optional: bool = False, **values: T):
+def check_type(allowed_types: Type[T] | Tuple[Type, ...], optional: bool = False, **values: T):
     for allowed_type in (
             (allowed_types,)
             if not isinstance(allowed_types, tuple)

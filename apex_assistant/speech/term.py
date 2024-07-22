@@ -1,8 +1,9 @@
 import abc
 import string
+from abc import ABC
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Iterable, Iterator, Tuple, TypeAlias, Union
+from typing import Generator, Iterable, Iterator, Tuple, TypeAlias, Union, final
 
 from apex_assistant.checker import check_bool, check_int, check_str, check_tuple, check_type
 
@@ -14,26 +15,29 @@ class Word:
         check_str(original_word=original_word, allow_blank=False)
         stripped_word = original_word.translate(Word._TRANSLATE_TABLE).lower()
         check_str(stripped_word=stripped_word, allow_blank=False)
-        self.original_word = original_word
-        self.stripped_word = stripped_word
+        self._original_word = original_word
+        self._stripped_word = stripped_word
+
+    def get_stripped_word(self) -> str:
+        return self._stripped_word
 
     def __repr__(self):
-        return self.stripped_word
+        return self._stripped_word
 
     def __str__(self):
-        return self.original_word
+        return self._original_word
 
     def __hash__(self):
-        return hash(self.stripped_word)
+        return hash(self._stripped_word)
 
     def __eq__(self, other: 'Word'):
-        return isinstance(other, Word) and self.stripped_word == other.stripped_word
+        return isinstance(other, Word) and self._stripped_word == other._stripped_word
 
 
 class Words:
     """ More or less just a glorified tuple of Word. """
 
-    def __init__(self, words: str | Iterable[Word]):
+    def __init__(self, words: str | Iterable[Word] = tuple()):
         if isinstance(words, str):
             words = tuple(map(Word, words.split(' ')))
         elif not isinstance(words, tuple):
@@ -50,17 +54,14 @@ class Words:
     def get_words(self) -> tuple[Word]:
         return self.words
 
-    def get_stripped_words(self) -> tuple[str]:
-        return tuple(word.stripped_word for word in self.words)
-
     def __hash__(self):
         return hash(self.words)
 
     def __eq__(self, other):
         return isinstance(other, Words) and self.words == other.words
 
-    def __getitem__(self, sl: int | slice):
-        assert isinstance(sl, (int, slice))
+    def __getitem__(self, sl: Union[int, slice]):
+        check_type((slice, int), sl=sl)
         if isinstance(sl, int):
             return self.words[sl]
         return Words(self.words[sl])
@@ -163,12 +164,25 @@ class TermBase(abc.ABC):
     def unwrap(self) -> Tuple['RequiredTerm', bool]:
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
+    @final
+    def is_opt(self) -> bool:
+        _, opt = self.unwrap()
+        return opt
+
     @abc.abstractmethod
     def _insert_order_agnostic(self, other_term: TERM) -> REQ_TERM:
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
+    @abc.abstractmethod
+    def __hash__(self) -> int:
+        raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
-class RequiredTerm(TermBase):
+    @abc.abstractmethod
+    def __eq__(self, other: 'TermBase') -> bool:
+        raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
+
+
+class RequiredTerm(TermBase, ABC):
     @abc.abstractmethod
     def get_possible_first_words(self) -> Generator[Word, None, None]:
         """Gets the first word in each Words object that translates to this term."""
@@ -235,8 +249,8 @@ class Term(RequiredTerm):
         return words
 
     def __init__(self,
-                 known_term: str | Iterable[Word] | Words,
-                 *variations: str | Iterable[Word] | Words):
+                 known_term: Union[str, Words],
+                 *variations: Union[str, Words]):
         known_term = self._map_term(known_term)
         variations: set[Words, ...] = set(map(self._map_term, variations)) - {known_term}
         variations_dict: dict[Word, set[Words]] = {}
@@ -253,8 +267,16 @@ class Term(RequiredTerm):
                                                            default=len(known_term)))
         self._max_variation_len = max(len(known_term), max(map(len, variations),
                                                            default=len(known_term)))
-        self._known_words = known_term
+        self._known_term = known_term
         self._first_words: set[Word] = {known_term.get_first_word()} | set(self._variations_dict)
+
+    def get_known_words(self) -> Words:
+        return self._known_term
+
+    def get_variations(self) -> Generator[Words, None, None]:
+        for variations in self._variations_dict.values():
+            for variation in variations:
+                yield variation
 
     def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
         check_type(Words, said_words=said_words)
@@ -275,7 +297,7 @@ class Term(RequiredTerm):
         if len(said_words) == 0:
             return False
 
-        if said_words == self._known_words:
+        if said_words == self._known_term:
             return True
 
         first_word = said_words.get_first_word()
@@ -283,14 +305,14 @@ class Term(RequiredTerm):
         return variations_n is not None and said_words in variations_n
 
     def has_variation_len(self, n) -> bool:
-        return n == len(self._known_words) or n in self._variations_dict
+        return n == len(self._known_term) or n in self._variations_dict
 
     def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
-        yield self._known_words
+        yield self._known_term
 
     def __repr__(self) -> str:
         delim = '|'
-        words: list[Words] = [self._known_words]
+        words: list[Words] = [self._known_term]
         for values in self._variations_dict.values():
             words.extend(values)
         return '{' + delim.join(map(repr, words)) + '}'
@@ -298,6 +320,12 @@ class Term(RequiredTerm):
     def get_possible_first_words(self) -> Generator[Word | None, None, None]:
         for first_word in self._first_words:
             yield first_word
+
+    def __hash__(self) -> int:
+        return hash(self.__class__) ^ self._known_term.__hash__()
+
+    def __eq__(self, other: 'Term') -> bool:
+        return isinstance(other, Term) and other._known_term.__eq__(self._known_term)
 
 
 class OptTerm(TermBase):
@@ -381,6 +409,12 @@ class OptTerm(TermBase):
                 if self.included_by_default() else
                 (other_term | (wrapped + other_term) | (other_term + wrapped)))
 
+    def __hash__(self) -> int:
+        return hash(self.__class__) ^ hash(self._wrapped)
+
+    def __eq__(self, other: 'OptTerm') -> bool:
+        return isinstance(other, OptTerm) and other._wrapped == self._wrapped
+
 
 class CombinedTerm(RequiredTerm):
     def __init__(self, first_sub_term: RequiredTerm, *sub_terms: TermBase):
@@ -449,6 +483,12 @@ class CombinedTerm(RequiredTerm):
         for word in self.first_sub_term.get_possible_first_words():
             yield word
 
+    def __hash__(self) -> int:
+        return hash(self.__class__) ^ hash(self.sub_terms)
+
+    def __eq__(self, other: 'CombinedTerm') -> bool:
+        return isinstance(other, CombinedTerm) and other.sub_terms == self.sub_terms
+
 
 class OrTerm(RequiredTerm):
     def __init__(self, *or_operands: RequiredTerm):
@@ -498,16 +538,32 @@ class OrTerm(RequiredTerm):
     def __repr__(self):
         return '(' + ' | '.join(map(repr, self.or_operands)) + ')'
 
+    def __hash__(self) -> int:
+        return hash(self.__class__) ^ hash(self.or_operands)
+
+    def __eq__(self, other: 'OrTerm') -> bool:
+        return isinstance(other, OrTerm) and other.or_operands == self.or_operands
+
 
 class IntTerm(Term):
-    def __init__(self, value: int, *variations: str):
+    NEGATIVE = Term('negative', 'minus')
+
+    def __init__(self, value: int, *variations: Union[str, Words]):
         check_int(min_value=0, value=value)
-        super().__init__(str(value), *variations)
+        abs_words = Words(str(value))
+        if value < 0:
+            known_term = IntTerm.NEGATIVE.get_known_words() + abs_words
+            variations: Tuple[Union[Words, str], ...] = tuple(
+                neg_variation + abs_words
+                for neg_variation in IntTerm.NEGATIVE.get_variations()) + variations
+        else:
+            known_term = abs_words
+        super().__init__(known_term, *variations)
         self.value = value
 
     def __int__(self):
         return self.value
 
-    def append_int(self, *next_terms: 'IntTerm'):
+    def append_int(self, *next_terms: 'IntTerm') -> REQ_TERM:
         ints_str = ''.join(map(str, map(int, next_terms)))
         return super().append(*next_terms) | Term(ints_str)

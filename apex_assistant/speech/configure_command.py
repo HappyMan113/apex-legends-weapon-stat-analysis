@@ -2,13 +2,13 @@ import logging
 from typing import Callable, Optional, TypeAlias
 
 from apex_assistant.checker import check_type
+from apex_assistant.loadout_comparer import LoadoutComparer
+from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.term import RequiredTerm, Term, Words
 from apex_assistant.speech.term_translator import BoolTranslator, TranslatedTerm, Translator
-from apex_assistant.weapon import ConcreteWeapon
-from apex_assistant.weapon_comparer import WeaponComparer
-from apex_assistant.weapon_translator import WeaponTranslator
+from apex_assistant.weapon import Weapon
 
 
 _LOGGER = logging.getLogger()
@@ -16,10 +16,10 @@ _METHOD: TypeAlias = Callable[[Words], str]
 
 
 class ConfigureCommand(ApexCommand):
-    def __init__(self, weapon_translator: WeaponTranslator, weapon_comparer: WeaponComparer):
+    def __init__(self, loadout_translator: LoadoutTranslator, loadout_comparer: LoadoutComparer):
         super().__init__(apex_terms.CONFIGURE,
-                         weapon_translator=weapon_translator,
-                         weapon_comparer=weapon_comparer)
+                         loadout_translator=loadout_translator,
+                         loadout_comparer=loadout_comparer)
         log_level = Term('log level', 'logging', 'logging level')
         self._defaults_translator: Translator[_METHOD] = Translator({
             apex_terms.WITH_RELOAD: self._parse_with_reload_term,
@@ -38,7 +38,7 @@ class ConfigureCommand(ApexCommand):
 
     def _parse_with_reload_term(self, arguments: Words) -> str:
         check_type(Words, arguments=arguments)
-        reload_by_default = bool(self._bool_translator.translate(arguments, True))
+        reload_by_default = self._bool_translator.translate_term(arguments, True)
         return self._set_reload_by_default(reload_by_default)
 
     def _parse_without_reload_term(self, arguments: Words) -> str:
@@ -62,9 +62,9 @@ class ConfigureCommand(ApexCommand):
             _LOGGER.info(f'Set default sidearm to None (was {old_sidearm}).')
             return f'Set default sidearm to none. Was {self._get_term(old_sidearm)}.'
 
-        sidearm = translator.translate_concrete_weapon(arguments)
+        sidearm = translator.translate_weapon(arguments).get_value()
         if sidearm is None:
-            _LOGGER.debug(f'Could not find concrete weapon for "{arguments}".')
+            _LOGGER.debug(f'Could not find weapon for "{arguments}".')
             return f'No weapon found named {arguments}.'
 
         old_sidearm = translator.set_default_sidearm(sidearm)
@@ -73,8 +73,8 @@ class ConfigureCommand(ApexCommand):
                 f' {self._get_term(old_sidearm)}.')
 
     @staticmethod
-    def _get_term(weapon: Optional[ConcreteWeapon]) -> str:
-        check_type(ConcreteWeapon, optional=True, weapon=weapon)
+    def _get_term(weapon: Optional[Weapon]) -> str:
+        check_type(Weapon, optional=True, weapon=weapon)
         return weapon.get_term().to_audible_str() if weapon is not None else 'none'
 
     def _parse_log_level_term(self, arguments: Words) -> str:

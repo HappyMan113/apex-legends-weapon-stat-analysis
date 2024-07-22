@@ -9,7 +9,6 @@ from typing import Callable, TypeVar
 from huggingface_hub.file_download import are_symlinks_supported
 from torch.hub import get_dir
 
-from apex_assistant.speech.command import Command
 from apex_assistant.speech.command_registry import CommandRegistry
 from apex_assistant.speech.term import Words
 
@@ -131,22 +130,16 @@ class SpeechClient:
 
     def process_text(self, words: Words):
         logger.info(f'Heard: {words}')
-        for parsed in self.command_registry.get_commands(words):
-            command = parsed.get_value()
-            args = parsed.get_following_words()
-            self._process_command(command, args)
-
-    def _process_command(self, command: Command, arguments: Words):
-        assert isinstance(arguments, Words)
-        args_str = f' {arguments}' if len(arguments) > 0 else ''
-        logger.info(f'Issuing command: {command}{args_str}')
-        message = command.execute(arguments)
+        message = self.command_registry.process_command(words)
         self.text_to_speech(message)
 
     def text_to_speech(self, text: str):
+        if len(text) == 0:
+            return
         text = re.sub('[()]', '', text)
         if not text.endswith(('.', '!', '?')):
             text = f'{text}.'
+        text = text.capitalize()
         logger.debug(f'Saying: {text}')
         self.stream.feed(text).play()
 

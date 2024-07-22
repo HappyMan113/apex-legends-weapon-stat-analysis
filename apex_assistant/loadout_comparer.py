@@ -8,12 +8,12 @@ import numpy as np
 
 from apex_assistant.checker import check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
-from apex_assistant.weapon import ConcreteWeapon, WeaponArchetype, Loadout
+from apex_assistant.weapon import Loadout, Weapon, WeaponArchetype
 
 logger = logging.getLogger()
 
 
-class _ComparisonResult:
+class ComparisonResult:
     def __init__(self,
                  sorted_archetypes: MappingProxyType[WeaponArchetype, Tuple[float, Loadout]],
                  sorted_weapons: MappingProxyType[Loadout, float]):
@@ -45,10 +45,10 @@ class _ComparisonResult:
     def get_archetypes(self) -> MappingProxyType[WeaponArchetype, tuple[float, Loadout]]:
         return self.sorted_archetypes
 
-    def get_sorted_weapons(self) -> MappingProxyType[Loadout, float]:
+    def get_sorted_loadouts(self) -> MappingProxyType[Loadout, float]:
         return self.sorted_weapons
 
-    def get_best_weapon(self) -> tuple[Loadout, float]:
+    def get_best_loadout(self) -> tuple[Loadout, float]:
         return self.get_nth_best_weapon(1)
 
     def get_nth_best_weapon(self, n_one_indexed: int) -> tuple[Loadout, float]:
@@ -61,25 +61,25 @@ class _ComparisonResult:
         archetypes = self._get_best(self.sorted_archetypes, min_fraction_of_max=min_fraction_of_max)
         base_weapons = self._get_best(self.sorted_weapons, min_fraction_of_max=min_fraction_of_max)
 
-        return _ComparisonResult(sorted_archetypes=archetypes,
-                                 sorted_weapons=base_weapons)
+        return ComparisonResult(sorted_archetypes=archetypes,
+                                sorted_weapons=base_weapons)
 
-    def limit_to_best_num(self, num: int) -> '_ComparisonResult':
+    def limit_to_best_num(self, num: int) -> 'ComparisonResult':
         check_int(num=num, min_value=1)
         archetypes = self._get_best_num(self.sorted_archetypes, num=num)
         base_weapons = self._get_best_num(self.sorted_weapons, num=num)
 
-        return _ComparisonResult(sorted_archetypes=archetypes,
-                                 sorted_weapons=base_weapons)
+        return ComparisonResult(sorted_archetypes=archetypes,
+                                sorted_weapons=base_weapons)
 
     def __repr__(self) -> str:
         delim = '\n'
         return delim + delim.join(
-            f'  {weighted_avg_damage:4.2f}: {weapon}'
-            for weapon, weighted_avg_damage in self.get_sorted_weapons().items())
+            f'  {weighted_avg_damage:6.2f}: {weapon}'
+            for weapon, weighted_avg_damage in self.get_sorted_loadouts().items())
 
 
-class WeaponComparer:
+class LoadoutComparer:
     def __init__(self, ttk_entries: tuple[TTKDatum, ...]):
         check_tuple(TTKDatum, ttk_entries=ttk_entries)
 
@@ -89,9 +89,9 @@ class WeaponComparer:
 
     def get_expected_mean_dps(self, loadout: Loadout) -> float:
         """Convenience method for the getting the expected mean DPS of a particular loadout."""
-        return next(iter(self.compare_loadouts((loadout,)).get_sorted_weapons().values()))
+        return next(iter(self.compare_loadouts((loadout,)).get_sorted_loadouts().values()))
 
-    def compare_loadouts(self, loadouts: Sequence[Loadout]) -> _ComparisonResult:
+    def compare_loadouts(self, loadouts: Sequence[Loadout]) -> ComparisonResult:
         tiebreaker_time = 10
 
         ts = self.ttks
@@ -134,14 +134,14 @@ class WeaponComparer:
             if loadout.get_archetype() not in sorted_archetypes_dict:
                 sorted_archetypes_dict[loadout.get_archetype()] = (weighted_avg_damage, loadout)
 
-        return _ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
-                                 sorted_weapons=MappingProxyType(sorted_weapons_dict))
+        return ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
+                                sorted_weapons=MappingProxyType(sorted_weapons_dict))
 
     def general_list(self,
-                     base_weapons: tuple[ConcreteWeapon, ...],
-                     sidearm: ConcreteWeapon | None = None,
+                     base_weapons: tuple[Weapon, ...],
+                     sidearm: Weapon | None = None,
                      show_plots: bool = False):
-        check_tuple(ConcreteWeapon, allow_empty=False, base_weapons=base_weapons)
+        check_tuple(Weapon, allow_empty=False, base_weapons=base_weapons)
 
         if sidearm is not None:
             sidearms = (sidearm,)
@@ -159,7 +159,7 @@ class WeaponComparer:
         sorted_weapons_str = '\n'.join(
             f'   {weapon}: {weighted_avg_damage:{dmg_format}}'
             for weapon, weighted_avg_damage in
-            result.get_sorted_weapons().items())
+            result.get_sorted_loadouts().items())
         if sorted_weapons_str.count('\n') > 100:
             filename = os.path.abspath('comparison_results.log')
             with open(filename, 'w+') as fp:
@@ -179,7 +179,7 @@ class WeaponComparer:
 
             ttks = self.ttks
             ts_lin = np.linspace(ttks.min(), ttks.max(), num=1000)
-            for base_weapon in result.get_sorted_weapons():
+            for base_weapon in result.get_sorted_loadouts():
                 damages = np.array([base_weapon.get_cumulative_damage(t) for t in ts_lin])
                 damages *= 1 / ts_lin
                 plt.plot(ts_lin, damages, label=base_weapon.get_name())

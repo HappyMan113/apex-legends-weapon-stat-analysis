@@ -26,10 +26,11 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_STOCK_TERMS,
                                               BASE,
                                               LEVEL_TERMS,
-                                              SWITCHING_TO_SIDEARM,
-                                              WITH_RELOAD_OPT)
+                                              WITH_RELOAD_OPT,
+                                              WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
+from apex_assistant.speech.translations import TranslatedValue
 
 
 T = TypeVar('T')
@@ -191,17 +192,17 @@ class SpinupType(StrEnum):
 class Spinup(abc.ABC):
     @abc.abstractmethod
     def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'ConcreteWeapon',
+                                            base_weapon: 'Weapon',
                                             time_seconds: float) -> float:
         raise NotImplementedError('Must implement.')
 
     @abc.abstractmethod
-    def get_cumulative_damage(self, base_weapon: 'ConcreteWeapon', time_seconds: float) -> float:
+    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
         raise NotImplementedError('Must implement.')
 
     @abc.abstractmethod
     def get_magazine_duration_seconds(self,
-                                      base_weapon: 'ConcreteWeapon',
+                                      base_weapon: 'Weapon',
                                       tactical: bool = False) -> float:
         raise NotImplementedError('Must implement.')
 
@@ -224,14 +225,14 @@ class SpinupDevotion(Spinup):
         self._rounds_per_minute_initial = rounds_per_minute_initial
         self._spinup_time_seconds = spinup_time_seconds
 
-    def get_damage_per_second_initial(self, base_weapon: 'ConcreteWeapon'):
+    def get_damage_per_second_initial(self, base_weapon: 'Weapon'):
         damage_per_minute_initial = (self._rounds_per_minute_initial *
                                      base_weapon.get_damage_per_round())
         damage_per_second_initial = damage_per_minute_initial / 60
         return damage_per_second_initial
 
     def get_magazine_duration_seconds(self,
-                                      base_weapon: 'ConcreteWeapon',
+                                      base_weapon: 'Weapon',
                                       tactical: bool = False) -> float:
         damage_per_second = base_weapon.get_damage_per_second_body()
         damage_per_second_initial = self.get_damage_per_second_initial(base_weapon)
@@ -248,7 +249,7 @@ class SpinupDevotion(Spinup):
         return time_seconds
 
     def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'ConcreteWeapon',
+                                            base_weapon: 'Weapon',
                                             time_seconds: float) -> float:
         spinup_time_seconds = self._spinup_time_seconds
         damage_per_second = base_weapon.get_damage_per_second_body()
@@ -266,7 +267,7 @@ class SpinupDevotion(Spinup):
                  damage_per_second_initial * (spinup_time_seconds - time_seconds)) /
                 spinup_time_seconds)
 
-    def get_cumulative_damage(self, base_weapon: 'ConcreteWeapon', time_seconds: float) -> float:
+    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
         magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
         spinup_time_seconds = self._spinup_time_seconds
         damage_per_second = base_weapon.get_damage_per_second_body()
@@ -313,9 +314,9 @@ class SpinupNone(Spinup):
         return SpinupNone._INSTANCE
 
     def get_magazine_duration_seconds(self,
-                                      base_weapon: 'ConcreteWeapon',
+                                      base_weapon: 'Weapon',
                                       tactical: bool = False) -> float:
-        check_type(ConcreteWeapon, base_weapon=base_weapon)
+        check_type(Weapon, base_weapon=base_weapon)
         check_bool(tactical=tactical)
 
         num_rounds = base_weapon.get_magazine_capacity() - tactical
@@ -325,7 +326,7 @@ class SpinupNone(Spinup):
         return magazine_duration_seconds
 
     def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'ConcreteWeapon',
+                                            base_weapon: 'Weapon',
                                             time_seconds: float) -> float:
         magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
         damage_per_second = base_weapon.get_damage_per_second_body()
@@ -333,7 +334,7 @@ class SpinupNone(Spinup):
             return 0
         return damage_per_second
 
-    def get_cumulative_damage(self, base_weapon: 'ConcreteWeapon', time_seconds: float) -> float:
+    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
         magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
         damage_per_second = base_weapon.get_damage_per_second_body()
         return damage_per_second * min(time_seconds, magazine_duration_seconds)
@@ -353,13 +354,13 @@ class SpinupHavoc(Spinup):
         self._spinup_time_seconds = spinup_time_seconds
 
     def get_magazine_duration_seconds(self,
-                                      base_weapon: 'ConcreteWeapon',
+                                      base_weapon: 'Weapon',
                                       tactical: bool = False) -> float:
         return self._NO_SPINUP.get_magazine_duration_seconds(base_weapon=base_weapon,
                                                              tactical=tactical)
 
     def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'ConcreteWeapon',
+                                            base_weapon: 'Weapon',
                                             time_seconds: float) -> float:
         spinup_time_seconds = self._spinup_time_seconds
         if time_seconds < spinup_time_seconds:
@@ -369,7 +370,7 @@ class SpinupHavoc(Spinup):
             base_weapon=base_weapon,
             time_seconds=time_seconds - spinup_time_seconds)
 
-    def get_cumulative_damage(self, base_weapon: 'ConcreteWeapon', time_seconds: float) -> float:
+    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
         spinup_time_seconds = self._spinup_time_seconds
         if time_seconds < spinup_time_seconds:
             return 0
@@ -398,6 +399,14 @@ class Loadout(abc.ABC):
 
     @abc.abstractmethod
     def get_archetype(self) -> 'WeaponArchetype':
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_main_weapon(self) -> 'Weapon':
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_sidearm(self) -> Optional['Weapon']:
         raise NotImplementedError()
 
     def get_name(self):
@@ -495,15 +504,21 @@ class ReloadingLoadout(Loadout):
         return (isinstance(other, ReloadingLoadout) and
                 other.wrapped_loadout == self.wrapped_loadout)
 
+    def get_main_weapon(self) -> 'Weapon':
+        return self.wrapped_loadout.get_main_weapon()
+
+    def get_sidearm(self) -> Optional['Weapon']:
+        return self.wrapped_loadout.get_sidearm()
+
 
 class FullLoadout(NonReloadingLoadout):
-    def __init__(self, main_weapon: 'ConcreteWeapon', sidearm: 'ConcreteWeapon'):
-        assert isinstance(main_weapon, ConcreteWeapon)
-        assert isinstance(sidearm, ConcreteWeapon)
+    def __init__(self, main_weapon: 'Weapon', sidearm: 'Weapon'):
+        assert isinstance(main_weapon, Weapon)
+        assert isinstance(sidearm, Weapon)
         self.main_weapon = main_weapon
         self.sidearm = sidearm
-        super().__init__(f'{main_weapon.name} {SWITCHING_TO_SIDEARM} {sidearm.name}',
-                         main_weapon.get_term().append(SWITCHING_TO_SIDEARM, sidearm.get_term()))
+        super().__init__(f'{main_weapon.name} {WITH_SIDEARM} {sidearm.name}',
+                         main_weapon.get_term().append(WITH_SIDEARM, sidearm.get_term()))
 
     def get_deploy_time_secs(self) -> float:
         return self.main_weapon.get_deploy_time_secs()
@@ -545,14 +560,14 @@ class FullLoadout(NonReloadingLoadout):
         return (isinstance(other, FullLoadout) and
                 other.main_weapon == self.main_weapon and other.sidearm == self.sidearm)
 
-    def get_main_weapon(self) -> 'ConcreteWeapon':
+    def get_main_weapon(self) -> 'Weapon':
         return self.main_weapon
 
-    def get_sidearm(self) -> 'ConcreteWeapon':
+    def get_sidearm(self) -> 'Weapon':
         return self.sidearm
 
 
-class ConcreteWeapon(NonReloadingLoadout):
+class Weapon(NonReloadingLoadout):
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
@@ -617,7 +632,7 @@ class ConcreteWeapon(NonReloadingLoadout):
         return hash(self.__class__) ^ hash(self.name)
 
     def __eq__(self, other):
-        return (isinstance(other, ConcreteWeapon) and
+        return (isinstance(other, Weapon) and
                 self.deploy_time_secs == other.deploy_time_secs and
                 self.archetype == other.archetype and
                 self.weapon_class == other.weapon_class and
@@ -627,8 +642,14 @@ class ConcreteWeapon(NonReloadingLoadout):
                 self.spinup == other.spinup and
                 self.tactical_reload_time_secs == other.tactical_reload_time_secs)
 
-    def add_sidearm(self, sidearm: 'ConcreteWeapon') -> 'FullLoadout':
+    def add_sidearm(self, sidearm: 'Weapon') -> 'FullLoadout':
         return FullLoadout(self, sidearm)
+
+    def get_main_weapon(self) -> 'Weapon':
+        return self
+
+    def get_sidearm(self) -> Optional['Weapon']:
+        return None
 
 
 class WeaponArchetype:
@@ -668,7 +689,7 @@ class WeaponArchetype:
             rpms: MappingProxyType[Optional[RequiredTerm], float],
             mags: MappingProxyType[Optional[RequiredTerm], int],
             tactical_reload_times: MappingProxyType[Optional[RequiredTerm], float]
-    ) -> Generator[ConcreteWeapon, None, None]:
+    ) -> Generator[Weapon, None, None]:
         name = self.name
         term = self.get_term()
         weapon_class = self.weapon_class
@@ -695,7 +716,7 @@ class WeaponArchetype:
                         full_term = term.append(*more_terms)
                     else:
                         full_term = term
-                    base_weapon = ConcreteWeapon(
+                    base_weapon = Weapon(
                         archetype=self,
                         name=full_name,
                         term=full_term,
@@ -729,16 +750,16 @@ class WeaponArchetype:
     def __repr__(self) -> str:
         return self.name
 
-    def get_best_weapon(self) -> ConcreteWeapon:
+    def get_best_weapon(self) -> Weapon:
         return self.base_weapons[0]
 
-    def get_all_base_weapons(self) -> Tuple[ConcreteWeapon, ...]:
+    def get_all_base_weapons(self) -> Tuple[Weapon, ...]:
         return self.base_weapons
 
     def get_best_match(self,
                        words: Words,
                        overall_level: OverallLevel = OverallLevel.PARSE_WORDS) -> \
-            Tuple[ConcreteWeapon, Words]:
+            TranslatedValue[Weapon]:
         check_type(Words, words=words)
         check_type(OverallLevel, overall_level=overall_level)
 
@@ -775,55 +796,71 @@ class WeaponArchetype:
             rpms=rpms,
             mags=mags,
             tactical_reload_times=tactical_reload_times))
-        return weapon, words
+        return TranslatedValue(weapon, words)
 
 
 class WeaponArchetypes:
     def __init__(self,
-                 no_hopup_archetype: WeaponArchetype,
-                 with_hopup_archetype: Optional[WeaponArchetype]):
-        check_type(WeaponArchetype, no_hopup_archetype=no_hopup_archetype)
-        check_type(WeaponArchetype, optional=True, with_hopup_archetype=with_hopup_archetype)
+                 base_archetype: WeaponArchetype,
+                 suffixed_archetype: Optional[WeaponArchetype]):
+        check_type(WeaponArchetype, base_archetype=base_archetype)
+        check_type(WeaponArchetype, optional=True, suffixed_archetype=suffixed_archetype)
 
-        base_term = no_hopup_archetype.get_base_term()
-        if with_hopup_archetype is None:
-            with_hopup_finder_and_archetype = None
-        elif base_term != with_hopup_archetype.get_base_term():
+        base_term = base_archetype.get_base_term()
+        if suffixed_archetype is None:
+            suffix_finder_and_archetype = None
+        elif base_term != suffixed_archetype.get_base_term():
             raise ValueError(f'Both weapon archetypes must have the same base term ('
-                             f'{repr(base_term)} != {repr(with_hopup_archetype.get_base_term())}).')
+                             f'{repr(base_term)} != {repr(suffixed_archetype.get_base_term())}).')
         else:
-            hopup_term = with_hopup_archetype.get_hopup_suffix()
+            hopup_term = suffixed_archetype.get_hopup_suffix()
             if hopup_term is None:
                 raise ValueError('with_hopup_archetype must have a hopup suffix.')
-            hopup_term_finder = SingleTermFinder(hopup_term)
-            with_hopup_finder_and_archetype = hopup_term_finder, with_hopup_archetype
+            suffix_finder = SingleTermFinder(hopup_term)
+            suffix_finder_and_archetype = suffix_finder, suffixed_archetype
 
-        self._no_hopup_archetype = no_hopup_archetype
-        self._with_hopup_finder_and_archetype = with_hopup_finder_and_archetype
+        self._base_archetype = base_archetype
+        self._suffix_finder_and_archetype = suffix_finder_and_archetype
+
+        if suffixed_archetype is None:
+            base_is_best = True
+        else:
+            base_is_best = (base_archetype.get_best_weapon().get_damage_per_second_body() >
+                            suffixed_archetype.get_best_weapon().get_damage_per_second_body())
+
+        self._base_is_best = base_is_best
+        self._best_archetype = base_archetype if base_is_best else suffixed_archetype
         self._base_term = base_term
 
     def _get_archetype(self,
                        words: Words,
                        overall_level: OverallLevel) -> WeaponArchetype:
         check_type(Words, words=words)
-        with_hopup_finder_and_archetype = self._with_hopup_finder_and_archetype
-        if with_hopup_finder_and_archetype is None:
-            return self._no_hopup_archetype
+        if overall_level in (OverallLevel.FULLY_KITTED, OverallLevel.LEVEL_3):
+            return self._best_archetype
 
-        with_hopup_finder, with_hopup_archetype = with_hopup_finder_and_archetype
-        if ((overall_level in (OverallLevel.FULLY_KITTED, OverallLevel.LEVEL_3)) or
-                bool(with_hopup_finder.find_all(words))):
-            return with_hopup_archetype
+        suffix_finder_and_archetype = self._suffix_finder_and_archetype
+        if suffix_finder_and_archetype is None:
+            return self._base_archetype
 
-        return self._no_hopup_archetype
+        suffix_finder, suffixed_archetype = suffix_finder_and_archetype
+        if suffix_finder.find_all(words):
+            return suffixed_archetype
 
-    def _get_archetypes(self) -> Generator[WeaponArchetype, None, None]:
-        if self._with_hopup_finder_and_archetype is not None:
-            _, with_hopup_archetype = self._with_hopup_finder_and_archetype
-            yield with_hopup_archetype
-        yield self._no_hopup_archetype
+        return self._base_archetype
 
-    def get_all_base_weapons(self) -> Generator[ConcreteWeapon, None, None]:
+    def _get_archetypes(self) -> Iterable[WeaponArchetype]:
+        archetypes = []
+        if self._suffix_finder_and_archetype is not None:
+            _, suffixed_archetype = self._suffix_finder_and_archetype
+            archetypes.append(suffixed_archetype)
+        archetypes.append(self._base_archetype)
+
+        if self._base_is_best:
+            archetypes = archetypes[::-1]
+        return archetypes
+
+    def get_all_base_weapons(self) -> Generator[Weapon, None, None]:
         for archetype in self._get_archetypes():
             for base_weapon in archetype.get_all_base_weapons():
                 yield base_weapon
@@ -831,51 +868,46 @@ class WeaponArchetypes:
     def get_base_term(self) -> RequiredTerm:
         return self._base_term
 
-    def _get_fully_kitted_archetype(self) -> WeaponArchetype:
-        if self._with_hopup_finder_and_archetype is not None:
-            _, with_hopup_archetype = self._with_hopup_finder_and_archetype
-            return with_hopup_archetype
-        return self._no_hopup_archetype
-
-    def get_fully_kitted_weapon(self) -> ConcreteWeapon:
-        return self._get_fully_kitted_archetype().get_best_weapon()
+    def get_fully_kitted_weapon(self) -> Weapon:
+        return self._best_archetype.get_best_weapon()
 
     def get_best_match(self,
                        words: Words,
                        overall_level: OverallLevel = OverallLevel.PARSE_WORDS) -> \
-            Tuple[ConcreteWeapon, Words]:
+            TranslatedValue[Weapon]:
         archetype = self._get_archetype(words, overall_level=overall_level)
         return archetype.get_best_match(words=words, overall_level=overall_level)
 
     @staticmethod
-    def group_archetypes(archetypes: Iterable[WeaponArchetype]) -> Tuple['WeaponArchetypes', ...]:
-        no_hopup_archetypes: Dict[RequiredTerm, WeaponArchetype] = {}
-        with_hopup_archetypes: Dict[RequiredTerm, WeaponArchetype] = {}
+    def group_archetypes(archetypes: Iterable[WeaponArchetype]) -> \
+            Tuple['WeaponArchetypes', ...]:
+        base_archetypes: Dict[RequiredTerm, WeaponArchetype] = {}
+        suffixed_archetypes: Dict[RequiredTerm, WeaponArchetype] = {}
 
         for archetype in archetypes:
             check_type(WeaponArchetype, archetype=archetype)
             base_term = archetype.get_base_term()
             hopup_suffix = archetype.get_hopup_suffix()
             if hopup_suffix is None:
-                if base_term in no_hopup_archetypes:
+                if base_term in base_archetypes:
                     raise RuntimeError(
-                        f'Duplicate non-hopped-up weapon archetype base term found: {base_term}')
-                no_hopup_archetypes[base_term] = archetype
-            elif base_term in with_hopup_archetypes:
+                        f'Duplicate base weapon archetype base term found: {base_term}')
+                base_archetypes[base_term] = archetype
+            elif base_term in suffixed_archetypes:
                 raise RuntimeError(
-                    f'Duplicate hopped-up weapon archetype base term found: {base_term}')
+                    f'Duplicate suffixed weapon archetype base term found: {base_term}')
             else:
-                with_hopup_archetypes[base_term] = archetype
+                suffixed_archetypes[base_term] = archetype
 
         archetype_groups: list[WeaponArchetypes] = []
-        for base_term, no_hopup_archetype in no_hopup_archetypes.items():
-            with_hopup_archetype = with_hopup_archetypes.pop(base_term, None)
-            archetype_groups.append(WeaponArchetypes(no_hopup_archetype=no_hopup_archetype,
-                                                     with_hopup_archetype=with_hopup_archetype))
+        for base_term, base_archetype in base_archetypes.items():
+            suffixed_archetype = suffixed_archetypes.pop(base_term, None)
+            archetype_groups.append(WeaponArchetypes(base_archetype=base_archetype,
+                                                     suffixed_archetype=suffixed_archetype))
 
-        if len(with_hopup_archetypes) > 0:
+        if len(suffixed_archetypes) > 0:
             raise RuntimeError(
-                'Hopped up weapons found with no non-hopped-up equivalents: '
-                f'{set(with_hopup_archetypes.values())}')
+                'Suffixed weapons found with no non-hopped-up equivalents: '
+                f'{set(suffixed_archetypes.values())}')
 
         return tuple(archetype_groups)
