@@ -1,4 +1,5 @@
 import logging
+from enum import IntEnum
 from typing import Generator, Optional, Tuple
 
 from apex_assistant.checker import check_bool, check_tuple, check_type
@@ -18,6 +19,12 @@ from apex_assistant.speech.term import Words
 from apex_assistant.speech.term_translator import BoolTranslator, SingleTermFinder, Translator
 from apex_assistant.speech.translations import FindResult
 from apex_assistant.weapon import Loadout, Weapon, WeaponArchetypes
+
+
+class _LookingForSidearm(IntEnum):
+    NOT_REQUESTED = 0
+    REQUESTED_BY_DEFAULT = 1
+    REQUESTED_EXPLICITLY = 2
 
 
 class LoadoutTranslator:
@@ -113,7 +120,7 @@ class LoadoutTranslator:
         # The most recent weapon parsed.
         main_weapon: Weapon | None = None
         # Whether that most recent main weapon is intended to have a sidearm.
-        looking_for_sidearm: bool = False
+        looking_for_sidearm: _LookingForSidearm = _LookingForSidearm.NOT_REQUESTED
         preceding_args: Words | None = None
 
         for parsed_archetype in self._archetype_translator.translate_terms(words):
@@ -125,7 +132,7 @@ class LoadoutTranslator:
 
             if archetype is None:
                 # Asking for previous main weapon.
-                if looking_for_sidearm:
+                if looking_for_sidearm is _LookingForSidearm.REQUESTED_EXPLICITLY:
                     self._LOGGER.warning(
                         'Cannot have sidearm of a main weapon, that makes no sense. Ignoring '
                         'sidearm term.')
@@ -137,36 +144,44 @@ class LoadoutTranslator:
                     preceding_args = following_args
                     continue
                 sidearm_translation = self.is_asking_for_sidearm(following_args)
-                if sidearm_translation:
-                    looking_for_sidearm = True
-                    preceding_args = sidearm_translation.get_untranslated_words()
-                    continue
+                # We assume that the only reason you would say "the same main weapon" is to specify
+                # a different sidearm.
+                looking_for_sidearm = (
+                    _LookingForSidearm.REQUESTED_EXPLICITLY if sidearm_translation else
+                    _LookingForSidearm.REQUESTED_BY_DEFAULT)
+                preceding_args = sidearm_translation.get_untranslated_words()
+                continue
 
-                loadout = self.add_default_sidearm(main_weapon)
+            parsed_weapon = archetype.get_best_match(
+                words=following_args,
+                overall_level=overall_level)
+            weapon = parsed_weapon.get_value()
+            preceding_args = parsed_weapon.get_untranslated_words()
+            if looking_for_sidearm in (_LookingForSidearm.REQUESTED_EXPLICITLY,
+                                       _LookingForSidearm.REQUESTED_BY_DEFAULT):
+                # TODO: This assumes that you can only have one sidearm, but maybe we should
+                #  consider Ballistic's third weapon and Rampart's "Sheila".
+                looking_for_sidearm = _LookingForSidearm.NOT_REQUESTED
+                sidearm = weapon
+                loadout = main_weapon.add_sidearm(sidearm)
+            elif self.is_asking_for_sidearm(following_args):
+                looking_for_sidearm = _LookingForSidearm.REQUESTED_EXPLICITLY
+                main_weapon = weapon
+                continue
             else:
-                parsed_weapon = archetype.get_best_match(
-                    words=following_args,
-                    overall_level=overall_level)
-                weapon = parsed_weapon.get_value()
-                preceding_args = parsed_weapon.get_untranslated_words()
-                if looking_for_sidearm:
-                    # TODO: This assumes that you can only have one sidearm, but maybe we should
-                    #  consider Ballistic's third weapon and Rampart's "Sheila".
-                    looking_for_sidearm = False
-                    sidearm = weapon
-                    loadout = main_weapon.add_sidearm(sidearm)
-                elif self.is_asking_for_sidearm(following_args):
-                    looking_for_sidearm = True
-                    main_weapon = weapon
-                    continue
-                else:
-                    main_weapon = weapon
-                    loadout = self.add_default_sidearm(main_weapon)
+                main_weapon = weapon
+                loadout = self.add_default_sidearm(main_weapon)
 
             if with_reloads:
                 loadout = loadout.reload()
 
             yield loadout
+
+        if looking_for_sidearm is _LookingForSidearm.REQUESTED_EXPLICITLY:
+            self._LOGGER.warning(f'Requested sidearm for {main_weapon}, but didn\'t find one. This '
+                                 'incomplete loadout will be ignored.')
+        elif looking_for_sidearm is _LookingForSidearm.REQUESTED_BY_DEFAULT:
+            yield main_weapon
 
     @staticmethod
     def get_overall_level(preceding_args: Words) -> OverallLevel:
