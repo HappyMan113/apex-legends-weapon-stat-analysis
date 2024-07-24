@@ -11,14 +11,15 @@ highest expected average damage ser second in close quarters combat.
    accurate hits to an opponent's body. It does this for each "t" in a set of historic TTK values.
     - These historic TTK values were derived from clips of my in-game deaths. They were calculated
       starting at the time I first started taking damage and ending when I died, except that if
-      there
-      was a long enough time gap to reset before I died, that start of my taking damage did not
-      count.
-    - Weapon stats from the [Apex Legends Wiki](https://apexlegends.fandom.com/wiki/Weapon#General)
-      were supplemented with more up-to-date
-      [S20](https://www.ea.com/games/apex-legends/news/breakout-patch-notes) and
-      [S21](https://siege.gg/news/apex-legends-season-21-patch-notes) patch notes from Respawn.
-      These compiled stats are used to calculate cumulative damage up till time "t".
+      there was a long enough time gap to reset before I died, that start of my taking damage did
+      not count.
+    - Weapon stats were compiled from various sources and used to calculate cumulative damage up till
+      time "t". Sources were as follows:
+      - [Apex Legends Wiki](https://apexlegends.fandom.com/wiki/Weapon#General)
+      - [S20 patch notes](https://www.ea.com/games/apex-legends/news/breakout-patch-notes)
+      - [S21 patch notes](https://www.ea.com/games/apex-legends/news/upheaval-patch-notes)
+      - [S21 mid-season patch notes](https://www.ea.com/games/apex-legends/news/double-take-collection-event)
+      - [Reddit comment with the new G7 Scout fire rate](https://www.reddit.com/r/apexlegends/comments/1dwbf4o/comment/lbtsc84/)
     - When reloading is assumed (which it is by default), reload times are assumed to be tactical
       reload times with only 1 bullet left in the magazine.
     - For Hammerpoint and Disruptor hop-ups, the DPS is calculated as the average of the DPS when
