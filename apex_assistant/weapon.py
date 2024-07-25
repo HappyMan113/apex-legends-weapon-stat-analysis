@@ -7,7 +7,6 @@ from typing import (Dict,
                     Generic,
                     Iterable,
                     Optional,
-                    Set,
                     Tuple,
                     TypeVar,
                     Union,
@@ -31,6 +30,7 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.speech.translations import TranslatedValue
+from apex_assistant.weapon_class import WeaponClass
 
 
 T = TypeVar('T')
@@ -64,45 +64,66 @@ class StatsBase(abc.ABC, Generic[T]):
                                        if term is not None})
         self._term_to_val_dict = term_to_val_dict
 
+    def __len__(self) -> int:
+        return len(self._term_to_val_dict)
+
+    def get_best_stats(self) -> Tuple[Optional[RequiredTerm], T]:
+        return self._all_terms[-1], self._all_values[-1]
+
     def get_all_stats(self) -> MappingProxyType[Optional[RequiredTerm], T]:
         return self._term_to_val_dict
 
     def translate_stats(self, words: Words) -> \
-            Tuple[MappingProxyType[Optional[RequiredTerm], T], Words]:
+            Tuple[Optional[Tuple[Optional[RequiredTerm], T]], Words]:
         check_type(Words, words=words)
         translation = self._translator.translate_terms(words)
-        terms = MappingProxyType({parsed.get_term(): parsed.get_value() for parsed in translation})
-        return terms, translation.get_untranslated_words()
+        first_term = translation.get_first_term()
+        if first_term is None:
+            term_and_val = None
+        else:
+            term_and_val = first_term.get_term(), first_term.get_value()
+        return term_and_val, translation.get_untranslated_words()
 
     @staticmethod
-    def translate_levels(words: Words) -> Tuple[Set[int], Words]:
+    def translate_level(words: Words) -> Tuple[Optional[int], Words]:
         translation = StatsBase._LEVEL_TRANSLATOR.translate_terms(words)
-        return set(term.get_value() for term in translation), translation.get_untranslated_words()
+        return translation.get_latest_value(), translation.get_untranslated_words()
 
-    def get_stats_for_levels(self, levels: set[int]) -> MappingProxyType[Optional[RequiredTerm], T]:
-        check_int(min_value=0, **to_kwargs(levels=tuple(levels)))
-        max_level = len(self._all_terms) - 1
-        if len(levels) == 0:
+    def _get_highest_level(self):
+        return len(self._all_terms) - 1
+
+    def get_stats_for_level(self, level: Optional[int]) -> Tuple[RequiredTerm, T]:
+        check_int(min_value=0, optional=True, level=level)
+        max_level = self._get_highest_level()
+        if level is None:
             # Get the highest level by default.
-            levels = {max_level}
+            level = max_level
         else:
-            levels: set[int] = set(min(level, max_level) for level in levels)
+            level = min(level, max_level)
 
-        return MappingProxyType({self._all_terms[level]: self._all_values[level]
-                                 for level in levels})
+        term: Optional[RequiredTerm] = self._all_terms[level]
+        value: T = self._all_values[level]
+        return term, value
+
+    def best_to_worst(self) -> \
+            Generator[Tuple[Optional[RequiredTerm], T],
+            None,
+            None]:
+        for level in range(self._get_highest_level(), -1, -1):
+            yield self.get_stats_for_level(level)
 
 
 class MagazineCapacityBase(StatsBase[int]):
     pass
 
 
-class SingleMagazineCapacity(MagazineCapacityBase):
+class MagazineCapacity(MagazineCapacityBase):
     def __init__(self, base_capacity: int):
         check_int(min_val=1, base_capacity=base_capacity)
         super().__init__(None, base_capacity)
 
 
-class MagazineCapacity(MagazineCapacityBase):
+class MagazineCapacities(MagazineCapacityBase):
     def __init__(self,
                  base_capacity: int,
                  level_1_capacity: int,
@@ -120,43 +141,71 @@ class MagazineCapacity(MagazineCapacityBase):
                          level_3_capacity)
 
 
-class ReloadTimeBase(StatsBase[float | None]):
-    pass
-
-
-class SingleReloadTime(ReloadTimeBase):
-    def __init__(self, reload_time_secs: float | None):
+class StockStatValues:
+    def __init__(self,
+                 tactical_reload_time_secs: Optional[float],
+                 full_reload_time_secs: Optional[float],
+                 holster_time_secs: float,
+                 ready_to_fire_time_secs: float):
         check_float(min_value=0,
                     min_is_exclusive=True,
                     optional=True,
-                    reload_time_secs=reload_time_secs)
-        super().__init__(None, reload_time_secs)
-
-
-class ReloadTime(ReloadTimeBase):
-    def __init__(self,
-                 base_reload_time_secs: float,
-                 level_1_reload_time_secs: float,
-                 level_2_reload_time_secs: float,
-                 level_3_reload_time_secs: float):
+                    tactical_reload_time_secs=tactical_reload_time_secs,
+                    full_reload_time_secs=full_reload_time_secs)
         check_float(min_value=0,
                     min_is_exclusive=True,
-                    base_rounds_per_minute=base_reload_time_secs,
-                    level_1_rounds_per_minute=level_1_reload_time_secs,
-                    level_2_rounds_per_minute=level_2_reload_time_secs,
-                    level_3_rounds_per_minute=level_3_reload_time_secs)
-        super().__init__(ALL_STOCK_TERMS,
-                         base_reload_time_secs,
-                         level_1_reload_time_secs,
-                         level_2_reload_time_secs,
-                         level_3_reload_time_secs)
+                    holster_time_secs=holster_time_secs,
+                    ready_to_fire_time_secs=ready_to_fire_time_secs)
+        self._tactical_reload_time_secs = tactical_reload_time_secs
+        self._full_reload_time_secs = full_reload_time_secs
+        self._holster_time_secs = holster_time_secs
+        self._ready_to_fire_time_secs = ready_to_fire_time_secs
+
+    def get_tactical_reload_time_secs(self) -> Optional[float]:
+        return self._tactical_reload_time_secs
+
+    def get_full_reload_time_secs(self) -> Optional[float]:
+        return self._full_reload_time_secs
+
+    def get_holster_time_secs(self) -> float:
+        return self._holster_time_secs
+
+    def get_ready_to_fire_time_secs(self) -> float:
+        return self._ready_to_fire_time_secs
 
 
-class BaseRoundsPerMinute(StatsBase[float]):
+class StockStatsBase(StatsBase[StockStatValues | None]):
     pass
 
 
-class SingleRoundsPerMinute(BaseRoundsPerMinute):
+class StockStat(StockStatsBase):
+    def __init__(self, stats: StockStatValues | None):
+        super().__init__(None, stats)
+
+
+class StockStats(StockStatsBase):
+    def __init__(self,
+                 no_stock_stats: StockStatValues,
+                 level_1_stock_stats: StockStatValues,
+                 level_2_stock_stats: StockStatValues,
+                 level_3_stock_stats: StockStatValues):
+        check_type(StockStatValues,
+                   no_stock_stats=no_stock_stats,
+                   level_1_stock_time_secs=level_1_stock_stats,
+                   level_2_stock_time_secs=level_2_stock_stats,
+                   level_3_stock_time_secs=level_3_stock_stats)
+        super().__init__(ALL_STOCK_TERMS,
+                         no_stock_stats,
+                         level_1_stock_stats,
+                         level_2_stock_stats,
+                         level_3_stock_stats)
+
+
+class RoundsPerMinuteBase(StatsBase[float]):
+    pass
+
+
+class RoundsPerMinute(RoundsPerMinuteBase):
     def __init__(self, base_rounds_per_minute: float):
         check_float(base_rounds_per_minute=base_rounds_per_minute,
                     min_value=0,
@@ -164,7 +213,7 @@ class SingleRoundsPerMinute(BaseRoundsPerMinute):
         super().__init__(None, base_rounds_per_minute)
 
 
-class RoundsPerMinute(BaseRoundsPerMinute):
+class RoundsPerMinutes(RoundsPerMinuteBase):
     def __init__(self,
                  base_rounds_per_minute: float,
                  level_1_rounds_per_minute: float,
@@ -416,11 +465,11 @@ class Loadout(abc.ABC):
         return self.name
 
     @abc.abstractmethod
-    def get_instantaneous_damage(self, time_seconds: float, include_deployment=False) -> float:
+    def get_instantaneous_damage(self, time_seconds: float) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_cumulative_damage(self, time_seconds: float, include_deployment=False) -> float:
+    def get_cumulative_damage(self, time_seconds: float) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -434,11 +483,11 @@ class Loadout(abc.ABC):
 
 class NonReloadingLoadout(Loadout, abc.ABC):
     @abc.abstractmethod
-    def get_deploy_time_secs(self) -> float:
-        """
-        Note: Given that reloading should be the final step when considering a loadout, deploy time
-        should be irrelevant.
-        """
+    def get_holster_time_secs(self) -> float:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_ready_to_fire_time_secs(self) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -478,12 +527,7 @@ class ReloadingLoadout(Loadout):
                 if rel_time_seconds < mag_duration_seconds
                 else 0)
 
-    def get_cumulative_damage(self, time_seconds: float, include_deployment=False) -> float:
-        dt = self.wrapped_loadout.get_deploy_time_secs() if include_deployment else 0
-        time_seconds -= dt
-        if time_seconds <= 0:
-            return 0
-
+    def get_cumulative_damage(self, time_seconds: float) -> float:
         reload_time_seconds = self.reload_time_secs
         mag_duration_seconds = self.wrapped_loadout.get_magazine_duration_seconds(tactical=True)
         cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
@@ -520,34 +564,46 @@ class FullLoadout(NonReloadingLoadout):
         super().__init__(f'{main_weapon.name} {WITH_SIDEARM} {sidearm.name}',
                          main_weapon.get_term().append(WITH_SIDEARM, sidearm.get_term()))
 
-    def get_deploy_time_secs(self) -> float:
-        return self.main_weapon.get_deploy_time_secs()
+    def get_holster_time_secs(self) -> float:
+        return self.sidearm.get_holster_time_secs()
+
+    def get_ready_to_fire_time_secs(self) -> float:
+        return self.main_weapon.get_ready_to_fire_time_secs()
 
     def get_archetype(self) -> 'WeaponArchetype':
         return self.main_weapon.get_archetype()
 
-    def get_instantaneous_damage(self, time_seconds: float, include_deployment=False) -> float:
+    def get_instantaneous_damage(self, time_seconds: float) -> float:
         main_total_duration_seconds = self.main_weapon.get_magazine_duration_seconds()
         if time_seconds < main_total_duration_seconds:
-            return self.main_weapon.get_instantaneous_damage(time_seconds, include_deployment=False)
+            return self.main_weapon.get_instantaneous_damage(time_seconds)
 
         time_seconds -= main_total_duration_seconds
-        return self.sidearm.get_instantaneous_damage(time_seconds, include_deployment=True)
 
-    def get_cumulative_damage(self, time_seconds: float, include_deployment=False) -> float:
+        # Take swapping into account.
+        time_seconds -= self.get_swap_time_seconds()
+
+        return self.sidearm.get_instantaneous_damage(time_seconds)
+
+    def get_swap_time_seconds(self):
+        return (self.main_weapon.get_holster_time_secs() +
+                self.sidearm.get_ready_to_fire_time_secs())
+
+    def get_cumulative_damage(self, time_seconds: float) -> float:
         main_total_duration_seconds = self.main_weapon.get_magazine_duration_seconds()
         cum_damage = self.main_weapon.get_cumulative_damage(
-            min(time_seconds, main_total_duration_seconds),
-            include_deployment=include_deployment)
-        if time_seconds >= main_total_duration_seconds:
-            time_seconds -= main_total_duration_seconds
-            cum_damage += self.sidearm.get_cumulative_damage(time_seconds,
-                                                             include_deployment=True)
+            min(time_seconds, main_total_duration_seconds))
+
+        sidearm_start_time_seconds = main_total_duration_seconds + self.get_swap_time_seconds()
+        if time_seconds >= sidearm_start_time_seconds:
+            time_seconds -= sidearm_start_time_seconds
+            cum_damage += self.sidearm.get_cumulative_damage(time_seconds)
+
         return cum_damage
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
         return (self.main_weapon.get_magazine_duration_seconds(tactical=False) +
-                self.sidearm.get_deploy_time_secs() +
+                self.sidearm.get_ready_to_fire_time_secs() +
                 self.sidearm.get_magazine_duration_seconds(tactical=tactical))
 
     def get_tactical_reload_time_secs(self) -> float | None:
@@ -572,18 +628,37 @@ class Weapon(NonReloadingLoadout):
                  archetype: 'WeaponArchetype',
                  name: str,
                  term: RequiredTerm,
-                 weapon_class: str,
+                 weapon_class: WeaponClass,
                  damage_body: float,
-                 deploy_time_secs: float,
+                 holster_time_secs: float,
+                 ready_to_fire_time_secs: float,
                  rounds_per_minute: float,
                  magazine_capacity: int,
                  spinup: Spinup,
-                 tactical_reload_time_secs: float | None):
+                 tactical_reload_time_secs: Optional[float]):
+        check_type(WeaponArchetype, archetype=archetype)
+        check_str(name=name)
+        check_type(RequiredTerm, term=term)
+        check_type(WeaponClass, weapon_class=weapon_class)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    damage_body=damage_body,
+                    holster_time_secs=holster_time_secs,
+                    ready_to_fire_time_secs=ready_to_fire_time_secs,
+                    rounds_per_minute=rounds_per_minute)
+        check_int(min_value=1, magazine_capacity=magazine_capacity)
+        check_type(Spinup, spinup=spinup)
+        check_float(optional=True,
+                    min_value=0,
+                    min_is_exclusive=True,
+                    tactical_reload_time_secs=tactical_reload_time_secs)
+
         super().__init__(name=name, term=term)
-        self.deploy_time_secs = deploy_time_secs
         self.archetype = archetype
         self.weapon_class = weapon_class
         self.damage_body = damage_body
+        self.holster_time_secs = holster_time_secs
+        self.ready_to_fire_time_secs = ready_to_fire_time_secs
         self.rounds_per_minute = rounds_per_minute
         self.magazine_capacity = magazine_capacity
         self.spinup = spinup
@@ -595,23 +670,20 @@ class Weapon(NonReloadingLoadout):
     def get_archetype(self) -> 'WeaponArchetype':
         return self.archetype
 
-    def get_deploy_time_secs(self) -> float:
-        return self.deploy_time_secs
+    def get_holster_time_secs(self) -> float:
+        return self.holster_time_secs
+
+    def get_ready_to_fire_time_secs(self) -> float:
+        return self.ready_to_fire_time_secs
 
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.tactical_reload_time_secs
 
-    def get_instantaneous_damage(self, time_seconds: float, include_deployment=False) -> float:
-        dt = self.deploy_time_secs if include_deployment else 0
-        if time_seconds < dt:
-            return 0
-        return self.spinup.get_instantaneous_damage_per_second(self, time_seconds - dt)
+    def get_instantaneous_damage(self, time_seconds: float) -> float:
+        return self.spinup.get_instantaneous_damage_per_second(self, time_seconds)
 
-    def get_cumulative_damage(self, time_seconds: float, include_deployment=False) -> float:
-        dt = self.deploy_time_secs if include_deployment else 0
-        if time_seconds < dt:
-            return 0
-        return self.spinup.get_cumulative_damage(self, time_seconds - dt)
+    def get_cumulative_damage(self, time_seconds: float) -> float:
+        return self.spinup.get_cumulative_damage(self, time_seconds)
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
         return self.spinup.get_magazine_duration_seconds(self, tactical=tactical)
@@ -633,10 +705,11 @@ class Weapon(NonReloadingLoadout):
 
     def __eq__(self, other):
         return (isinstance(other, Weapon) and
-                self.deploy_time_secs == other.deploy_time_secs and
                 self.archetype == other.archetype and
                 self.weapon_class == other.weapon_class and
                 self.damage_body == other.damage_body and
+                self.holster_time_secs == other.holster_time_secs and
+                self.ready_to_fire_time_secs == other.ready_to_fire_time_secs and
                 self.rounds_per_minute == other.rounds_per_minute and
                 self.magazine_capacity == other.magazine_capacity and
                 self.spinup == other.spinup and
@@ -657,13 +730,11 @@ class WeaponArchetype:
                  name: str,
                  base_term: RequiredTerm,
                  hopup_suffix: Optional[TermBase],
-                 weapon_class: str,
+                 weapon_class: WeaponClass,
                  damage_body: float,
-                 deploy_time_secs: float,
-                 rounds_per_minute: SingleRoundsPerMinute,
-                 magazine_capacity: SingleMagazineCapacity,
-                 tactical_reload_time: SingleReloadTime,
-                 full_reload_time: SingleReloadTime,
+                 rounds_per_minute: RoundsPerMinuteBase,
+                 magazine_capacity: MagazineCapacityBase,
+                 stock_dependant_stats: StockStatsBase,
                  spinup: Spinup):
         self.name = name
         self.base_term = base_term
@@ -673,61 +744,75 @@ class WeaponArchetype:
                                         else base_term)
         self.weapon_class = weapon_class
         self.damage_body = damage_body
-        self.deploy_time_secs = deploy_time_secs
         self.rounds_per_minute = rounds_per_minute
         self.magazine_capacity = magazine_capacity
-        self.tactical_reload_time = tactical_reload_time
-        self.full_reload_time = full_reload_time
+        self.stock_dependant_stats = stock_dependant_stats
         self.spinup = spinup
         self.base_weapons = tuple(self._get_base_weapons(
-            rpms=self.rounds_per_minute.get_all_stats(),
-            mags=self.magazine_capacity.get_all_stats(),
-            tactical_reload_times=self.tactical_reload_time.get_all_stats()))
+            rpms=rounds_per_minute,
+            mags=magazine_capacity,
+            stock_dependant_stats=stock_dependant_stats))
 
     def _get_base_weapons(
             self,
-            rpms: MappingProxyType[Optional[RequiredTerm], float],
-            mags: MappingProxyType[Optional[RequiredTerm], int],
-            tactical_reload_times: MappingProxyType[Optional[RequiredTerm], float]
+            rpms: StatsBase[float],
+            mags: StatsBase[Optional[int]],
+            stock_dependant_stats: StatsBase[Optional[StockStatValues]]
     ) -> Generator[Weapon, None, None]:
+        for rpm_term, rpm in rpms.best_to_worst():
+            for mag_term, mag in mags.best_to_worst():
+                for stock_term, stock_stats in stock_dependant_stats.best_to_worst():
+                    base_weapon = self._get_weapon(
+                        rounds_per_minute=rpm,
+                        magazine_capacity=mag,
+                        stock_stats=stock_stats,
+                        rpm_term=rpm_term,
+                        mag_term=mag_term,
+                        stock_term=stock_term)
+                    yield base_weapon
+
+    def _get_weapon(self,
+                    rounds_per_minute: float,
+                    magazine_capacity: Optional[int],
+                    stock_stats: Optional[StockStatValues],
+                    rpm_term: Optional[RequiredTerm],
+                    mag_term: Optional[RequiredTerm],
+                    stock_term: Optional[RequiredTerm]) -> Weapon:
         name = self.name
         term = self.get_term()
         weapon_class = self.weapon_class
         damage_body = self.damage_body
-        deploy_time_secs = self.deploy_time_secs
         spinup = self.spinup
 
-        for rpm_idx, (rpm_term, rpm) in enumerate(reversed(rpms.items())):
-            rpm_name = f' ({rpm_term})' if rpm_term is not None else ''
+        rpm_name = f' ({rpm_term})' if rpm_term is not None else ''
+        mag_name = f' ({mag_term})' if mag_term is not None else ''
+        stock_name = f' ({stock_term})' if stock_term is not None else ''
 
-            for mag_idx, (mag_term, mag) in enumerate(reversed(mags.items())):
-                mag_name = f' ({mag_term})' if mag_term is not None else ''
+        full_name = f'{name}{rpm_name}{mag_name}{stock_name}'
+        more_terms: Tuple[RequiredTerm, ...] = tuple(
+            _term
+            for _term in (rpm_term, mag_term, stock_term)
+            if _term is not None)
+        if len(more_terms) > 0:
+            full_term = term.append(*more_terms)
+        else:
+            full_term = term
 
-                for stock_idx, (stock_term, tactical_reload_time) in enumerate(reversed(
-                        tactical_reload_times.items())):
-                    stock_name = f' ({stock_term})' if stock_term is not None else ''
+        tactical_reload_time_secs = stock_stats.get_tactical_reload_time_secs()
+        holster_time_secs = stock_stats.get_holster_time_secs()
+        ready_to_fire_time_secs = stock_stats.get_ready_to_fire_time_secs()
 
-                    full_name = f'{name}{rpm_name}{mag_name}{stock_name}'
-                    more_terms: Tuple[RequiredTerm, ...] = tuple(
-                        _term
-                        for _term in (rpm_term, mag_term, stock_term)
-                        if _term is not None)
-                    if len(more_terms) > 0:
-                        full_term = term.append(*more_terms)
-                    else:
-                        full_term = term
-                    base_weapon = Weapon(
-                        archetype=self,
-                        name=full_name,
-                        term=full_term,
-                        weapon_class=weapon_class,
-                        damage_body=damage_body,
-                        deploy_time_secs=deploy_time_secs,
-                        rounds_per_minute=rpm,
-                        magazine_capacity=mag,
-                        spinup=spinup,
-                        tactical_reload_time_secs=tactical_reload_time)
-                    yield base_weapon
+        return Weapon(archetype=self,
+                      name=full_name,
+                      term=full_term,
+                      weapon_class=weapon_class,
+                      damage_body=damage_body,
+                      holster_time_secs=holster_time_secs,
+                      ready_to_fire_time_secs=ready_to_fire_time_secs,
+                      rounds_per_minute=rounds_per_minute,
+                      magazine_capacity=magazine_capacity,
+                      spinup=spinup,
+                      tactical_reload_time_secs=tactical_reload_time_secs)
 
     def get_base_term(self) -> RequiredTerm:
         return self.base_term
@@ -740,9 +825,6 @@ class WeaponArchetype:
 
     def get_name(self) -> str:
         return self.name
-
-    def get_deploy_time_seconds(self) -> float:
-        return self.deploy_time_secs
 
     def get_class(self) -> str:
         return self.weapon_class
@@ -763,14 +845,15 @@ class WeaponArchetype:
         check_type(Words, words=words)
         check_type(OverallLevel, overall_level=overall_level)
 
-        rpms, words = self.rounds_per_minute.translate_stats(words)
-        mags, words = self.magazine_capacity.translate_stats(words)
-        tactical_reload_times, words = self.tactical_reload_time.translate_stats(words)
+        rpm_term_and_val, words = self.rounds_per_minute.translate_stats(words)
+        mag_term_and_val, words = self.magazine_capacity.translate_stats(words)
+        stock_term_and_val, words = self.stock_dependant_stats.translate_stats(words)
 
         if overall_level is not OverallLevel.PARSE_WORDS:
             stats_list = ', '.join(f'"{term}"'
-                                   for stats in (rpms, mags, tactical_reload_times)
-                                   for term in stats.keys()
+                                   for term, _ in (rpm_term_and_val,
+                                                   mag_term_and_val,
+                                                   stock_term_and_val)
                                    if term is not None)
             if len(stats_list) > 0:
                 overall_level_name = overall_level.name.lower().replace('_', ' ')
@@ -778,24 +861,34 @@ class WeaponArchetype:
                     f'Specific attachments ({stats_list}) for {self} will be overridden by the '
                     f'overall weapon level: {overall_level_name}.')
 
-            levels = {int(overall_level)}
-            rpms = self.rounds_per_minute.get_stats_for_levels(levels)
-            mags = self.magazine_capacity.get_stats_for_levels(levels)
-            tactical_reload_times = self.tactical_reload_time.get_stats_for_levels(levels)
-        elif any(len(stats) == 0 for stats in (rpms, mags, tactical_reload_times)):
-            default_levels, words = StatsBase.translate_levels(words)
-            if len(rpms) == 0:
-                rpms = self.rounds_per_minute.get_stats_for_levels(default_levels)
-            if len(mags) == 0:
-                mags = self.magazine_capacity.get_stats_for_levels(default_levels)
-            if len(tactical_reload_times) == 0:
-                tactical_reload_times = \
-                    self.tactical_reload_time.get_stats_for_levels(default_levels)
+            level = int(overall_level)
+            rpm_term, rpm = self.rounds_per_minute.get_stats_for_level(level)
+            mag_term, mag = self.magazine_capacity.get_stats_for_level(level)
+            stock_term, stock_stats = self.stock_dependant_stats.get_stats_for_level(level)
+        else:
+            if any(term is None
+                   for term in (rpm_term_and_val, mag_term_and_val, stock_term_and_val)):
+                default_level, words = StatsBase.translate_level(words)
+                if rpm_term_and_val is None:
+                    rpm_term_and_val = self.rounds_per_minute.get_stats_for_level(default_level)
 
-        weapon = next(self._get_base_weapons(
-            rpms=rpms,
-            mags=mags,
-            tactical_reload_times=tactical_reload_times))
+                if mag_term_and_val is None:
+                    mag_term_and_val = self.magazine_capacity.get_stats_for_level(default_level)
+
+                if stock_term_and_val is None:
+                    stock_term_and_val = \
+                        self.stock_dependant_stats.get_stats_for_level(default_level)
+
+            rpm_term, rpm = rpm_term_and_val
+            mag_term, mag = mag_term_and_val
+            stock_term, stock_stats = stock_term_and_val
+
+        weapon = self._get_weapon(rounds_per_minute=rpm,
+                                  magazine_capacity=mag,
+                                  stock_stats=stock_stats,
+                                  rpm_term=rpm_term,
+                                  mag_term=mag_term,
+                                  stock_term=stock_term)
         return TranslatedValue(weapon, words)
 
 

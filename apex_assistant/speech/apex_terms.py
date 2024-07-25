@@ -115,7 +115,7 @@ THIRTY_THIRTY_REPEATER = \
     Term('30-30', '33', 'there are three', '30 seconds ready', 'very very', '3030')
 BOCEK = Term('Bocek', 'bow check', 'Bochek')
 CAR = Term('car', 'C.A.R.', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
-CARE_PACKAGE_OPT: OptTerm = Term('care package').opt()
+CARE_PACKAGE_OPT: OptTerm = Term('care package', 'supply drop').opt()
 ALTERNATOR = Term('Alternator', 'I don\'t need her', 'I\'ll do neither')
 CHARGE_RIFLE = Term('Charge Rifle', 'charger full', 'charged rifle', 'Ciao Dreffel', 'charger')
 FAR = Term('far', 'bar', 'bark')
@@ -126,7 +126,8 @@ SHATTER_CAPS = Term('shatter caps', 'shattercaps', 'set our caps', 'share our ca
 MINIMAL_DRAW = Term('minimal draw', 'minimal', 'no more', 'I\'m in a moment', 'maybe more')
 SLOW = Term('slow', 'so', 'hello')
 QUICK_OPT: OptTerm = Term('quick', 'quit', 'pick').opt(include_in_speech=True)
-DRAWN = Term('full draw', 'drawn', 'drawing', 'John', 'drone', 'you\'re on', 'fully drawn')
+DRAWN = Term('full draw', 'drawn', 'drawing', 'John', 'drone', 'you\'re on', 'fully drawn',
+             'max draw', 'maximum draw')
 TURBOCHARGER = Term(
     'Turbocharger', 'dipper charger', 'gerber charger', 'to a charger', 'turbo charger',
     'temperature', 'timber charger', 'supercharger', 'derpacharger', 'double charger',

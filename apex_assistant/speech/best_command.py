@@ -1,6 +1,6 @@
 import abc
 import logging
-from typing import Dict, Iterable, Tuple, final
+from typing import Dict, Tuple, final
 
 from apex_assistant.checker import check_mapping, check_type
 from apex_assistant.loadout_comparer import LoadoutComparer
@@ -173,37 +173,23 @@ class _BestLoadoutCommand(_BestSubcommand):
 
     def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
         translator = self.get_translator()
+        comparer = self.get_comparer()
         weapons = set(translator.get_fully_kitted_weapons())
         reload = translator.is_asking_for_reloads(arguments)
+
         best_loadouts_and_terms: Dict[Loadout, TermBase] = {}
-        comparer = self.get_comparer()
         while len(weapons) > 0 and len(best_loadouts_and_terms) < number:
-            loadouts: Dict[Loadout, Tuple[Weapon, Weapon]] = {}
-            for main_weapon in weapons:
-                sidearm = self._get_best_sidearm(main_weapon, weapons, reload)
-                loadout = self._get_loadout(main_weapon, sidearm, reload)
-                loadouts[loadout] = main_weapon, sidearm
-
-            result = comparer.compare_loadouts(tuple(loadouts.keys()))
-            best_loadout, _ = result.get_best_loadout()
-            main_weapon, sidearm = loadouts[best_loadout]
-
+            temp_loadouts_and_terms: Dict[Loadout, Tuple[Weapon, Weapon]] = {
+                self._get_loadout(main_weapon, sidearm, reload): (main_weapon, sidearm)
+                for main_weapon in weapons
+                for sidearm in weapons}
+            best_loadout, _ = comparer.compare_loadouts(
+                tuple(temp_loadouts_and_terms.keys())).get_best_loadout()
+            main_weapon, sidearm = temp_loadouts_and_terms[best_loadout]
             weapons.remove(main_weapon)
-
             best_loadouts_and_terms[best_loadout] = self._get_term(main_weapon, sidearm)
 
         return best_loadouts_and_terms
-
-    def _get_best_sidearm(self,
-                          main_weapon: Weapon,
-                          all_weapons: Iterable[Weapon],
-                          reload: bool) -> Weapon:
-        loadout_to_sidearm_dict = {self._get_loadout(main_weapon, sidearm, reload): sidearm
-                                   for sidearm in all_weapons}
-        result = self.get_comparer().compare_loadouts(tuple(loadout_to_sidearm_dict.keys()))
-        loadout, _ = result.get_best_loadout()
-        sidearm = loadout_to_sidearm_dict[loadout]
-        return sidearm
 
     @staticmethod
     def _get_loadout(main_weapon: Weapon, sidearm: Weapon, reload: bool):

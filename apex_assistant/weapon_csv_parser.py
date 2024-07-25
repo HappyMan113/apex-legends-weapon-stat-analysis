@@ -19,18 +19,21 @@ from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX
 from apex_assistant.speech.term import OptTerm, RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import (Translator)
 from apex_assistant.ttk_datum import TTKDatum
-from apex_assistant.weapon import (MagazineCapacity,
-                                   ReloadTime,
+from apex_assistant.weapon import (MagazineCapacities,
+                                   MagazineCapacity,
                                    RoundsPerMinute,
-                                   SingleMagazineCapacity,
-                                   SingleReloadTime,
-                                   SingleRoundsPerMinute,
+                                   RoundsPerMinutes,
                                    Spinup,
                                    SpinupDevotion,
                                    SpinupHavoc,
                                    SpinupNone,
                                    SpinupType,
+                                   StockStat,
+                                   StockStatValues,
+                                   StockStats,
+                                   StockStatsBase,
                                    WeaponArchetype)
+from apex_assistant.weapon_class import WeaponClass
 
 logger = logging.getLogger()
 T = TypeVar('T')
@@ -45,7 +48,11 @@ class CsvReader(Generic[T]):
 
     def __iter__(self) -> Iterator[T]:
         for row in self._dict_reader:
-            item = self._parse_item(CsvRow(row))
+            row = CsvRow(row)
+            try:
+                item = self._parse_item(row)
+            except (ValueError, KeyError) as ex:
+                raise ex.__class__(f'Error parsing row: {row}: {ex}') from ex
             if item is not None:
                 yield item
 
@@ -73,8 +80,7 @@ class CsvRow:
                 raise ValueError(f'Value for {key} must be of type {clazz.__name__}') from ex
         elif default_value is None:
             if error_message is None:
-                row_str = ' | '.join(map(str, self.row_dict.values()))
-                error_message = f'Missing value for "{key}" in row: {row_str}.'
+                error_message = key
             raise KeyError(error_message)
         else:
             return default_value
@@ -93,9 +99,9 @@ class CsvRow:
 
     def parse_str_enum(self,
                        key: str,
-                       enum_type: Type[StrEnum],
-                       default_value: StrEnum | None = None,
-                       error_message: str | None = None):
+                       enum_type: Type[T],
+                       default_value: T | None = None,
+                       error_message: str | None = None) -> Optional[T]:
         assert issubclass(enum_type, StrEnum)
         enum_val = self._parse(key=key,
                                default_value=default_value,
@@ -126,7 +132,7 @@ class CsvRow:
                    default_value: bool | None = None,
                    error_message: str | None = None):
         str_val = self.parse_str(key=key,
-                                 default_value=str(default_value),
+                                 default_value=str(default_value).upper(),
                                  error_message=error_message)
         if str_val == 'TRUE':
             return True
@@ -144,6 +150,9 @@ class CsvRow:
                 if not isinstance(error_message, str):
                     error_message = error_message(key)
                 raise ValueError(error_message)
+
+    def __str__(self):
+        return ','.join(map(str, self.row_dict.values()))
 
 
 class TTKCsvReader(CsvReader[TTKDatum]):
@@ -165,6 +174,7 @@ class TTKCsvReader(CsvReader[TTKDatum]):
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = "Weapon"
     KEY_WEAPON_CLASS = "Weapon Class"
+    KEY_STOCKS_INCOMPATIBLE = "Stocks Incompatible"
     KEY_DAMAGE_BODY = "Damage (body)"
     KEY_RPM_BASE = "RPM (base)"
     KEY_RPM_SHOTGUN_BOLT_LEVEL_1 = "RPM (shotgun bolt level 1)"
@@ -177,7 +187,9 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_SPINUP_TYPE = "Spinup Type"
     KEY_RPM_INITIAL = "RPM initial"
     KEY_SPINUP_TIME = "Spinup Time"
+    KEY_HOLSTER_TIME = "Holster Time"
     KEY_DEPLOY_TIME = "Deploy Time"
+    KEY_READY_TO_FIRE_TIME = "Ready to Fire Time"
     KEY_ACTIVE = "Active"
     KEY_TACTICAL_RELOAD_TIME_BASE = 'Tactical Reload Time (base)'
     KEY_TACTICAL_RELOAD_TIME_LEVEL_1 = 'Tactical Reload Time (level 1)'
@@ -219,10 +231,10 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         return result
 
-    def _parse_weapon_archetype_term(self, item: CsvRow, key: str) -> \
+    def _parse_weapon_archetype_term(self, item: CsvRow) -> \
             tuple[str, RequiredTerm, Optional[Union[RequiredTerm, OptTerm]]]:
         # Figure out what term matches the weapon name.
-        read_name = item.parse_str(key)
+        read_name = item.parse_str(self.KEY_WEAPON_ARCHETYPE)
         name_words = Words(read_name)
         tup = self.get_term_and_suffix(name_words)
         if tup in self._taken_terms:
@@ -233,7 +245,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         term, suffix = tup
         return read_name, term, suffix
 
-    def _parse_rpm(self, csv_row: CsvRow) -> SingleRoundsPerMinute:
+    def _parse_rpm(self, csv_row: CsvRow) -> RoundsPerMinute:
         rpm_base = csv_row.parse_float(self.KEY_RPM_BASE)
         error_message = 'Must specify either all shotgun bolt levels or just the base rpm.'
         if csv_row.has_value(self.KEY_RPM_SHOTGUN_BOLT_LEVEL_1):
@@ -243,16 +255,16 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                                            error_message=error_message)
             rpm_shotgun_bolt_level_3 = csv_row.parse_float(self.KEY_RPM_SHOTGUN_BOLT_LEVEL_3,
                                                            error_message=error_message)
-            rpm = RoundsPerMinute(base_rounds_per_minute=rpm_base,
-                                  level_1_rounds_per_minute=rpm_shotgun_bolt_level_1,
-                                  level_2_rounds_per_minute=rpm_shotgun_bolt_level_2,
-                                  level_3_rounds_per_minute=rpm_shotgun_bolt_level_3)
+            rpm = RoundsPerMinutes(base_rounds_per_minute=rpm_base,
+                                   level_1_rounds_per_minute=rpm_shotgun_bolt_level_1,
+                                   level_2_rounds_per_minute=rpm_shotgun_bolt_level_2,
+                                   level_3_rounds_per_minute=rpm_shotgun_bolt_level_3)
         else:
-            rpm = SingleRoundsPerMinute(rpm_base)
+            rpm = RoundsPerMinute(rpm_base)
 
         return rpm
 
-    def _parse_mag(self, csv_row: CsvRow) -> SingleMagazineCapacity:
+    def _parse_mag(self, csv_row: CsvRow) -> MagazineCapacity:
         magazine_base = csv_row.parse_int(self.KEY_MAGAZINE_BASE)
         error_message = 'Must specify either all magazine levels or just the base magazine size.'
         if csv_row.has_value(self.KEY_MAGAZINE_LEVEL_1):
@@ -262,12 +274,12 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                                  error_message=error_message)
             magazine_level_3 = csv_row.parse_int(self.KEY_MAGAZINE_LEVEL_3,
                                                  error_message=error_message)
-            mag = MagazineCapacity(base_capacity=magazine_base,
-                                   level_1_capacity=magazine_level_1,
-                                   level_2_capacity=magazine_level_2,
-                                   level_3_capacity=magazine_level_3)
+            mag = MagazineCapacities(base_capacity=magazine_base,
+                                     level_1_capacity=magazine_level_1,
+                                     level_2_capacity=magazine_level_2,
+                                     level_3_capacity=magazine_level_3)
         else:
-            mag = SingleMagazineCapacity(magazine_base)
+            mag = MagazineCapacity(magazine_base)
             csv_row.ensure_empty(error_message,
                                  self.KEY_MAGAZINE_LEVEL_1,
                                  self.KEY_MAGAZINE_LEVEL_2,
@@ -275,47 +287,82 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         return mag
 
-    def _parse_reload_time(self,
-                           csv_row: CsvRow,
-                           key_base_reload_time,
-                           key_level_1_reload_time,
-                           key_level_2_reload_time,
-                           key_level_3_reload_time):
-        error_message = ('Must specify no reload times; base tactical and full reload times only; '
-                         'or all tactical and full reload times.')
+    @staticmethod
+    def _parse_reload_time(csv_row: CsvRow, key_base_reload_time) -> Optional[float]:
         if not csv_row.has_value(key_base_reload_time):
-            reload = SingleReloadTime(None)
-        elif not csv_row.has_value(key_level_1_reload_time):
-            reload = SingleReloadTime(csv_row.parse_float(key_base_reload_time))
-            csv_row.ensure_empty(error_message, key_level_2_reload_time, key_level_3_reload_time)
+            return None
+        return csv_row.parse_float(key_base_reload_time)
+
+    @staticmethod
+    def _parse_reload_times(csv_row: CsvRow,
+                            key_base_reload_time,
+                            key_level_1_reload_time,
+                            key_level_2_reload_time,
+                            key_level_3_reload_time) -> Tuple[float, ...]:
+        return (csv_row.parse_float(key_base_reload_time),
+                csv_row.parse_float(key_level_1_reload_time),
+                csv_row.parse_float(key_level_2_reload_time),
+                csv_row.parse_float(key_level_3_reload_time))
+
+    def _parse_stock_dependant_stats(self, row: CsvRow, weapon_class: WeaponClass) -> \
+            StockStatsBase:
+        stock_incompatible = row.parse_bool(key=self.KEY_STOCKS_INCOMPATIBLE,
+                                            default_value=False)
+        stock_compatible = (weapon_class not in (WeaponClass.PISTOL, WeaponClass.CARE_PACKAGE) and
+                            not stock_incompatible)
+
+        holster_time_secs_base = row.parse_float(self.KEY_HOLSTER_TIME)
+        ready_to_fire_time_secs_base = row.parse_float(self.KEY_READY_TO_FIRE_TIME)
+
+        if stock_compatible:
+            tactical_reloads = self._parse_reload_times(
+                row,
+                key_base_reload_time=self.KEY_TACTICAL_RELOAD_TIME_BASE,
+                key_level_1_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_1,
+                key_level_2_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_2,
+                key_level_3_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_3)
+            full_reloads = self._parse_reload_times(
+                row,
+                key_base_reload_time=self.KEY_FULL_RELOAD_TIME_BASE,
+                key_level_1_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_1,
+                key_level_2_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_2,
+                key_level_3_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_3)
+
+            # Multipliers for holster/deploy/RTF times of level 0/1/2/3 stocks.
+            stock_multipliers = (1, 0.85, 0.8, 0.75)
+
+            stock_stats = StockStats(*(
+                StockStatValues(
+                    tactical_reload_time_secs=tac_reload,
+                    full_reload_time_secs=full_reload,
+                    holster_time_secs=holster_time_secs_base * multiplier,
+                    ready_to_fire_time_secs=ready_to_fire_time_secs_base * multiplier)
+                for tac_reload, full_reload, multiplier in zip(tactical_reloads,
+                                                               full_reloads,
+                                                               stock_multipliers)))
         else:
-            reload = ReloadTime(
-                base_reload_time_secs=csv_row.parse_float(self.KEY_TACTICAL_RELOAD_TIME_BASE,
-                                                          error_message=error_message),
-                level_1_reload_time_secs=csv_row.parse_float(key_level_1_reload_time,
-                                                             error_message=error_message),
-                level_2_reload_time_secs=csv_row.parse_float(key_level_2_reload_time,
-                                                             error_message=error_message),
-                level_3_reload_time_secs=csv_row.parse_float(key_level_3_reload_time,
-                                                             error_message=error_message))
+            tactical_reload = self._parse_reload_time(
+                row,
+                key_base_reload_time=self.KEY_TACTICAL_RELOAD_TIME_BASE)
+            full_reload = self._parse_reload_time(
+                row,
+                key_base_reload_time=self.KEY_FULL_RELOAD_TIME_BASE)
+            row.ensure_empty(
+                f'Cannot specify non-base tactical or full reload times for {row}',
+                self.KEY_TACTICAL_RELOAD_TIME_LEVEL_1,
+                self.KEY_TACTICAL_RELOAD_TIME_LEVEL_2,
+                self.KEY_TACTICAL_RELOAD_TIME_LEVEL_3,
+                self.KEY_FULL_RELOAD_TIME_LEVEL_1,
+                self.KEY_FULL_RELOAD_TIME_LEVEL_2,
+                self.KEY_FULL_RELOAD_TIME_LEVEL_3)
 
-        return reload
+            stock_stats = StockStat(StockStatValues(
+                tactical_reload_time_secs=tactical_reload,
+                full_reload_time_secs=full_reload,
+                holster_time_secs=holster_time_secs_base,
+                ready_to_fire_time_secs=ready_to_fire_time_secs_base))
 
-    def _parse_tactical_and_full_reload_time(self, row: CsvRow) -> \
-            tuple[SingleReloadTime, SingleReloadTime]:
-        tactical_reload = self._parse_reload_time(
-            row,
-            key_base_reload_time=self.KEY_TACTICAL_RELOAD_TIME_BASE,
-            key_level_1_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_1,
-            key_level_2_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_2,
-            key_level_3_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_3)
-        full_reload = self._parse_reload_time(
-            row,
-            key_base_reload_time=self.KEY_FULL_RELOAD_TIME_BASE,
-            key_level_1_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_1,
-            key_level_2_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_2,
-            key_level_3_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_3)
-        return tactical_reload, full_reload
+        return stock_stats
 
     def _parse_spinup(self, csv_row: CsvRow) -> Spinup:
         spinup_type = csv_row.parse_str_enum(self.KEY_SPINUP_TYPE,
@@ -350,15 +397,14 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
             logger.info(f'Weapon "{name}" is not active. Skipping.')
             return None
 
-        # Parse basic stats
-        name, term, suffix = self._parse_weapon_archetype_term(row, self.KEY_WEAPON_ARCHETYPE)
-        weapon_class = row.parse_str(self.KEY_WEAPON_CLASS, default_value='')
+        name, term, suffix = self._parse_weapon_archetype_term(row)
+        weapon_class: WeaponClass = row.parse_str_enum(key=self.KEY_WEAPON_CLASS,
+                                                       enum_type=WeaponClass)
         damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
-        deploy_time_secs = row.parse_float(self.KEY_DEPLOY_TIME)
 
         rpm = self._parse_rpm(row)
         mag = self._parse_mag(row)
-        tactical_reload_time, full_reload_time = self._parse_tactical_and_full_reload_time(row)
+        stock_dependant_stats = self._parse_stock_dependant_stats(row, weapon_class=weapon_class)
         spinup = self._parse_spinup(row)
 
         return WeaponArchetype(name=name,
@@ -366,9 +412,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                hopup_suffix=suffix,
                                weapon_class=weapon_class,
                                damage_body=damage_body,
-                               deploy_time_secs=deploy_time_secs,
                                rounds_per_minute=rpm,
                                magazine_capacity=mag,
-                               tactical_reload_time=tactical_reload_time,
-                               full_reload_time=full_reload_time,
+                               stock_dependant_stats=stock_dependant_stats,
                                spinup=spinup)

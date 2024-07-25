@@ -204,7 +204,11 @@ class IntTranslator(Translator[int]):
 
         negative_term = IntTranslator._NEGATIVE_FINDER.find_at_start(words)
         if negative_term is None:
-            return IntTranslator._translate_abs_int(words)
+            int_val = IntTranslator._translate_abs_int(words)
+            if int_val is None:
+                return None
+
+            return IntTerm(int_val), int_val, 1
 
         abs_int = IntTranslator._translate_abs_int(negative_term.get_following_words())
         if abs_int is None:
