@@ -155,7 +155,7 @@ HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not',
                'M.L.A.', 'M-LOT', 'mwah', 'ma')
 KRABER = Term(
     'Kraber', 'credit', 'KBIR', 'paper', 'kripper', 'grayer', 'Creepers', 'Taylor', 'Creeper',
-    'covered', 'Khyber', 'Kramer', 'Krabber',
+    'covered', 'Khyber', 'Kramer', 'Krabber', 'Craber', 'Craver'
     # Sounds like 30-30: 'thank you'
 )
 LONGBOW = Term('Longbow', 'Wombo', 'I\'m well', 'Buh-bye', 'Bumbo', 'Number', 'Lambo', 'Lombo')

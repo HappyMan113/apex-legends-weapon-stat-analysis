@@ -1,6 +1,6 @@
 import abc
 import logging
-from typing import Dict, Tuple, final
+from typing import Dict, Optional, Tuple, final
 
 from apex_assistant.checker import check_mapping, check_type
 from apex_assistant.loadout_comparer import LoadoutComparer
@@ -173,33 +173,22 @@ class _BestLoadoutCommand(_BestSubcommand):
 
     def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
         translator = self.get_translator()
-        comparer = self.get_comparer()
-        weapons = set(translator.get_fully_kitted_weapons())
-        reload = translator.is_asking_for_reloads(arguments)
-
-        best_loadouts_and_terms: Dict[Loadout, TermBase] = {}
-        while len(weapons) > 0 and len(best_loadouts_and_terms) < number:
-            temp_loadouts_and_terms: Dict[Loadout, Tuple[Weapon, Weapon]] = {
-                self._get_loadout(main_weapon, sidearm, reload): (main_weapon, sidearm)
-                for main_weapon in weapons
-                for sidearm in weapons}
-            best_loadout, _ = comparer.compare_loadouts(
-                tuple(temp_loadouts_and_terms.keys())).get_best_loadout()
-            main_weapon, sidearm = temp_loadouts_and_terms[best_loadout]
-            weapons.remove(main_weapon)
-            best_loadouts_and_terms[best_loadout] = self._get_term(main_weapon, sidearm)
+        best_loadouts = self.get_comparer().get_best_loadouts(
+            weapons=translator.get_fully_kitted_weapons(),
+            max_num_loadouts=number,
+            reload=translator.is_asking_for_reloads(arguments))
+        best_loadouts_and_terms: Dict[Loadout, TermBase] = {
+            best_loadout: self._get_term(best_loadout.get_main_weapon(),
+                                         best_loadout.get_sidearm())
+            for best_loadout in best_loadouts
+        }
 
         return best_loadouts_and_terms
 
     @staticmethod
-    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, reload: bool):
-        loadout = main_weapon.add_sidearm(sidearm)
-        if reload:
-            loadout = loadout.reload()
-        return loadout
-
-    @staticmethod
-    def _get_term(main_weapon: Weapon, sidearm: Weapon):
+    def _get_term(main_weapon: Weapon, sidearm: Optional[Weapon]):
         main_term = main_weapon.get_archetype().get_base_term()
+        if sidearm is None:
+            return main_term
         side_term = sidearm.get_archetype().get_base_term()
         return main_term.append(WITH_SIDEARM, side_term)

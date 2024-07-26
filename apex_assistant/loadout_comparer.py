@@ -2,11 +2,11 @@ import itertools
 import logging
 import os
 from types import MappingProxyType
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from apex_assistant.checker import check_int, check_tuple, check_type
+from apex_assistant.checker import check_bool, check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import Loadout, Weapon, WeaponArchetype
 
@@ -91,7 +91,8 @@ class LoadoutComparer:
         """Convenience method for the getting the expected mean DPS of a particular loadout."""
         return next(iter(self.compare_loadouts((loadout,)).get_sorted_loadouts().values()))
 
-    def compare_loadouts(self, loadouts: Sequence[Loadout]) -> ComparisonResult:
+    def compare_loadouts(self, loadouts: Sequence[Loadout], show_plots: bool = False) -> \
+            ComparisonResult:
         tiebreaker_time = 10
 
         ts = self.ttks
@@ -134,56 +135,76 @@ class LoadoutComparer:
             if loadout.get_archetype() not in sorted_archetypes_dict:
                 sorted_archetypes_dict[loadout.get_archetype()] = (weighted_avg_damage, loadout)
 
-        return ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
+        result = ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
                                 sorted_weapons=MappingProxyType(sorted_weapons_dict))
 
-    def general_list(self,
-                     base_weapons: tuple[Weapon, ...],
-                     sidearm: Weapon | None = None,
-                     show_plots: bool = False):
-        check_tuple(Weapon, allow_empty=False, base_weapons=base_weapons)
-
-        if sidearm is not None:
-            sidearms = (sidearm,)
-        else:
-            sidearms = base_weapons
-
-        weapons: list[Loadout] = []
-        for sidearm in sidearms:
-            weapons.extend(weapon.add_sidearm(sidearm).reload() for weapon in base_weapons)
-        weapons.extend(weapon.reload() for weapon in base_weapons)
-
-        result = self.compare_loadouts(weapons)
-
-        dmg_format = '4.2f'
-        sorted_weapons_str = '\n'.join(
-            f'   {weapon}: {weighted_avg_damage:{dmg_format}}'
-            for weapon, weighted_avg_damage in
-            result.get_sorted_loadouts().items())
-        if sorted_weapons_str.count('\n') > 100:
-            filename = os.path.abspath('comparison_results.log')
-            with open(filename, 'w+') as fp:
-                fp.write(sorted_weapons_str)
-            logger.info(f'Wrote result to {filename}')
-        else:
-            logger.info(f'Sorted Weapons:\n{sorted_weapons_str}')
-        archetypes_str = '\n'.join(
-            f'  {base_weapon}: {weighted_avg_damage:{dmg_format}}'
-            for weapon, (weighted_avg_damage, base_weapon) in
-            result.get_archetypes().items())
-        logger.info(f'Sorted Weapon Archetypes:\n{archetypes_str}')
-
         if show_plots:
-            result = result.limit_to_best_num(4)
+            sorted_weapons_str = str(result)
+            if sorted_weapons_str.count('\n') > 100:
+                filename = os.path.abspath('comparison_results.log')
+                with open(filename, 'w+') as fp:
+                    fp.write(sorted_weapons_str)
+                logger.info(f'Wrote result to {filename}')
+            else:
+                logger.info(f'Sorted Weapons:\n{sorted_weapons_str}')
+
+            archetypes_str = '\n'.join(
+                f'  {weighted_avg_damage:6.2f}: {base_weapon}'
+                for weapon, (weighted_avg_damage, base_weapon) in
+                result.get_archetypes().items())
+            logger.info(f'Sorted Weapon Archetypes:\n{archetypes_str}')
+
             from matplotlib import pyplot as plt
 
             ttks = self.ttks
-            ts_lin = np.linspace(ttks.min(), ttks.max(), num=1000)
+            plt.axvline(ttks.min())
+            plt.axvline(ttks.max())
+            ts_lin = np.linspace(0.4, ttks.max() * 1.4, num=4000)
+            ttk_indices = np.abs(ttks.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
             for base_weapon in result.get_sorted_loadouts():
                 damages = np.array([base_weapon.get_cumulative_damage(t) for t in ts_lin])
                 damages *= 1 / ts_lin
-                plt.plot(ts_lin, damages, label=base_weapon.get_name())
+                plt.plot(ts_lin, damages, label=base_weapon.get_name(),
+                         markevery=ttk_indices,
+                         markeredgecolor='red',
+                         marker='x')
 
             plt.ylim((0, None))
             plt.legend()
             plt.show()
+
+        return result
+
+    def get_best_loadouts(self,
+                          weapons: Tuple[Weapon],
+                          max_num_loadouts: Optional[int] = None,
+                          reload: bool = True) -> Tuple[Loadout, ...]:
+        check_tuple(Weapon, weapons=weapons)
+        check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
+        check_bool(reload=reload)
+
+        if max_num_loadouts is None:
+            max_num_loadouts = len(weapons)
+        else:
+            max_num_loadouts = min(len(weapons), max_num_loadouts)
+        best_loadouts_and_terms: list[Loadout] = []
+
+        weapons = set(weapons)
+        while len(best_loadouts_and_terms) < max_num_loadouts:
+            temp_loadouts_and_terms: Tuple[Loadout, ...] = tuple(
+                self._get_loadout(main_weapon, sidearm, reload)
+                for main_weapon in weapons
+                for sidearm in weapons)
+            best_loadout, _ = self.compare_loadouts(temp_loadouts_and_terms).get_best_loadout()
+            main_weapon = best_loadout.get_main_weapon()
+            weapons.remove(main_weapon)
+            best_loadouts_and_terms.append(best_loadout)
+
+        return tuple(best_loadouts_and_terms)
+
+    @staticmethod
+    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, reload: bool):
+        loadout = main_weapon.add_sidearm(sidearm)
+        if reload:
+            loadout = loadout.reload()
+        return loadout

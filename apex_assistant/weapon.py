@@ -1,16 +1,11 @@
 import abc
 import logging
+import math
 from enum import StrEnum
 from types import MappingProxyType
-from typing import (Dict,
-                    Generator,
-                    Generic,
-                    Iterable,
-                    Optional,
-                    Tuple,
-                    TypeVar,
-                    Union,
-                    final)
+from typing import Dict, Generator, Generic, Iterable, Optional, Tuple, TypeVar, Union, final
+
+import numpy as np
 
 from apex_assistant.checker import (check_bool,
                                     check_equal_length,
@@ -25,7 +20,7 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_STOCK_TERMS,
                                               BASE,
                                               LEVEL_TERMS,
-                                              WITH_RELOAD_OPT,
+                                              RELOAD, SIDEARM, WITH_RELOAD_OPT,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
@@ -238,13 +233,9 @@ class SpinupType(StrEnum):
     NONE = 'none'
 
 
-class Spinup(abc.ABC):
-    @abc.abstractmethod
-    def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'Weapon',
-                                            time_seconds: float) -> float:
-        raise NotImplementedError('Must implement.')
+HUMAN_REACTION_TIME_SECONDS = 0.2
 
+class Spinup(abc.ABC):
     @abc.abstractmethod
     def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
         raise NotImplementedError('Must implement.')
@@ -272,69 +263,40 @@ class SpinupDevotion(Spinup):
         check_float(spinup_time_seconds=spinup_time_seconds, min_value=0)
 
         self._rounds_per_minute_initial = rounds_per_minute_initial
+        rounds_per_second_initial = rounds_per_minute_initial / 60
+        self._rounds_per_second_initial = rounds_per_second_initial
         self._spinup_time_seconds = spinup_time_seconds
 
-    def get_damage_per_second_initial(self, base_weapon: 'Weapon'):
-        damage_per_minute_initial = (self._rounds_per_minute_initial *
-                                     base_weapon.get_damage_per_round())
-        damage_per_second_initial = damage_per_minute_initial / 60
-        return damage_per_second_initial
+    def _get_shot_times_seconds(self, base_weapon: 'Weapon') -> np.ndarray[np.floating]:
+        # As a sanity check, magazine duration for Care Package Devotion was measured as ~227-229
+        # frames at 60 FPS (~3.783-3.817 seconds).
+        magazine_capacity = base_weapon.get_magazine_capacity()
+        rps_initial = self._rounds_per_second_initial
+        rps_final = base_weapon.get_rounds_per_second()
+        rps_per_sec = (rps_final - rps_initial) / self._spinup_time_seconds
+
+        times: np.ndarray[np.floating] = np.empty(magazine_capacity)
+        times[0] = 0
+        for round_num in range(1, magazine_capacity):
+            prev_t = times[round_num - 1]
+            rps_t = min(rps_final, rps_initial + rps_per_sec * prev_t)
+            seconds_per_round_t = 1 / rps_t
+            times[round_num] = prev_t + seconds_per_round_t
+
+        return times
+
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
+        return np.count_nonzero(time_seconds >= self._get_shot_times_seconds(base_weapon))
 
     def get_magazine_duration_seconds(self,
                                       base_weapon: 'Weapon',
                                       tactical: bool = False) -> float:
-        damage_per_second = base_weapon.get_damage_per_second_body()
-        damage_per_second_initial = self.get_damage_per_second_initial(base_weapon)
-        spinup_time_seconds = self._spinup_time_seconds
-        mag_capacity = base_weapon.get_magazine_capacity() - tactical
-        damage_per_magazine = mag_capacity * base_weapon.get_damage_per_round()
-
-        # I got this off of Wolfram Alpha: solved the cumulative damage formula (spun up but not
-        # finished) for time.
-        time_seconds = (damage_per_second * spinup_time_seconds -
-                        spinup_time_seconds * damage_per_second_initial +
-                        2 * damage_per_magazine) / (2 * damage_per_second)
-
-        return time_seconds
-
-    def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'Weapon',
-                                            time_seconds: float) -> float:
-        spinup_time_seconds = self._spinup_time_seconds
-        damage_per_second = base_weapon.get_damage_per_second_body()
-        damage_per_second_initial = self.get_damage_per_second_initial(base_weapon)
-        magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
-
-        if time_seconds >= magazine_duration_seconds:
-            # Finished.
-            return 0
-        if time_seconds >= spinup_time_seconds:
-            # Spun up all the way.
-            return damage_per_second
-        # Still spinning up.
-        return ((damage_per_second * time_seconds +
-                 damage_per_second_initial * (spinup_time_seconds - time_seconds)) /
-                spinup_time_seconds)
+        return self._get_shot_times_seconds(base_weapon)[-1] + HUMAN_REACTION_TIME_SECONDS
 
     def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
-        magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
-        spinup_time_seconds = self._spinup_time_seconds
-        damage_per_second = base_weapon.get_damage_per_second_body()
-        damage_per_second_initial = self.get_damage_per_second_initial(base_weapon)
-
-        if magazine_duration_seconds <= time_seconds:
-            # Finished.
-            return base_weapon.get_magazine_capacity() * base_weapon.get_damage_per_round()
-        if time_seconds >= spinup_time_seconds:
-            # Spun up all the way.
-            return (damage_per_second * (time_seconds - spinup_time_seconds) +
-                    (damage_per_second + damage_per_second_initial) / 2 * spinup_time_seconds)
-        # Still spinning up.
-        return (time_seconds *
-                ((damage_per_second * time_seconds +
-                  damage_per_second_initial * (spinup_time_seconds - time_seconds)) /
-                 spinup_time_seconds +
-                 damage_per_second_initial) / 2)
+        num_rounds_shot = self.get_num_rounds_shot(base_weapon=base_weapon,
+                                                   time_seconds=time_seconds)
+        return num_rounds_shot * base_weapon.get_damage_per_round()
 
     def __hash__(self):
         return hash(self.__class__) ^ hash((self._rounds_per_minute_initial,
@@ -362,31 +324,27 @@ class SpinupNone(Spinup):
             SpinupNone._INSTANCE = SpinupNone(SpinupNone.__create_key)
         return SpinupNone._INSTANCE
 
-    def get_magazine_duration_seconds(self,
-                                      base_weapon: 'Weapon',
-                                      tactical: bool = False) -> float:
+    @staticmethod
+    def _get_magazine_num_rounds(base_weapon: 'Weapon', tactical: bool = False) -> int:
+        return base_weapon.get_magazine_capacity() - tactical
+
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: bool = False) -> float:
         check_type(Weapon, base_weapon=base_weapon)
         check_bool(tactical=tactical)
 
-        num_rounds = base_weapon.get_magazine_capacity() - tactical
+        # We subtract by one to take into account that the first round is shot instantly.
+        num_rounds = self._get_magazine_num_rounds(base_weapon, tactical=tactical) - 1
         rounds_per_minute = base_weapon.get_rounds_per_minute()
         rounds_per_second = rounds_per_minute / 60
         magazine_duration_seconds = num_rounds / rounds_per_second
-        return magazine_duration_seconds
-
-    def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'Weapon',
-                                            time_seconds: float) -> float:
-        magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
-        damage_per_second = base_weapon.get_damage_per_second_body()
-        if time_seconds >= magazine_duration_seconds:
-            return 0
-        return damage_per_second
+        return magazine_duration_seconds + HUMAN_REACTION_TIME_SECONDS
 
     def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
-        magazine_duration_seconds = self.get_magazine_duration_seconds(base_weapon)
-        damage_per_second = base_weapon.get_damage_per_second_body()
-        return damage_per_second * min(time_seconds, magazine_duration_seconds)
+        damage_per_round = base_weapon.get_damage_per_round()
+        rounds_per_second = base_weapon.get_rounds_per_second()
+        num_rounds = min(1 + math.floor(time_seconds * rounds_per_second),
+                         base_weapon.get_magazine_capacity())
+        return damage_per_round * num_rounds
 
     def __hash__(self):
         return hash(self.__class__)
@@ -407,17 +365,6 @@ class SpinupHavoc(Spinup):
                                       tactical: bool = False) -> float:
         return self._NO_SPINUP.get_magazine_duration_seconds(base_weapon=base_weapon,
                                                              tactical=tactical)
-
-    def get_instantaneous_damage_per_second(self,
-                                            base_weapon: 'Weapon',
-                                            time_seconds: float) -> float:
-        spinup_time_seconds = self._spinup_time_seconds
-        if time_seconds < spinup_time_seconds:
-            return 0
-
-        return self._NO_SPINUP.get_instantaneous_damage_per_second(
-            base_weapon=base_weapon,
-            time_seconds=time_seconds - spinup_time_seconds)
 
     def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
         spinup_time_seconds = self._spinup_time_seconds
@@ -465,10 +412,6 @@ class Loadout(abc.ABC):
         return self.name
 
     @abc.abstractmethod
-    def get_instantaneous_damage(self, time_seconds: float) -> float:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
     def get_cumulative_damage(self, time_seconds: float) -> float:
         raise NotImplementedError()
 
@@ -510,22 +453,13 @@ class ReloadingLoadout(Loadout):
         if tac_reload_time_secs is None:
             raise ValueError(f'Weapon {wrapped_loadout} cannot be reloaded.')
 
-        super().__init__(f'{wrapped_loadout.get_name()} {WITH_RELOAD_OPT}',
+        super().__init__(f'{wrapped_loadout.get_name()} ({RELOAD})',
                          wrapped_loadout.get_term().append(WITH_RELOAD_OPT))
         self.wrapped_loadout = wrapped_loadout
         self.reload_time_secs = float(wrapped_loadout.get_tactical_reload_time_secs())
 
     def get_archetype(self) -> 'WeaponArchetype':
         return self.wrapped_loadout.get_archetype()
-
-    def get_instantaneous_damage(self, time_seconds: float, include_deployment=False) -> float:
-        reload_time_seconds = self.reload_time_secs
-        mag_duration_seconds = self.wrapped_loadout.get_magazine_duration_seconds(tactical=True)
-        cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
-        rel_time_seconds = time_seconds % cycle_duration_seconds
-        return (self.wrapped_loadout.get_instantaneous_damage(rel_time_seconds)
-                if rel_time_seconds < mag_duration_seconds
-                else 0)
 
     def get_cumulative_damage(self, time_seconds: float) -> float:
         reload_time_seconds = self.reload_time_secs
@@ -561,7 +495,7 @@ class FullLoadout(NonReloadingLoadout):
         assert isinstance(sidearm, Weapon)
         self.main_weapon = main_weapon
         self.sidearm = sidearm
-        super().__init__(f'{main_weapon.name} {WITH_SIDEARM} {sidearm.name}',
+        super().__init__(f'{main_weapon.name}, {SIDEARM} {sidearm.name}',
                          main_weapon.get_term().append(WITH_SIDEARM, sidearm.get_term()))
 
     def get_holster_time_secs(self) -> float:
@@ -572,18 +506,6 @@ class FullLoadout(NonReloadingLoadout):
 
     def get_archetype(self) -> 'WeaponArchetype':
         return self.main_weapon.get_archetype()
-
-    def get_instantaneous_damage(self, time_seconds: float) -> float:
-        main_total_duration_seconds = self.main_weapon.get_magazine_duration_seconds()
-        if time_seconds < main_total_duration_seconds:
-            return self.main_weapon.get_instantaneous_damage(time_seconds)
-
-        time_seconds -= main_total_duration_seconds
-
-        # Take swapping into account.
-        time_seconds -= self.get_swap_time_seconds()
-
-        return self.sidearm.get_instantaneous_damage(time_seconds)
 
     def get_swap_time_seconds(self):
         return (self.main_weapon.get_holster_time_secs() +
@@ -617,7 +539,7 @@ class FullLoadout(NonReloadingLoadout):
                 other.main_weapon == self.main_weapon and other.sidearm == self.sidearm)
 
     def get_main_weapon(self) -> 'Weapon':
-        return self.main_weapon
+        return self.main_weapon.get_main_weapon()
 
     def get_sidearm(self) -> 'Weapon':
         return self.sidearm
@@ -679,9 +601,6 @@ class Weapon(NonReloadingLoadout):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.tactical_reload_time_secs
 
-    def get_instantaneous_damage(self, time_seconds: float) -> float:
-        return self.spinup.get_instantaneous_damage_per_second(self, time_seconds)
-
     def get_cumulative_damage(self, time_seconds: float) -> float:
         return self.spinup.get_cumulative_damage(self, time_seconds)
 
@@ -699,6 +618,9 @@ class Weapon(NonReloadingLoadout):
 
     def get_rounds_per_minute(self):
         return self.rounds_per_minute
+
+    def get_rounds_per_second(self) -> float:
+        return self.get_rounds_per_minute() / 60
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self.name)

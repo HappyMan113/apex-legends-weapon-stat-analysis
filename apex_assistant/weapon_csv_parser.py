@@ -308,7 +308,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
             StockStatsBase:
         stock_incompatible = row.parse_bool(key=self.KEY_STOCKS_INCOMPATIBLE,
                                             default_value=False)
-        stock_compatible = (weapon_class not in (WeaponClass.PISTOL, WeaponClass.CARE_PACKAGE) and
+        stock_compatible = (weapon_class is not WeaponClass.PISTOL and
                             not stock_incompatible)
 
         holster_time_secs_base = row.parse_float(self.KEY_HOLSTER_TIME)
