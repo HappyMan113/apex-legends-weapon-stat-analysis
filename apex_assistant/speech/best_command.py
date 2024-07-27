@@ -11,12 +11,13 @@ from apex_assistant.speech.apex_terms import (BEST,
                                               LOADOUTS,
                                               SIDEARM,
                                               SIDEARMS,
-                                              WEAPON,
+                                              SINGLE_SHOT, WEAPON,
                                               WEAPONS_OPT,
                                               WITH_SIDEARM)
-from apex_assistant.speech.term import RequiredTerm, TermBase, Words
+from apex_assistant.speech.term import RequiredTerm, Term, TermBase, Words
 from apex_assistant.speech.term_translator import IntTranslator, Translator
-from apex_assistant.weapon import Loadout, NonReloadingLoadout, Weapon, WeaponArchetype
+from apex_assistant.weapon import Loadout, MainLoadout, NonReloadingLoadout, Weapon, WeaponArchetype
+from apex_assistant.weapon_class import WeaponClass
 
 
 LOGGER = logging.getLogger()
@@ -73,8 +74,7 @@ class BestCommand(ApexCommand):
         else:
             number = number_term.get_value()
 
-        loadouts_and_terms = subcommand.get_loadouts(subcommand_translation.get_following_words(),
-                                                     number=number)
+        loadouts_and_terms = subcommand.get_loadouts(number_args, number=number)
         check_mapping(allowed_key_types=Loadout,
                       allowed_value_types=TermBase,
                       **{f'{subcommand.get_term()}.get_loadouts()': loadouts_and_terms})
@@ -148,11 +148,12 @@ class _BestSidearmCommand(_BestSubcommand):
 
     def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
         translator = self.get_translator()
-        main_weapon = translator.translate_weapon(arguments)
+        main_loadout = translator.translate_main_loadout(arguments)
         reload = translator.is_asking_for_reloads(arguments)
-        return self._add_sidearms(main_weapon, reload=reload) if main_weapon is not None else {}
+        return self._add_sidearms(main_loadout, reload=reload) if main_loadout is not None else {}
 
-    def _add_sidearms(self, main_weapon: Weapon, reload: bool) -> Dict[Loadout, WeaponArchetype]:
+    def _add_sidearms(self, main_weapon: MainLoadout, reload: bool) -> \
+            Dict[Loadout, WeaponArchetype]:
         return {self._reload(main_weapon.add_sidearm(sidearm), reload=reload):
                     sidearm.get_archetype().get_base_term()
                 for sidearm in self.get_translator().get_fully_kitted_weapons()}
@@ -170,15 +171,22 @@ class _BestLoadoutCommand(_BestSubcommand):
         super().__init__(singular_subcommand_term=LOADOUT,
                          plural_subcommand_term=LOADOUTS,
                          main_command=main_command)
+        self._weapon_class_translator: Translator[WeaponClass] = Translator({
+            Term(weapon_class): weapon_class
+            for weapon_class in WeaponClass
+        })
 
     def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
         translator = self.get_translator()
+        weapon_class_terms = self._weapon_class_translator.translate_terms(arguments)
+        main_weapon_class = weapon_class_terms.get_latest_value()
         best_loadouts = self.get_comparer().get_best_loadouts(
             weapons=translator.get_fully_kitted_weapons(),
             max_num_loadouts=number,
-            reload=translator.is_asking_for_reloads(arguments))
+            reload=translator.is_asking_for_reloads(arguments),
+            main_weapon_class=main_weapon_class)
         best_loadouts_and_terms: Dict[Loadout, TermBase] = {
-            best_loadout: self._get_term(best_loadout.get_main_weapon(),
+            best_loadout: self._get_term(best_loadout.get_main_loadout(),
                                          best_loadout.get_sidearm())
             for best_loadout in best_loadouts
         }
@@ -186,8 +194,13 @@ class _BestLoadoutCommand(_BestSubcommand):
         return best_loadouts_and_terms
 
     @staticmethod
-    def _get_term(main_weapon: Weapon, sidearm: Optional[Weapon]):
+    def _get_term(main_loadout: MainLoadout, sidearm: Optional[Weapon]):
+        check_type(MainLoadout, main_loadout=main_loadout)
+        check_type(Weapon, optional=True, sidearm=sidearm)
+        main_weapon, is_single_shot = main_loadout.unwrap()
         main_term = main_weapon.get_archetype().get_base_term()
+        if is_single_shot:
+            main_term = main_term.append(SINGLE_SHOT)
         if sidearm is None:
             return main_term
         side_term = sidearm.get_archetype().get_base_term()

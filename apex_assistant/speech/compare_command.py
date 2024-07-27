@@ -16,7 +16,7 @@ LOGGER = logging.getLogger()
 class _Uniqueness(IntEnum):
     SAY_MAIN_ARCHETYPE_NAMES = 0
     SAY_SIDEARM_ARCHETYPE_NAMES = 1
-    SAY_MAIN_WEAPON_NAMES = 2
+    SAY_MAIN_LOADOUT_NAMES = 2
     SAY_SIDEARM_WEAPON_NAMES = 3
     SAY_EVERYTHING = 4
 
@@ -59,27 +59,26 @@ class CompareCommand(ApexCommand):
         main_weapon_archetypes = set(loadout.get_archetype() for loadout in loadouts)
         main_weapon_archetypes_unique = len(main_weapon_archetypes) == len(loadouts)
 
-        sidearms = set(weapon.get_sidearm() for weapon in loadouts)
-        sidearms_all_same = len(sidearms) == 1
-
-        if main_weapon_archetypes_unique and sidearms_all_same:
+        if main_weapon_archetypes_unique:
             return _Uniqueness.SAY_MAIN_ARCHETYPE_NAMES
 
+        sidearms = set(weapon.get_sidearm() for weapon in loadouts)
+        sidearms_all_same = len(sidearms) == 1
         if sidearms_all_same:
-            return _Uniqueness.SAY_MAIN_WEAPON_NAMES
+            return _Uniqueness.SAY_MAIN_LOADOUT_NAMES
 
-        main_weapons = set(weapon.get_main_weapon() for weapon in loadouts)
-        main_weapons_all_same = len(main_weapons) == 1
+        main_loadouts = set(weapon.get_main_loadout() for weapon in loadouts)
+        main_loadouts_all_same = len(main_loadouts) == 1
         sidearm_archetypes = set(
             loadout.get_sidearm().get_archetype() if loadout.get_sidearm() is not None else None
             for loadout in loadouts)
         sidearm_archetypes_unique = len(sidearm_archetypes) == len(loadouts)
 
-        if main_weapons_all_same and sidearm_archetypes_unique:
+        if main_loadouts_all_same and sidearm_archetypes_unique:
             return _Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES
 
         sidearms_unique = len(sidearms) == len(loadouts)
-        if main_weapons_all_same and sidearms_unique:
+        if main_loadouts_all_same and sidearms_unique:
             return _Uniqueness.SAY_SIDEARM_WEAPON_NAMES
 
         return _Uniqueness.SAY_EVERYTHING
@@ -93,8 +92,8 @@ class CompareCommand(ApexCommand):
                 loadout.get_sidearm().get_archetype().get_term()
                 if loadout.get_sidearm() is not None
                 else None)
-        elif uniqueness is _Uniqueness.SAY_MAIN_WEAPON_NAMES:
-            loadout_term = loadout.get_main_weapon().get_term()
+        elif uniqueness is _Uniqueness.SAY_MAIN_LOADOUT_NAMES:
+            loadout_term = loadout.get_main_loadout().get_term()
         elif uniqueness is _Uniqueness.SAY_SIDEARM_WEAPON_NAMES:
             loadout_term = CompareCommand._make_sidearm_audible(
                 loadout.get_sidearm().get_term()

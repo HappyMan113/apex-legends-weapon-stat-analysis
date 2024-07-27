@@ -48,8 +48,8 @@ WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
 _SIDE = Term('side', 'secondary', 'starred')
 _ARM = Term('arm', 'weapon')
 _ARMS = Term('arms', 'weapons')
-SIDEARM: RequiredTerm = Term('sidearm', 'sodarm') | (_SIDE + _ARM)
-SIDEARMS: RequiredTerm = Term('sidearms') | (_SIDE + _ARMS)
+SIDEARM: RequiredTerm = Term('sidearm', 'sodarm', 'sadarm') | (_SIDE + _ARM)
+SIDEARMS: RequiredTerm = Term('sidearms', 'sodarms', 'sadarms') | (_SIDE + _ARMS)
 LOADOUT: RequiredTerm = Term('loadout', 'load out', 'load up', 'ludo')
 LOADOUTS: RequiredTerm = Term('loadouts', 'load outs', 'loanouts')
 STOP = Term('stop')
@@ -100,6 +100,7 @@ RELOAD = Term('reloads', 'reload', 'reloading')
 WITHOUT_RELOAD = WITHOUT + RELOAD
 WITH_RELOAD: RequiredTerm = (WITH + RELOAD) | RELOAD
 WITH_RELOAD_OPT: OptTerm = WITH_RELOAD.opt()
+SINGLE_SHOT = Term('single shot', 'single-shot')
 
 FULLY_KITTED: RequiredTerm = (Term('fully', 'full').opt() + Term('kitted', 'kidded') |
                               Term('fully-kitted'))
@@ -138,7 +139,7 @@ EVA_8 = Term(
     'eat the eat', 'you may', 'if a', 'every', 'elley')
 FLATLINE = Term(
     'Flatline', 'flat line', 'fly line', 'da-von', 'well then', 'batman', 'that one', 'it\'s fine',
-    'that line', 'it\'s not mine', 'flatlined'
+    'that line', 'it\'s not mine', 'flatlined', 'plant line'
     # Also sounds like "Prowler": 'bye-bye'
 )
 G7_SCOUT = Term(
@@ -155,7 +156,8 @@ HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not',
                'M.L.A.', 'M-LOT', 'mwah', 'ma')
 KRABER = Term(
     'Kraber', 'credit', 'KBIR', 'paper', 'kripper', 'grayer', 'Creepers', 'Taylor', 'Creeper',
-    'covered', 'Khyber', 'Kramer', 'Krabber', 'Craber', 'Craver'
+    'covered', 'Khyber', 'Kramer', 'Krabber', 'Craber', 'Craver', 'Krabour', 'Graber', 'Krabber\'s',
+    'Graberr\'s', 'Kraber\'s'
     # Sounds like 30-30: 'thank you'
 )
 LONGBOW = Term('Longbow', 'Wombo', 'I\'m well', 'Buh-bye', 'Bumbo', 'Number', 'Lambo', 'Lombo')
@@ -182,7 +184,8 @@ NEMESIS = Term(
     'Nemesis', 'and this is', 'now what\'s this', 'Namaste', 'messes', 'nervousness', 'yes',
     'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses', 'and that\'s just')
 P2020 = Term('P2020', 'be 2020', 'B-2020', 'P-220', 'P20')
-PEACEKEEPER = Term('Peacekeeper', 'today', '2k', 'BK', 'P.K.')
+PEACEKEEPER = Term('Peacekeeper', 'today', '2k', 'BK', 'P.K.', 'PK', 'piecekeeper',
+                   'Peacekeeper\'s', 'Casekeeper')
 DISRUPTOR = Term('Disruptor', 'it\'s Raptor', 'the softer', 'stopping', 'disrupted')
 PROWLER = Term(
     'Prowler', 'power', 'browler', 'howdy', 'probably', 'brawler', 'powler', 'howler', 'fowler',
@@ -209,8 +212,9 @@ R99 = \
           'I don\'t know', 'R9', 'all done', 'I had a dead eye', 'hard on your nine', 'hard 99',
           'all right any line', 'I don\'t need nine', 'irony 9', 'I already know',
           'I already need a 9', '$1.99', 'R-89', 'iron 9', 'oh I don\'t even know', 'R-9', 'are 99',
-          'I\'m 99', 'on and none') |
-     (_R + Term('99')))
+          'I\'m 99', 'on and none', 'Auto-Nine', 'on a new 9', 'on 8 to 9', 'on 9 to 9',
+          'oddity nine', '099', 'Ardney to 9', '90 to 9') |
+     (_R.opt() + Term('99', '89')))
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')
 RE_45 = Term('are e forty five', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45',

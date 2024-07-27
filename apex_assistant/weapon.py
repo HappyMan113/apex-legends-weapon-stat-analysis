@@ -20,7 +20,10 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_STOCK_TERMS,
                                               BASE,
                                               LEVEL_TERMS,
-                                              RELOAD, SIDEARM, WITH_RELOAD_OPT,
+                                              RELOAD,
+                                              SIDEARM,
+                                              SINGLE_SHOT,
+                                              WITH_RELOAD_OPT,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
@@ -235,6 +238,7 @@ class SpinupType(StrEnum):
 
 HUMAN_REACTION_TIME_SECONDS = 0.2
 
+
 class Spinup(abc.ABC):
     @abc.abstractmethod
     def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
@@ -397,8 +401,12 @@ class Loadout(abc.ABC):
     def get_archetype(self) -> 'WeaponArchetype':
         raise NotImplementedError()
 
-    @abc.abstractmethod
+    @final
     def get_main_weapon(self) -> 'Weapon':
+        return self.get_main_loadout().get_weapon()
+
+    @abc.abstractmethod
+    def get_main_loadout(self) -> 'MainLoadout':
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -482,38 +490,38 @@ class ReloadingLoadout(Loadout):
         return (isinstance(other, ReloadingLoadout) and
                 other.wrapped_loadout == self.wrapped_loadout)
 
-    def get_main_weapon(self) -> 'Weapon':
-        return self.wrapped_loadout.get_main_weapon()
+    def get_main_loadout(self) -> 'MainLoadout':
+        return self.wrapped_loadout.get_main_loadout()
 
     def get_sidearm(self) -> Optional['Weapon']:
         return self.wrapped_loadout.get_sidearm()
 
 
 class FullLoadout(NonReloadingLoadout):
-    def __init__(self, main_weapon: 'Weapon', sidearm: 'Weapon'):
-        assert isinstance(main_weapon, Weapon)
-        assert isinstance(sidearm, Weapon)
-        self.main_weapon = main_weapon
+    def __init__(self, main_loadout: 'MainLoadout', sidearm: 'Weapon'):
+        check_type(MainLoadout, main_weapon=main_loadout)
+        check_type(Weapon, sidearm=sidearm)
+        self.main_loadout = main_loadout
         self.sidearm = sidearm
-        super().__init__(f'{main_weapon.name}, {SIDEARM} {sidearm.name}',
-                         main_weapon.get_term().append(WITH_SIDEARM, sidearm.get_term()))
+        super().__init__(f'{main_loadout.get_name()}, {SIDEARM} {sidearm.get_name()}',
+                         main_loadout.get_term().append(WITH_SIDEARM, sidearm.get_term()))
 
     def get_holster_time_secs(self) -> float:
         return self.sidearm.get_holster_time_secs()
 
     def get_ready_to_fire_time_secs(self) -> float:
-        return self.main_weapon.get_ready_to_fire_time_secs()
+        return self.main_loadout.get_ready_to_fire_time_secs()
 
     def get_archetype(self) -> 'WeaponArchetype':
-        return self.main_weapon.get_archetype()
+        return self.main_loadout.get_archetype()
 
     def get_swap_time_seconds(self):
-        return (self.main_weapon.get_holster_time_secs() +
+        return (self.main_loadout.get_holster_time_secs() +
                 self.sidearm.get_ready_to_fire_time_secs())
 
     def get_cumulative_damage(self, time_seconds: float) -> float:
-        main_total_duration_seconds = self.main_weapon.get_magazine_duration_seconds()
-        cum_damage = self.main_weapon.get_cumulative_damage(
+        main_total_duration_seconds = self.main_loadout.get_magazine_duration_seconds()
+        cum_damage = self.main_loadout.get_cumulative_damage(
             min(time_seconds, main_total_duration_seconds))
 
         sidearm_start_time_seconds = main_total_duration_seconds + self.get_swap_time_seconds()
@@ -524,7 +532,7 @@ class FullLoadout(NonReloadingLoadout):
         return cum_damage
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        return (self.main_weapon.get_magazine_duration_seconds(tactical=False) +
+        return (self.main_loadout.get_magazine_duration_seconds(tactical=False) +
                 self.sidearm.get_ready_to_fire_time_secs() +
                 self.sidearm.get_magazine_duration_seconds(tactical=tactical))
 
@@ -532,20 +540,43 @@ class FullLoadout(NonReloadingLoadout):
         return self.sidearm.get_tactical_reload_time_secs()
 
     def __hash__(self):
-        return hash(self.__class__) ^ hash((self.main_weapon, self.sidearm))
+        return hash(self.__class__) ^ hash((self.main_loadout, self.sidearm))
 
     def __eq__(self, other):
         return (isinstance(other, FullLoadout) and
-                other.main_weapon == self.main_weapon and other.sidearm == self.sidearm)
+                other.main_loadout == self.main_loadout and other.sidearm == self.sidearm)
 
-    def get_main_weapon(self) -> 'Weapon':
-        return self.main_weapon.get_main_weapon()
+    def get_main_loadout(self) -> 'MainLoadout':
+        return self.main_loadout
 
     def get_sidearm(self) -> 'Weapon':
         return self.sidearm
 
 
-class Weapon(NonReloadingLoadout):
+class MainLoadout(NonReloadingLoadout, abc.ABC):
+    @final
+    def get_sidearm(self) -> Optional['Weapon']:
+        return None
+
+    @final
+    def get_main_loadout(self) -> 'MainLoadout':
+        return self
+
+    @final
+    def add_sidearm(self, sidearm: 'Weapon') -> 'FullLoadout':
+        return FullLoadout(self, sidearm)
+
+    @final
+    def get_weapon(self) -> 'Weapon':
+        weapon, _ = self.unwrap()
+        return weapon
+
+    @abc.abstractmethod
+    def unwrap(self) -> Tuple['Weapon', bool]:
+        raise NotImplementedError()
+
+
+class Weapon(MainLoadout):
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
@@ -637,14 +668,54 @@ class Weapon(NonReloadingLoadout):
                 self.spinup == other.spinup and
                 self.tactical_reload_time_secs == other.tactical_reload_time_secs)
 
-    def add_sidearm(self, sidearm: 'Weapon') -> 'FullLoadout':
-        return FullLoadout(self, sidearm)
+    def get_weapon_class(self) -> WeaponClass:
+        return self.weapon_class
 
-    def get_main_weapon(self) -> 'Weapon':
-        return self
+    def unwrap(self) -> Tuple['Weapon', bool]:
+        return self, False
 
-    def get_sidearm(self) -> Optional['Weapon']:
-        return None
+    def single_shot(self) -> 'SingleShotLoadout':
+        return SingleShotLoadout(self)
+
+    def is_single_shot_advisable(self) -> bool:
+        seconds_per_round = 1 / self.get_rounds_per_second()
+        return seconds_per_round >= self.holster_time_secs
+
+
+class SingleShotLoadout(MainLoadout):
+    def __init__(self, wrapped_weapon: Weapon):
+        check_type(Weapon, wrapped_weapon=wrapped_weapon)
+        super().__init__(f'{wrapped_weapon.get_name()} ({SINGLE_SHOT})',
+                         wrapped_weapon.get_term().append(SINGLE_SHOT))
+        self.wrapped_weapon = wrapped_weapon
+
+    def get_archetype(self) -> 'WeaponArchetype':
+        return self.wrapped_weapon.get_archetype()
+
+    def get_holster_time_secs(self) -> float:
+        return self.wrapped_weapon.get_holster_time_secs()
+
+    def get_ready_to_fire_time_secs(self) -> float:
+        return self.wrapped_weapon.get_ready_to_fire_time_secs()
+
+    def get_tactical_reload_time_secs(self) -> float | None:
+        return self.wrapped_weapon.get_tactical_reload_time_secs()
+
+    def get_cumulative_damage(self, time_seconds: float) -> float:
+        return self.wrapped_weapon.get_damage_per_round()
+
+    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
+        return HUMAN_REACTION_TIME_SECONDS
+
+    def __hash__(self):
+        return hash(self.__class__) ^ hash(self.wrapped_weapon)
+
+    def __eq__(self, other):
+        return (isinstance(other, SingleShotLoadout) and
+                self.wrapped_weapon == other.wrapped_weapon)
+
+    def unwrap(self) -> Tuple['Weapon', bool]:
+        return self.wrapped_weapon, True
 
 
 class WeaponArchetype:
@@ -670,28 +741,16 @@ class WeaponArchetype:
         self.magazine_capacity = magazine_capacity
         self.stock_dependant_stats = stock_dependant_stats
         self.spinup = spinup
-        self.base_weapons = tuple(self._get_base_weapons(
-            rpms=rounds_per_minute,
-            mags=magazine_capacity,
-            stock_dependant_stats=stock_dependant_stats))
 
-    def _get_base_weapons(
-            self,
-            rpms: StatsBase[float],
-            mags: StatsBase[Optional[int]],
-            stock_dependant_stats: StatsBase[Optional[StockStatValues]]
-    ) -> Generator[Weapon, None, None]:
-        for rpm_term, rpm in rpms.best_to_worst():
-            for mag_term, mag in mags.best_to_worst():
-                for stock_term, stock_stats in stock_dependant_stats.best_to_worst():
-                    base_weapon = self._get_weapon(
-                        rounds_per_minute=rpm,
-                        magazine_capacity=mag,
-                        stock_stats=stock_stats,
-                        rpm_term=rpm_term,
-                        mag_term=mag_term,
-                        stock_term=stock_term)
-                    yield base_weapon
+        rpm_term, rpm = rounds_per_minute.get_best_stats()
+        mag_term, mag = magazine_capacity.get_best_stats()
+        stock_term, stock_stats = stock_dependant_stats.get_best_stats()
+        self._best_weapon: Weapon = self._get_weapon(rounds_per_minute=rpm,
+                                                     magazine_capacity=mag,
+                                                     stock_stats=stock_stats,
+                                                     rpm_term=rpm_term,
+                                                     mag_term=mag_term,
+                                                     stock_term=stock_term)
 
     def _get_weapon(self,
                     rounds_per_minute: float,
@@ -701,7 +760,7 @@ class WeaponArchetype:
                     mag_term: Optional[RequiredTerm],
                     stock_term: Optional[RequiredTerm]) -> Weapon:
         name = self.name
-        term = self.get_term()
+        full_term = self.full_term
         weapon_class = self.weapon_class
         damage_body = self.damage_body
         spinup = self.spinup
@@ -716,9 +775,7 @@ class WeaponArchetype:
             for _term in (rpm_term, mag_term, stock_term)
             if _term is not None)
         if len(more_terms) > 0:
-            full_term = term.append(*more_terms)
-        else:
-            full_term = term
+            full_term = full_term.append(*more_terms)
 
         tactical_reload_time_secs = stock_stats.get_tactical_reload_time_secs()
         holster_time_secs = stock_stats.get_holster_time_secs()
@@ -755,10 +812,7 @@ class WeaponArchetype:
         return self.name
 
     def get_best_weapon(self) -> Weapon:
-        return self.base_weapons[0]
-
-    def get_all_base_weapons(self) -> Tuple[Weapon, ...]:
-        return self.base_weapons
+        return self._best_weapon
 
     def get_best_match(self,
                        words: Words,
@@ -875,11 +929,6 @@ class WeaponArchetypes:
             archetypes = archetypes[::-1]
         return archetypes
 
-    def get_all_base_weapons(self) -> Generator[Weapon, None, None]:
-        for archetype in self._get_archetypes():
-            for base_weapon in archetype.get_all_base_weapons():
-                yield base_weapon
-
     def get_base_term(self) -> RequiredTerm:
         return self._base_term
 
@@ -926,3 +975,9 @@ class WeaponArchetypes:
                 f'{set(suffixed_archetypes.values())}')
 
         return tuple(archetype_groups)
+
+    def __repr__(self):
+        return repr(self._base_term)
+
+    def __str__(self):
+        return str(self._base_term)

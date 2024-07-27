@@ -2,13 +2,14 @@ import itertools
 import logging
 import os
 from types import MappingProxyType
-from typing import Optional, Sequence, Tuple
+from typing import Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 
 from apex_assistant.checker import check_bool, check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import Loadout, Weapon, WeaponArchetype
+from apex_assistant.weapon_class import WeaponClass
 
 logger = logging.getLogger()
 
@@ -89,10 +90,13 @@ class LoadoutComparer:
 
     def get_expected_mean_dps(self, loadout: Loadout) -> float:
         """Convenience method for the getting the expected mean DPS of a particular loadout."""
-        return next(iter(self.compare_loadouts((loadout,)).get_sorted_loadouts().values()))
+        _, expected_mean_dps = self.compare_loadouts((loadout,)).get_best_loadout()
+        return expected_mean_dps
 
     def compare_loadouts(self, loadouts: Sequence[Loadout], show_plots: bool = False) -> \
             ComparisonResult:
+        if len(loadouts) == 0:
+            raise ValueError('loadouts cannot be empty!')
         tiebreaker_time = 10
 
         ts = self.ttks
@@ -136,17 +140,17 @@ class LoadoutComparer:
                 sorted_archetypes_dict[loadout.get_archetype()] = (weighted_avg_damage, loadout)
 
         result = ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
-                                sorted_weapons=MappingProxyType(sorted_weapons_dict))
+                                  sorted_weapons=MappingProxyType(sorted_weapons_dict))
 
         if show_plots:
-            sorted_weapons_str = str(result)
-            if sorted_weapons_str.count('\n') > 100:
+            sorted_loadouts_str = str(result)
+            if sorted_loadouts_str.count('\n') > 100:
                 filename = os.path.abspath('comparison_results.log')
                 with open(filename, 'w+') as fp:
-                    fp.write(sorted_weapons_str)
+                    fp.write(sorted_loadouts_str)
                 logger.info(f'Wrote result to {filename}')
             else:
-                logger.info(f'Sorted Weapons:\n{sorted_weapons_str}')
+                logger.info(f'Sorted Loadouts: {sorted_loadouts_str}')
 
             archetypes_str = '\n'.join(
                 f'  {weighted_avg_damage:6.2f}: {base_weapon}'
@@ -156,16 +160,15 @@ class LoadoutComparer:
 
             from matplotlib import pyplot as plt
 
-            ttks = self.ttks
-            plt.axvline(ttks.min())
-            plt.axvline(ttks.max())
-            ts_lin = np.linspace(0.4, ttks.max() * 1.4, num=4000)
-            ttk_indices = np.abs(ttks.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
-            for base_weapon in result.get_sorted_loadouts():
+            plt.axvline(ts.min())
+            plt.axvline(ts.max())
+            ts_lin = np.linspace(0.4, ts.max() * 1.4, num=4000)
+            t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
+            for base_weapon in result.limit_to_best_num(30).get_sorted_loadouts():
                 damages = np.array([base_weapon.get_cumulative_damage(t) for t in ts_lin])
                 damages *= 1 / ts_lin
                 plt.plot(ts_lin, damages, label=base_weapon.get_name(),
-                         markevery=ttk_indices,
+                         markevery=t_sample_indices,
                          markeredgecolor='red',
                          marker='x')
 
@@ -178,32 +181,66 @@ class LoadoutComparer:
     def get_best_loadouts(self,
                           weapons: Tuple[Weapon],
                           max_num_loadouts: Optional[int] = None,
-                          reload: bool = True) -> Tuple[Loadout, ...]:
+                          reload: bool = True,
+                          main_weapon_class: Optional[WeaponClass] = None) -> Tuple[Loadout, ...]:
         check_tuple(Weapon, weapons=weapons)
         check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
         check_bool(reload=reload)
+        check_type(WeaponClass, optional=True, main_weapon_class=main_weapon_class)
+
+        filtered_weapons: set[Weapon] = set(weapon
+                                            for weapon in weapons
+                                            if (main_weapon_class is None or
+                                                (weapon.get_weapon_class() is main_weapon_class)))
+        unfiltered_weapons: set[Weapon] = set(weapons)
 
         if max_num_loadouts is None:
-            max_num_loadouts = len(weapons)
+            max_num_loadouts = len(filtered_weapons)
         else:
-            max_num_loadouts = min(len(weapons), max_num_loadouts)
+            max_num_loadouts = min(len(filtered_weapons), max_num_loadouts)
         best_loadouts_and_terms: list[Loadout] = []
 
-        weapons = set(weapons)
         while len(best_loadouts_and_terms) < max_num_loadouts:
-            temp_loadouts_and_terms: Tuple[Loadout, ...] = tuple(
-                self._get_loadout(main_weapon, sidearm, reload)
-                for main_weapon in weapons
-                for sidearm in weapons)
-            best_loadout, _ = self.compare_loadouts(temp_loadouts_and_terms).get_best_loadout()
-            main_weapon = best_loadout.get_main_weapon()
-            weapons.remove(main_weapon)
+            best_loadout, best_score = self._get_best_loadout(main_weapons=filtered_weapons,
+                                                              sidearms=unfiltered_weapons,
+                                                              reload=reload)
+            loadout_is_swapped = False
+
+            if main_weapon_class is not None:
+                # We need to try also having the unfiltered weapons as main weapons.
+                best_loadout_swapped, swapped_score = self._get_best_loadout(
+                    main_weapons=unfiltered_weapons - filtered_weapons,
+                    sidearms=filtered_weapons,
+                    reload=reload)
+                if swapped_score > best_score:
+                    best_loadout = best_loadout_swapped
+                    loadout_is_swapped = True
+
+            filtered_weapon = (best_loadout.get_main_weapon() if not loadout_is_swapped else
+                               best_loadout.get_sidearm())
+            filtered_weapons.remove(filtered_weapon)
+            unfiltered_weapons.remove(filtered_weapon)
+
             best_loadouts_and_terms.append(best_loadout)
 
         return tuple(best_loadouts_and_terms)
 
+    def _get_best_loadout(self,
+                          main_weapons: Iterable[Weapon],
+                          sidearms: Iterable[Weapon],
+                          reload: bool) -> Tuple[Loadout, float]:
+        loadouts = tuple(
+            LoadoutComparer._get_loadout(main_weapon, sidearm, reload, single_shot)
+            for main_weapon in main_weapons
+            for sidearm in sidearms
+            for single_shot in ((False, True) if main_weapon.is_single_shot_advisable() else
+                                (False,)))
+        return self.compare_loadouts(loadouts).get_best_loadout()
+
     @staticmethod
-    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, reload: bool):
+    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, reload: bool, single_shot: bool):
+        if single_shot:
+            main_weapon = main_weapon.single_shot()
         loadout = main_weapon.add_sidearm(sidearm)
         if reload:
             loadout = loadout.reload()

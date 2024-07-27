@@ -194,3 +194,7 @@ class Translation(Generic[T], Iterable[TranslatedTerm[T]]):
             return default_value
         translated_term = self._translated_terms[-1]
         return translated_term.get_value()
+
+    def get_preamble(self) -> Words:
+        first_term = self.get_first_term()
+        return first_term.get_preceding_words() if first_term is not None else Words()

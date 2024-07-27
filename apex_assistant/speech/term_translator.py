@@ -130,7 +130,7 @@ class Translator(Generic[T]):
 
         for num_words in range(self._max_term_variation_len, 0, -1):
             term_to_test = words[:num_words]
-            term_and_val: Tuple[RequiredTerm, T] | None = self._translate_term_directly(
+            term_and_val: Optional[Tuple[RequiredTerm, T]] = self._translate_term_directly(
                 term_to_test=term_to_test,
                 term_to_val_dict=term_to_val_dict)
             if term_and_val is not None:
