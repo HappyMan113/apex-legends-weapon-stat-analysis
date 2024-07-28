@@ -20,6 +20,7 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_STOCK_TERMS,
                                               BASE,
                                               LEVEL_TERMS,
+                                              MAIN,
                                               RELOAD,
                                               SIDEARM,
                                               SINGLE_SHOT,
@@ -504,7 +505,7 @@ class FullLoadout(NonReloadingLoadout):
         self.main_loadout = main_loadout
         self.sidearm = sidearm
         super().__init__(f'{main_loadout.get_name()}, {SIDEARM} {sidearm.get_name()}',
-                         main_loadout.get_term().append(WITH_SIDEARM, sidearm.get_term()))
+                         MAIN.append(main_loadout.get_term(), WITH_SIDEARM, sidearm.get_term()))
 
     def get_holster_time_secs(self) -> float:
         return self.sidearm.get_holster_time_secs()

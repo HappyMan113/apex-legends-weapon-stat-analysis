@@ -5,7 +5,7 @@ from apex_assistant.checker import check_mapping, check_type
 from apex_assistant.speech.apex_terms import NUMBER_TERMS
 from apex_assistant.speech.term import IntTerm, RequiredTerm, TermBase, Word, Words
 from apex_assistant.speech.translations import (FindResult,
-                                                FoundTerm,
+                                                FoundAtStartTerm,
                                                 TranslatedTerm,
                                                 TranslatedTermBuilder,
                                                 Translation)
@@ -64,31 +64,30 @@ class Translator(Generic[T]):
         if self._max_term_variation_len == 0:
             return self._get_translation(words, tuple())
 
-        prev_hit_idx: int = -1
+        prev_stop_idx: int = 0
         hit_idx: int = 0
         builder: TranslatedTermBuilder[T] | None = None
         translated_terms: list[TranslatedTerm[T]] = []
         while hit_idx < len(words):
             res = self._translate_term(words[hit_idx:hit_idx + self._max_term_variation_len])
             if res is not None:
+                preceding_words = words[prev_stop_idx:hit_idx]
                 if builder is not None:
-                    translated_terms.append(builder.build(hit_idx))
+                    translated_terms.append(builder.build(preceding_words, hit_idx))
                 term, val, words_inc = res
                 builder = TranslatedTermBuilder(term=term,
                                                 value=val,
                                                 word_start_idx=hit_idx,
-                                                preceding_words=words[prev_hit_idx + 1:hit_idx])
-                prev_hit_idx = hit_idx
+                                                preceding_words=preceding_words)
+                prev_stop_idx = hit_idx + words_inc
             else:
-                if builder is not None:
-                    word = words[hit_idx]
-                    builder.add_word(word)
                 words_inc = 1
 
             hit_idx += words_inc
 
         if builder is not None:
-            translated_terms.append(builder.build(len(words)))
+            translated_terms.append(builder.build(following_words=words[prev_stop_idx:],
+                                                  word_stop_idx=prev_stop_idx))
         return self._get_translation(words, tuple(translated_terms))
 
     def translate_at_start(self, words: Words) -> Optional[TranslatedTerm[T]]:
@@ -128,7 +127,7 @@ class Translator(Generic[T]):
         if term_to_val_dict is None:
             return None
 
-        for num_words in range(self._max_term_variation_len, 0, -1):
+        for num_words in range(min(len(words), self._max_term_variation_len), 0, -1):
             term_to_test = words[:num_words]
             term_and_val: Optional[Tuple[RequiredTerm, T]] = self._translate_term_directly(
                 term_to_test=term_to_test,
@@ -158,6 +157,7 @@ class SingleTermFinder:
         self._translator = Translator({req_term: req_term})
         self._is_opt = is_opt
         self._req_term = req_term
+        self._term = term
 
     def find_all(self, said_words: Words) -> FindResult:
         check_type(Words, said_words=said_words)
@@ -166,14 +166,20 @@ class SingleTermFinder:
                           found_terms=translation.terms(),
                           untranslated_words=translation.get_untranslated_words())
 
-    def find_at_start(self, said_words: Words) -> Optional[FoundTerm]:
+    def find_at_start(self, said_words: Words) -> Optional[FoundAtStartTerm]:
         find_result = self.find_all(said_words[:self._req_term.get_max_variation_len()])
         if len(find_result) == 0:
             return None
         first_result = find_result[0]
         if first_result.get_word_start_idx() != 0:
             return None
-        return first_result
+
+        num_words = len(first_result)
+        following_words = said_words[num_words:]
+        return FoundAtStartTerm(length=num_words, following_words=following_words)
+
+    def get_term(self) -> TermBase:
+        return self._term
 
 
 class BoolTranslator:

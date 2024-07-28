@@ -102,6 +102,20 @@ class TranslatedTerm(FoundTerm, _TranslatedValue[T]):
         return self._term
 
 
+class FoundAtStartTerm:
+    def __init__(self, length: Optional[int], following_words: Words):
+        check_type(Words, following_words=following_words)
+        check_int(min_value=0, length=length)
+        self._following_words = following_words
+        self._length = length
+
+    def get_following_words(self) -> Words:
+        return self._following_words
+
+    def __len__(self) -> int:
+        return self._length
+
+
 class TranslatedValue(_TranslatedValue[T]):
     def __init__(self, value: T, untranslated_words: Words):
         if value is None:
@@ -127,20 +141,14 @@ class TranslatedTermBuilder(Generic[T]):
         self.value = value
         self.word_start_idx = word_start_idx
         self.preceding_words: Words = preceding_words
-        self.follower_words: list[Word] = []
 
-    def add_word(self, word: Word):
-        check_type(Word, word=word)
-        self.follower_words.append(word)
-
-    def build(self, word_stop_idx: int) -> TranslatedTerm[T]:
-        check_int(min_value=self.word_start_idx, word_stop_idx=word_stop_idx)
+    def build(self, following_words: Words, word_stop_idx: int) -> TranslatedTerm[T]:
         return TranslatedTerm(term=self.term,
                               value=self.value,
                               word_start_idx=self.word_start_idx,
                               word_stop_idx=word_stop_idx,
                               preceding_words=self.preceding_words,
-                              following_words=Words(self.follower_words))
+                              following_words=following_words)
 
 
 class Translation(Generic[T], Iterable[TranslatedTerm[T]]):

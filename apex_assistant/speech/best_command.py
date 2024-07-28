@@ -11,12 +11,13 @@ from apex_assistant.speech.apex_terms import (BEST,
                                               LOADOUTS,
                                               SIDEARM,
                                               SIDEARMS,
-                                              SINGLE_SHOT, WEAPON,
+                                              SINGLE_SHOT,
+                                              WEAPON,
                                               WEAPONS_OPT,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, Term, TermBase, Words
 from apex_assistant.speech.term_translator import IntTranslator, Translator
-from apex_assistant.weapon import Loadout, MainLoadout, NonReloadingLoadout, Weapon, WeaponArchetype
+from apex_assistant.weapon import Loadout, MainLoadout, NonReloadingLoadout, Weapon
 from apex_assistant.weapon_class import WeaponClass
 
 
@@ -148,14 +149,22 @@ class _BestSidearmCommand(_BestSubcommand):
 
     def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
         translator = self.get_translator()
-        main_loadout = translator.translate_main_loadout(arguments)
-        reload = translator.is_asking_for_reloads(arguments)
-        return self._add_sidearms(main_loadout, reload=reload) if main_loadout is not None else {}
+        main_weapon = translator.translate_weapon(arguments)
+        if main_weapon is None:
+            return {}
 
-    def _add_sidearms(self, main_weapon: MainLoadout, reload: bool) -> \
-            Dict[Loadout, WeaponArchetype]:
-        return {self._reload(main_weapon.add_sidearm(sidearm), reload=reload):
+        main_loadouts: Tuple[MainLoadout, ...] = (
+            (main_weapon, main_weapon.single_shot()) if main_weapon.is_single_shot_advisable() else
+            (main_weapon,))
+
+        reload = translator.is_asking_for_reloads(arguments)
+        return self._add_sidearms(main_loadouts, reload=reload)
+
+    def _add_sidearms(self, main_loadouts: Tuple[MainLoadout, ...], reload: bool) -> \
+            Dict[Loadout, TermBase]:
+        return {self._reload(main_loadout.add_sidearm(sidearm), reload=reload):
                     sidearm.get_archetype().get_base_term()
+                for main_loadout in main_loadouts
                 for sidearm in self.get_translator().get_fully_kitted_weapons()}
 
     @staticmethod

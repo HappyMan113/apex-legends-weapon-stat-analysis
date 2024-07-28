@@ -17,7 +17,7 @@ from typing import (Any,
 from apex_assistant.checker import check_type
 from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT
 from apex_assistant.speech.term import OptTerm, RequiredTerm, TermBase, Words
-from apex_assistant.speech.term_translator import (Translator)
+from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import (MagazineCapacities,
                                    MagazineCapacity,
@@ -200,7 +200,10 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_FULL_RELOAD_TIME_LEVEL_2 = 'Full Reload Time (level 2)'
     KEY_FULL_RELOAD_TIME_LEVEL_3 = 'Full Reload Time (level 3)'
 
-    _ARCHETYPE_TRANSLATOR = Translator(ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT)
+    _ARCHETYPES_TRANSLATOR = Translator[Optional[SingleTermFinder]]({
+        term: (SingleTermFinder(suffix) if suffix is not None else None)
+        for term, suffix in ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT.items()
+    })
 
     def __init__(self, fp: IO):
         super().__init__(fp)
@@ -211,16 +214,15 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         check_type(Words, name=name)
 
         result: Optional[Tuple[RequiredTerm, _SUFFIX_T]] = None
-        for translated_term in WeaponCsvReader._ARCHETYPE_TRANSLATOR.translate_terms(name):
+        for translated_term in WeaponCsvReader._ARCHETYPES_TRANSLATOR.translate_terms(name):
             suffix = translated_term.get_value()
-            if suffix is not None and suffix.has_variation(translated_term.get_following_words()):
+            if suffix is not None and suffix.find_all(translated_term.get_following_words()):
                 if result is not None:
-                    logging.warning(
-                        f'More than one term for weapon archetype {name} found. We\'ll assume that '
-                        'the first one is right.')
+                    logger.warning(f'More than one term for weapon archetype {name} found. We\'ll '
+                                   'assume that the first one is right.')
                     return result
 
-                result = translated_term.get_term(), suffix
+                result = translated_term.get_term(), suffix.get_term()
 
             if result is None:
                 result = translated_term.get_term(), None

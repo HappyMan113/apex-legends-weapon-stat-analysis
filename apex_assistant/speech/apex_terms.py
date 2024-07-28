@@ -41,7 +41,7 @@ NUMBER_TERMS = (ZERO,
                 IntTerm(9, 'nine'),
                 IntTerm(10, 'ten'))
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
-               'what\'s better', 'air')
+               'what\'s better', 'air', 'bear')
 BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss')
 WEAPON: RequiredTerm = Term('weapon', 'gun')
 WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
@@ -50,8 +50,8 @@ _ARM = Term('arm', 'weapon')
 _ARMS = Term('arms', 'weapons')
 SIDEARM: RequiredTerm = Term('sidearm', 'sodarm', 'sadarm') | (_SIDE + _ARM)
 SIDEARMS: RequiredTerm = Term('sidearms', 'sodarms', 'sadarms') | (_SIDE + _ARMS)
-LOADOUT: RequiredTerm = Term('loadout', 'load out', 'load up', 'ludo')
-LOADOUTS: RequiredTerm = Term('loadouts', 'load outs', 'loanouts')
+LOADOUT: RequiredTerm = Term('loadout', 'load out', 'load up', 'ludo', 'loan out')
+LOADOUTS: RequiredTerm = Term('loadouts', 'load outs', 'loanouts', 'loan outs')
 STOP = Term('stop')
 CONFIGURE: RequiredTerm = Term('configure', 'set') + Term('default').opt()
 
@@ -68,6 +68,8 @@ MAIN = Term('main', 'may', 'name', 'primary')
 THE_SAME_MAIN_WEAPON: RequiredTerm = (Term('the').opt() +
                                       Term('same') +
                                       (MAIN | WEAPON | (MAIN + WEAPON)))
+REVERSED = Term('reversed', 'reverse', 'opposite', 'swapped', 'vice versa', 'a verse',
+                'the verse', 'averse', 'Verbermans', 'roofs')
 
 OR = Term('or')
 
@@ -114,7 +116,9 @@ SMG_OPT = SMG.opt()
 
 THIRTY_THIRTY_REPEATER = \
     Term('30-30', '33', 'there are three', '30 seconds ready', 'very very', '3030')
-BOCEK = Term('Bocek', 'bow check', 'Bochek')
+_BOW = Term('bow', 'both', 'bo', 'bill')
+_CHECK = Term('check', 'checks')
+BOCEK = Term('bowcheck', 'Bocek', 'Bochek', 'bocheck', 'bo-check', 'bochek\'s') | (_BOW + _CHECK)
 CAR = Term('car', 'C.A.R.', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
 CARE_PACKAGE_OPT: OptTerm = Term('care package', 'supply drop').opt()
 ALTERNATOR = Term('Alternator', 'I don\'t need her', 'I\'ll do neither')
@@ -213,7 +217,8 @@ R99 = \
           'all right any line', 'I don\'t need nine', 'irony 9', 'I already know',
           'I already need a 9', '$1.99', 'R-89', 'iron 9', 'oh I don\'t even know', 'R-9', 'are 99',
           'I\'m 99', 'on and none', 'Auto-Nine', 'on a new 9', 'on 8 to 9', 'on 9 to 9',
-          'oddity nine', '099', 'Ardney to 9', '90 to 9') |
+          'oddity nine', '099', 'Ardney to 9', '90 to 9', 'R-909', 'R29', 'alrighty nine',
+          'arlington nine') |
      (_R.opt() + Term('99', '89')))
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')
