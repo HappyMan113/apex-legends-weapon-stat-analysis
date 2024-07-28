@@ -5,7 +5,7 @@ from typing import Tuple
 
 from pydub.utils import which
 
-from apex_assistant.loadout_comparer import LoadoutComparer
+from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_config import ApexConfig
 from apex_assistant.speech.best_command import BestCommand
@@ -31,7 +31,7 @@ def register_commands() -> CommandRegistry:
     with open(ttks_filename, encoding='utf-8-sig') as fp:
         dr = TTKCsvReader(fp)
         ttk_entries = tuple(dr)
-    comparer = LoadoutComparer(ttk_entries)
+    comparator = LoadoutComparator(ttk_entries)
 
     apex_stats_filename = os.path.join(self_path, 'weapon_stats.csv')
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:
@@ -43,9 +43,9 @@ def register_commands() -> CommandRegistry:
     translator = LoadoutTranslator(weapon_archetypes=weapons, apex_config=apex_config)
 
     registry = CommandRegistry(
-        CompareCommand(loadout_translator=translator, loadout_comparer=comparer),
-        BestCommand(loadout_translator=translator, loadout_comparer=comparer),
-        ConfigureCommand(loadout_translator=translator, loadout_comparer=comparer))
+        CompareCommand(loadout_translator=translator, loadout_comparator=comparator),
+        BestCommand(loadout_translator=translator, loadout_comparator=comparator),
+        ConfigureCommand(loadout_translator=translator, loadout_comparator=comparator))
     return registry
 
 

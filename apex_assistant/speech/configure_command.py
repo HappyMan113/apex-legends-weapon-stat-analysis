@@ -2,7 +2,7 @@ import logging
 from typing import Callable, Optional, TypeAlias
 
 from apex_assistant.checker import check_type
-from apex_assistant.loadout_comparer import LoadoutComparer
+from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
@@ -16,10 +16,12 @@ _METHOD: TypeAlias = Callable[[Words], str]
 
 
 class ConfigureCommand(ApexCommand):
-    def __init__(self, loadout_translator: LoadoutTranslator, loadout_comparer: LoadoutComparer):
+    def __init__(self,
+                 loadout_translator: LoadoutTranslator,
+                 loadout_comparator: LoadoutComparator):
         super().__init__(apex_terms.CONFIGURE,
                          loadout_translator=loadout_translator,
-                         loadout_comparer=loadout_comparer)
+                         loadout_comparator=loadout_comparator)
         log_level = Term('log level', 'logging', 'logging level')
         self._defaults_translator: Translator[_METHOD] = Translator({
             apex_terms.WITH_RELOAD: self._parse_with_reload_term,

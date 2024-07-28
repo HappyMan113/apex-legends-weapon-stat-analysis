@@ -103,6 +103,8 @@ WITHOUT_RELOAD = WITHOUT + RELOAD
 WITH_RELOAD: RequiredTerm = (WITH + RELOAD) | RELOAD
 WITH_RELOAD_OPT: OptTerm = WITH_RELOAD.opt()
 SINGLE_SHOT = Term('single shot', 'single-shot')
+FIRE_MODE_SINGLE = Term('single', 'single fire')
+CHARGED = Term('charged')
 
 FULLY_KITTED: RequiredTerm = (Term('fully', 'full').opt() + Term('kitted', 'kidded') |
                               Term('fully-kitted'))
@@ -259,13 +261,13 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
     FLATLINE: None,
     G7_SCOUT: None,
     HAVOC: TURBOCHARGER,
-    HEMLOCK: None,
+    HEMLOCK: FIRE_MODE_SINGLE,
     KRABER: None,
     LONGBOW: None,
     L_STAR: None,
     MASTIFF: None,
     MOZAMBIQUE: HAMMERPOINT,
-    NEMESIS: None,
+    NEMESIS: CHARGED,
     P2020: HAMMERPOINT,
     PEACEKEEPER: DISRUPTOR,
     PROWLER: None,

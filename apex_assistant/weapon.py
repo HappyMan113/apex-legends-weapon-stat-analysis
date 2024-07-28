@@ -231,19 +231,34 @@ class RoundsPerMinutes(RoundsPerMinuteBase):
                          level_3_rounds_per_minute)
 
 
-class SpinupType(StrEnum):
+class RoundTimingType(StrEnum):
     DEVOTION = 'devotion'
-    HAVOC = 'havoc'
+    DELAY = 'delay'
+    BURST = 'burst'
+    NEMESIS = 'nemesis'
     NONE = 'none'
 
 
 HUMAN_REACTION_TIME_SECONDS = 0.2
 
 
-class Spinup(abc.ABC):
+class RoundTiming(abc.ABC):
     @abc.abstractmethod
-    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
         raise NotImplementedError('Must implement.')
+
+    @final
+    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
+        num_rounds = self.get_num_rounds_shot(
+            base_weapon=base_weapon,
+            time_seconds=time_seconds)
+        if num_rounds < 0:
+            raise RuntimeError(f'get_num_rounds_shot() in {self.__class__.__name__} must not '
+                               'return a non-negative number of rounds.')
+        if num_rounds > base_weapon.get_magazine_capacity():
+            raise RuntimeError(f'get_num_rounds_shot() in {self.__class__.__name__} must not '
+                               'return a number of rounds greater than the magazine capacity.')
+        return base_weapon.get_damage_per_round() * num_rounds
 
     @abc.abstractmethod
     def get_magazine_duration_seconds(self,
@@ -260,7 +275,7 @@ class Spinup(abc.ABC):
         raise NotImplementedError('Must implement.')
 
 
-class SpinupDevotion(Spinup):
+class RoundTimingDevotion(RoundTiming):
     def __init__(self, rounds_per_minute_initial: float, spinup_time_seconds: float):
         check_float(rounds_per_minute_initial=rounds_per_minute_initial,
                     min_value=0,
@@ -298,36 +313,168 @@ class SpinupDevotion(Spinup):
                                       tactical: bool = False) -> float:
         return self._get_shot_times_seconds(base_weapon)[-1] + HUMAN_REACTION_TIME_SECONDS
 
-    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
-        num_rounds_shot = self.get_num_rounds_shot(base_weapon=base_weapon,
-                                                   time_seconds=time_seconds)
-        return num_rounds_shot * base_weapon.get_damage_per_round()
-
     def __hash__(self):
         return hash(self.__class__) ^ hash((self._rounds_per_minute_initial,
                                             self._spinup_time_seconds))
 
     def __eq__(self, other):
-        return (isinstance(other, SpinupDevotion) and
+        return (isinstance(other, RoundTimingDevotion) and
                 self._rounds_per_minute_initial == other._rounds_per_minute_initial and
                 self._spinup_time_seconds == other._spinup_time_seconds)
 
 
-class SpinupNone(Spinup):
-    _INSTANCE: Optional['SpinupNone'] = None
+class RoundTimingBurst(RoundTiming):
+    def __init__(self, rounds_per_burst: int, burst_fire_delay: float):
+        check_int(min_value=2, rounds_per_burst=rounds_per_burst)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    burst_fire_delay=burst_fire_delay)
+
+        self._rounds_per_burst = rounds_per_burst
+        self._burst_fire_delay = burst_fire_delay
+
+    def _get_burst_duration_seconds(self, base_weapon: 'Weapon'):
+        seconds_per_round = 1 / base_weapon.get_rounds_per_second()
+        burst_duration_seconds = seconds_per_round * (self._rounds_per_burst - 1)
+        return burst_duration_seconds
+
+    def _get_burst_period_seconds(self, base_weapon: 'Weapon') -> float:
+        burst_duration_seconds = self._get_burst_duration_seconds(base_weapon)
+        return burst_duration_seconds + self._burst_fire_delay
+
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
+        period_seconds = self._get_burst_period_seconds(base_weapon)
+
+        num_full_bursts_shot, remainder_secs = divmod(time_seconds, period_seconds)
+        num_full_bursts_shot = int(num_full_bursts_shot)
+
+        num_rounds_shot_in_partial_period = min(
+            1 + math.floor(remainder_secs * base_weapon.get_rounds_per_second()),
+            self._rounds_per_burst)
+
+        return min(
+            num_full_bursts_shot * self._rounds_per_burst + num_rounds_shot_in_partial_period,
+            base_weapon.get_magazine_capacity())
+
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: bool = False) -> float:
+        period_seconds = self._get_burst_period_seconds(base_weapon)
+        num_bursts = math.ceil((base_weapon.get_magazine_capacity() - tactical) /
+                               self._rounds_per_burst)
+        num_last_burst_rounds = (base_weapon.get_magazine_capacity() -
+                                 (num_bursts - 1) * self._rounds_per_burst)
+
+        seconds_per_round = 1 / base_weapon.get_rounds_per_second()
+        last_burst_duration_seconds = seconds_per_round * (num_last_burst_rounds - 1)
+
+        return ((period_seconds * (num_bursts - 1) + last_burst_duration_seconds) +
+                HUMAN_REACTION_TIME_SECONDS)
+
+    def __hash__(self):
+        return hash(self.__class__) ^ hash((self._rounds_per_burst,
+                                            self._burst_fire_delay))
+
+    def __eq__(self, other):
+        return (isinstance(other, RoundTimingBurst) and
+                self._rounds_per_burst == other._rounds_per_burst and
+                self._burst_fire_delay == other._burst_fire_delay)
+
+
+class RoundTimingNemesis(RoundTiming):
+    def __init__(self,
+                 rounds_per_burst: int,
+                 burst_fire_delay_initial: float,
+                 burst_fire_delay_final: float,
+                 burst_charge_fraction: float):
+        check_int(min_value=2, rounds_per_burst=rounds_per_burst)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    burst_fire_delay_final=burst_fire_delay_final)
+        check_float(min_value=burst_fire_delay_final,
+                    min_is_exclusive=True,
+                    burst_fire_delay_initial=burst_fire_delay_initial)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    burst_charge_fraction=burst_charge_fraction)
+
+        self._rounds_per_burst = rounds_per_burst
+        self._burst_fire_delay_initial = burst_fire_delay_initial
+        self._burst_fire_delay_final = burst_fire_delay_final
+        self._burst_charge_fraction = burst_charge_fraction
+
+    def _get_num_bursts(self, base_weapon: 'Weapon') -> int:
+        return math.ceil(base_weapon.get_magazine_capacity() / self._rounds_per_burst)
+
+    def _get_burst_duration_seconds(self, base_weapon: 'Weapon') -> float:
+        seconds_per_round = 1 / base_weapon.get_rounds_per_second()
+        burst_duration_seconds = seconds_per_round * (self._rounds_per_burst - 1)
+        return burst_duration_seconds
+
+    def _get_burst_periods_seconds(self, base_weapon: 'Weapon') -> np.ndarray[np.floating]:
+        burst_duration_seconds = self._get_burst_duration_seconds(base_weapon)
+        num_bursts = self._get_num_bursts(base_weapon)
+        charge_fractions = (np.arange(num_bursts - 1) * self._burst_charge_fraction).clip(max=1)
+        burst_fire_delays = ((1 - charge_fractions) * self._burst_fire_delay_initial +
+                             charge_fractions * self._burst_fire_delay_final)
+
+        # Delay after last burst is an elephant.
+        burst_fire_delays = np.append(burst_fire_delays, 0)
+
+        return burst_duration_seconds + burst_fire_delays
+
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
+        periods_seconds = self._get_burst_periods_seconds(base_weapon)
+        period_stop_times_seconds = periods_seconds.cumsum()
+
+        num_full_periods_shot = np.count_nonzero(time_seconds >= period_stop_times_seconds)
+        full_periods_shot = num_full_periods_shot * self._rounds_per_burst
+
+        partial_period_start_time_secs = (
+            0 if num_full_periods_shot == 0 else
+            float(period_stop_times_seconds[num_full_periods_shot - 1]))
+        rel_burst_time_secs = time_seconds - partial_period_start_time_secs
+        if rel_burst_time_secs < 0:
+            num_rounds_shot_in_partial_period = 0
+        else:
+            num_rounds_shot_in_partial_period = min(
+                1 + math.floor(rel_burst_time_secs * base_weapon.get_rounds_per_second()),
+                self._rounds_per_burst)
+
+        return min(full_periods_shot + num_rounds_shot_in_partial_period,
+                   base_weapon.get_magazine_capacity())
+
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: bool = False) -> float:
+        periods_seconds = self._get_burst_periods_seconds(base_weapon)
+        return float(periods_seconds.sum()) + HUMAN_REACTION_TIME_SECONDS
+
+    def __hash__(self):
+        return hash(self.__class__) ^ hash((self._rounds_per_burst,
+                                            self._burst_fire_delay_initial,
+                                            self._burst_fire_delay_final,
+                                            self._burst_charge_fraction))
+
+    def __eq__(self, other):
+        return (isinstance(other, RoundTimingNemesis) and
+                self._rounds_per_burst == other._rounds_per_burst and
+                self._burst_fire_delay_initial == other._burst_fire_delay_initial and
+                self._burst_fire_delay_final == other._burst_fire_delay_final and
+                self._burst_charge_fraction == other._burst_charge_fraction)
+
+
+class RoundTimingNone(RoundTiming):
+    _INSTANCE: Optional['RoundTimingNone'] = None
     __create_key = object()
 
     def __init__(self, create_key):
         super().__init__()
-        if create_key != SpinupNone.__create_key:
-            raise RuntimeError(f'Cannot instantiate {SpinupNone.__name__} except from '
+        if create_key != RoundTimingNone.__create_key:
+            raise RuntimeError(f'Cannot instantiate {RoundTimingNone.__name__} except from '
                                'get_instance() method.')
 
     @staticmethod
     def get_instance():
-        if SpinupNone._INSTANCE is None:
-            SpinupNone._INSTANCE = SpinupNone(SpinupNone.__create_key)
-        return SpinupNone._INSTANCE
+        if RoundTimingNone._INSTANCE is None:
+            RoundTimingNone._INSTANCE = RoundTimingNone(RoundTimingNone.__create_key)
+        return RoundTimingNone._INSTANCE
 
     @staticmethod
     def _get_magazine_num_rounds(base_weapon: 'Weapon', tactical: bool = False) -> int:
@@ -344,22 +491,21 @@ class SpinupNone(Spinup):
         magazine_duration_seconds = num_rounds / rounds_per_second
         return magazine_duration_seconds + HUMAN_REACTION_TIME_SECONDS
 
-    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
-        damage_per_round = base_weapon.get_damage_per_round()
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
         rounds_per_second = base_weapon.get_rounds_per_second()
         num_rounds = min(1 + math.floor(time_seconds * rounds_per_second),
                          base_weapon.get_magazine_capacity())
-        return damage_per_round * num_rounds
+        return num_rounds
 
     def __hash__(self):
         return hash(self.__class__)
 
     def __eq__(self, other):
-        return isinstance(other, SpinupNone)
+        return isinstance(other, RoundTimingNone)
 
 
-class SpinupHavoc(Spinup):
-    _NO_SPINUP = SpinupNone.get_instance()
+class RoundTimingHavoc(RoundTiming):
+    _NO_SPINUP = RoundTimingNone.get_instance()
 
     def __init__(self, spinup_time_seconds: float):
         check_float(spinup_time_seconds=spinup_time_seconds, min_value=0)
@@ -371,12 +517,12 @@ class SpinupHavoc(Spinup):
         return self._NO_SPINUP.get_magazine_duration_seconds(base_weapon=base_weapon,
                                                              tactical=tactical)
 
-    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
         spinup_time_seconds = self._spinup_time_seconds
         if time_seconds < spinup_time_seconds:
             return 0
 
-        return self._NO_SPINUP.get_cumulative_damage(
+        return self._NO_SPINUP.get_num_rounds_shot(
             base_weapon=base_weapon,
             time_seconds=time_seconds - spinup_time_seconds)
 
@@ -384,7 +530,7 @@ class SpinupHavoc(Spinup):
         return hash(self.__class__) ^ hash(self._spinup_time_seconds)
 
     def __eq__(self, other):
-        return (isinstance(other, SpinupHavoc) and
+        return (isinstance(other, RoundTimingHavoc) and
                 other._spinup_time_seconds == self._spinup_time_seconds)
 
 
@@ -588,7 +734,7 @@ class Weapon(MainLoadout):
                  ready_to_fire_time_secs: float,
                  rounds_per_minute: float,
                  magazine_capacity: int,
-                 spinup: Spinup,
+                 spinup: RoundTiming,
                  tactical_reload_time_secs: Optional[float]):
         check_type(WeaponArchetype, archetype=archetype)
         check_str(name=name)
@@ -601,7 +747,7 @@ class Weapon(MainLoadout):
                     ready_to_fire_time_secs=ready_to_fire_time_secs,
                     rounds_per_minute=rounds_per_minute)
         check_int(min_value=1, magazine_capacity=magazine_capacity)
-        check_type(Spinup, spinup=spinup)
+        check_type(RoundTiming, spinup=spinup)
         check_float(optional=True,
                     min_value=0,
                     min_is_exclusive=True,
@@ -685,6 +831,8 @@ class Weapon(MainLoadout):
 
 class SingleShotLoadout(MainLoadout):
     def __init__(self, wrapped_weapon: Weapon):
+        if not wrapped_weapon.is_single_shot_advisable():
+            raise ValueError(f'Weapon {wrapped_weapon} must have single shots being advisable!')
         check_type(Weapon, wrapped_weapon=wrapped_weapon)
         super().__init__(f'{wrapped_weapon.get_name()} ({SINGLE_SHOT})',
                          wrapped_weapon.get_term().append(SINGLE_SHOT))
@@ -729,7 +877,7 @@ class WeaponArchetype:
                  rounds_per_minute: RoundsPerMinuteBase,
                  magazine_capacity: MagazineCapacityBase,
                  stock_dependant_stats: StockStatsBase,
-                 spinup: Spinup):
+                 spinup: RoundTiming):
         self.name = name
         self.base_term = base_term
         self.hopup_suffix = hopup_suffix

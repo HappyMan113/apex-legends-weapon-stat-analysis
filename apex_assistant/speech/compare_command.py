@@ -2,7 +2,7 @@ import logging
 from enum import IntEnum
 from typing import Optional, Tuple
 
-from apex_assistant.loadout_comparer import LoadoutComparer
+from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.apex_terms import COMPARE, MAIN, SIDEARM, WITHOUT
@@ -24,10 +24,12 @@ class _Uniqueness(IntEnum):
 
 
 class CompareCommand(ApexCommand):
-    def __init__(self, loadout_translator: LoadoutTranslator, loadout_comparer: LoadoutComparer):
+    def __init__(self,
+                 loadout_translator: LoadoutTranslator,
+                 loadout_comparator: LoadoutComparator):
         super().__init__(term=COMPARE,
                          loadout_translator=loadout_translator,
-                         loadout_comparer=loadout_comparer)
+                         loadout_comparator=loadout_comparator)
 
     def _execute(self, arguments: Words) -> str:
         loadouts = tuple(self.get_translator().translate_any_loadouts(arguments))
@@ -44,7 +46,7 @@ class CompareCommand(ApexCommand):
 
         uniqueness = self._get_uniqueness(loadouts)
 
-        comparison_result = self._comparer.compare_loadouts(loadouts)
+        comparison_result = self._comparator.compare_loadouts(loadouts)
         best_weapon, score = comparison_result.get_best_loadout()
         LOGGER.info(f'Comparison result: {comparison_result}')
         audible_name = self._make_audible(best_weapon, uniqueness=uniqueness).to_audible_str()

@@ -3,7 +3,7 @@ import logging
 from typing import Dict, Optional, Tuple, final
 
 from apex_assistant.checker import check_mapping, check_type
-from apex_assistant.loadout_comparer import LoadoutComparer
+from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.apex_terms import (BEST,
@@ -25,16 +25,18 @@ LOGGER = logging.getLogger()
 
 
 class BestCommand(ApexCommand):
-    def __init__(self, loadout_translator: LoadoutTranslator, loadout_comparer: LoadoutComparer):
+    def __init__(self,
+                 loadout_translator: LoadoutTranslator,
+                 loadout_comparator: LoadoutComparator):
         check_type(LoadoutTranslator, loadout_translator=loadout_translator)
-        check_type(LoadoutComparer, loadout_comparer=loadout_comparer)
+        check_type(LoadoutComparator, loadout_comparator=loadout_comparator)
 
         subcommands = (_BestMainWeaponCommand(self),
                        _BestSidearmCommand(self),
                        _BestLoadoutCommand(self))
         super().__init__(term=BEST,
                          loadout_translator=loadout_translator,
-                         loadout_comparer=loadout_comparer)
+                         loadout_comparator=loadout_comparator)
         self._subcommand_translator = Translator[Tuple[_BestSubcommand, bool]]({
             subcommand.get_term(plural): (subcommand, plural)
             for subcommand in subcommands
@@ -83,7 +85,7 @@ class BestCommand(ApexCommand):
             return f'Must specify a {subcommand.get_what_to_specify()}.'
 
         loadouts = tuple(loadouts_and_terms.keys())
-        comparison_result = self._comparer.compare_loadouts(loadouts).limit_to_best_num(number)
+        comparison_result = self._comparator.compare_loadouts(loadouts).limit_to_best_num(number)
         loadout_terms = tuple(loadouts_and_terms[loadout]
                               for loadout in comparison_result.get_sorted_loadouts())
         number = len(loadout_terms)
@@ -116,8 +118,8 @@ class _BestSubcommand:
     def get_translator(self) -> LoadoutTranslator:
         return self._main_command.get_translator()
 
-    def get_comparer(self) -> LoadoutComparer:
-        return self._main_command.get_comparer()
+    def get_comparator(self) -> LoadoutComparator:
+        return self._main_command.get_comparator()
 
     @abc.abstractmethod
     def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
@@ -189,7 +191,7 @@ class _BestLoadoutCommand(_BestSubcommand):
         translator = self.get_translator()
         weapon_class_terms = self._weapon_class_translator.translate_terms(arguments)
         main_weapon_class = weapon_class_terms.get_latest_value()
-        best_loadouts = self.get_comparer().get_best_loadouts(
+        best_loadouts = self.get_comparator().get_best_loadouts(
             weapons=translator.get_fully_kitted_weapons(),
             max_num_loadouts=number,
             reload=translator.is_asking_for_reloads(arguments),

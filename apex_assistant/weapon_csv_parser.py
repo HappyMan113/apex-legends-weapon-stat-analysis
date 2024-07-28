@@ -21,13 +21,15 @@ from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import (MagazineCapacities,
                                    MagazineCapacity,
+                                   RoundTiming,
+                                   RoundTimingBurst,
+                                   RoundTimingDevotion,
+                                   RoundTimingHavoc,
+                                   RoundTimingNemesis,
+                                   RoundTimingNone,
+                                   RoundTimingType,
                                    RoundsPerMinute,
                                    RoundsPerMinutes,
-                                   Spinup,
-                                   SpinupDevotion,
-                                   SpinupHavoc,
-                                   SpinupNone,
-                                   SpinupType,
                                    StockStat,
                                    StockStatValues,
                                    StockStats,
@@ -184,8 +186,12 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_MAGAZINE_LEVEL_1 = "Magazine (level 1)"
     KEY_MAGAZINE_LEVEL_2 = "Magazine (level 2)"
     KEY_MAGAZINE_LEVEL_3 = "Magazine (level 3)"
-    KEY_SPINUP_TYPE = "Spinup Type"
+    KEY_ROUND_TIMING_TYPE = "Round Timing"
     KEY_RPM_INITIAL = "RPM initial"
+    KEY_ROUNDS_PER_BURST = "Rounds Per Burst"
+    KEY_BURST_FIRE_DELAY = "Burst Fire Delay"
+    KEY_BURST_FIRE_DELAY_INITIAL = "Burst Fire Delay Initial"
+    KEY_BURST_CHARGE_FRACTION = "Burst Charge Fraction"
     KEY_SPINUP_TIME = "Spinup Time"
     KEY_HOLSTER_TIME = "Holster Time"
     KEY_DEPLOY_TIME = "Deploy Time"
@@ -366,29 +372,59 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         return stock_stats
 
-    def _parse_spinup(self, csv_row: CsvRow) -> Spinup:
-        spinup_type = csv_row.parse_str_enum(self.KEY_SPINUP_TYPE,
-                                             SpinupType,
-                                             SpinupType.NONE)
-        if spinup_type is SpinupType.NONE:
-            spinup = SpinupNone.get_instance()
-            csv_row.ensure_empty(
-                lambda key: f'{key} must be empty for spinup type of {spinup_type}',
-                self.KEY_RPM_INITIAL,
-                self.KEY_SPINUP_TIME)
-        elif spinup_type is SpinupType.DEVOTION:
+    def _parse_spinup(self, csv_row: CsvRow) -> RoundTiming:
+        spinup_type = csv_row.parse_str_enum(self.KEY_ROUND_TIMING_TYPE,
+                                             RoundTimingType,
+                                             RoundTimingType.NONE)
+
+        disallowed_keys: set[str] = {self.KEY_RPM_INITIAL,
+                                     self.KEY_SPINUP_TIME,
+                                     self.KEY_ROUNDS_PER_BURST,
+                                     self.KEY_BURST_FIRE_DELAY,
+                                     self.KEY_BURST_FIRE_DELAY_INITIAL,
+                                     self.KEY_BURST_CHARGE_FRACTION}
+        if spinup_type is RoundTimingType.NONE:
+            spinup = RoundTimingNone.get_instance()
+
+        elif spinup_type is RoundTimingType.DEVOTION:
             rpm_initial = csv_row.parse_float(self.KEY_RPM_INITIAL)
             spinup_time = csv_row.parse_float(self.KEY_SPINUP_TIME)
-            spinup = SpinupDevotion(rounds_per_minute_initial=rpm_initial,
-                                    spinup_time_seconds=spinup_time)
-        elif spinup_type is SpinupType.HAVOC:
+            spinup = RoundTimingDevotion(rounds_per_minute_initial=rpm_initial,
+                                         spinup_time_seconds=spinup_time)
+            disallowed_keys -= {self.KEY_RPM_INITIAL, self.KEY_SPINUP_TIME}
+
+        elif spinup_type is RoundTimingType.DELAY:
             spinup_time = csv_row.parse_float(self.KEY_SPINUP_TIME)
-            csv_row.ensure_empty(
-                lambda key: f'{key} must be empty for spinup type of {spinup_type}',
-                self.KEY_RPM_INITIAL)
-            spinup = SpinupHavoc(spinup_time)
+            spinup = RoundTimingHavoc(spinup_time)
+            disallowed_keys.remove(self.KEY_SPINUP_TIME)
+
+        elif spinup_type is RoundTimingType.BURST:
+            rounds_per_burst = csv_row.parse_int(self.KEY_ROUNDS_PER_BURST)
+            burst_fire_delay = csv_row.parse_float(self.KEY_BURST_FIRE_DELAY)
+            spinup = RoundTimingBurst(rounds_per_burst=rounds_per_burst,
+                                      burst_fire_delay=burst_fire_delay)
+            disallowed_keys -= {self.KEY_ROUNDS_PER_BURST, self.KEY_BURST_FIRE_DELAY}
+
+        elif spinup_type is RoundTimingType.NEMESIS:
+            rounds_per_burst = csv_row.parse_int(self.KEY_ROUNDS_PER_BURST)
+            burst_fire_delay_initial = csv_row.parse_float(self.KEY_BURST_FIRE_DELAY_INITIAL)
+            burst_fire_delay_final = csv_row.parse_float(self.KEY_BURST_FIRE_DELAY)
+            burst_charge_fraction = csv_row.parse_float(self.KEY_BURST_CHARGE_FRACTION)
+            spinup = RoundTimingNemesis(rounds_per_burst=rounds_per_burst,
+                                        burst_fire_delay_initial=burst_fire_delay_initial,
+                                        burst_fire_delay_final=burst_fire_delay_final,
+                                        burst_charge_fraction=burst_charge_fraction)
+            disallowed_keys -= {self.KEY_ROUNDS_PER_BURST,
+                                self.KEY_BURST_FIRE_DELAY,
+                                self.KEY_BURST_FIRE_DELAY_INITIAL,
+                                self.KEY_BURST_CHARGE_FRACTION}
+
         else:
-            raise ValueError(f'Spinup of {spinup_type} is unsupported.')
+            raise ValueError(f'{self.KEY_ROUND_TIMING_TYPE} of {spinup_type} is unsupported.')
+
+        csv_row.ensure_empty(
+            lambda key: f'{key} must be empty for spinup type of {spinup_type}',
+            *disallowed_keys)
 
         return spinup
 

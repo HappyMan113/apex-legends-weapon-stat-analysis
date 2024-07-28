@@ -80,7 +80,7 @@ class ComparisonResult:
             for weapon, weighted_avg_damage in self.get_sorted_loadouts().items())
 
 
-class LoadoutComparer:
+class LoadoutComparator:
     def __init__(self, ttk_entries: tuple[TTKDatum, ...]):
         check_tuple(TTKDatum, ttk_entries=ttk_entries)
 
@@ -164,7 +164,7 @@ class LoadoutComparer:
             plt.axvline(ts.max())
             ts_lin = np.linspace(0.4, ts.max() * 1.4, num=4000)
             t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
-            for base_weapon in result.limit_to_best_num(30).get_sorted_loadouts():
+            for base_weapon in result.limit_to_best_num(10).get_sorted_loadouts():
                 damages = np.array([base_weapon.get_cumulative_damage(t) for t in ts_lin])
                 damages *= 1 / ts_lin
                 plt.plot(ts_lin, damages, label=base_weapon.get_name(),
@@ -230,7 +230,7 @@ class LoadoutComparer:
                           sidearms: Iterable[Weapon],
                           reload: bool) -> Tuple[Loadout, float]:
         loadouts = tuple(
-            LoadoutComparer._get_loadout(main_weapon, sidearm, reload, single_shot)
+            LoadoutComparator._get_loadout(main_weapon, sidearm, reload, single_shot)
             for main_weapon in main_weapons
             for sidearm in sidearms
             for single_shot in ((False, True) if main_weapon.is_single_shot_advisable() else
