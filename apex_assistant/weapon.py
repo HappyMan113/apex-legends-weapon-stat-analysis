@@ -21,10 +21,8 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               BASE,
                                               LEVEL_TERMS,
                                               MAIN,
-                                              RELOAD,
                                               SIDEARM,
                                               SINGLE_SHOT,
-                                              WITH_RELOAD_OPT,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
@@ -553,7 +551,7 @@ class Loadout(abc.ABC):
         return self.get_main_loadout().get_weapon()
 
     @abc.abstractmethod
-    def get_main_loadout(self) -> 'MainLoadout':
+    def get_main_loadout(self) -> 'SingleWeaponLoadout':
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -567,6 +565,10 @@ class Loadout(abc.ABC):
         return self.name
 
     @abc.abstractmethod
+    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
     def get_cumulative_damage(self, time_seconds: float) -> float:
         raise NotImplementedError()
 
@@ -578,8 +580,6 @@ class Loadout(abc.ABC):
     def __eq__(self, other):
         raise NotImplementedError()
 
-
-class NonReloadingLoadout(Loadout, abc.ABC):
     @abc.abstractmethod
     def get_holster_time_secs(self) -> float:
         raise NotImplementedError()
@@ -588,70 +588,39 @@ class NonReloadingLoadout(Loadout, abc.ABC):
     def get_ready_to_fire_time_secs(self) -> float:
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    def get_tactical_reload_time_secs(self) -> float | None:
-        raise NotImplementedError()
 
-    @final
-    def reload(self) -> Loadout:
-        return ReloadingLoadout(self) if self.get_tactical_reload_time_secs() is not None else self
-
-    @abc.abstractmethod
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        raise NotImplementedError()
+class _ReloadConfiguration(StrEnum):
+    RELOAD_MAIN = 'main reload'
+    RELOAD_SIDEARM = 'sidearm reload'
+    RELOAD_NEITHER = 'reload N/A'
 
 
-class ReloadingLoadout(Loadout):
-    def __init__(self, wrapped_loadout: NonReloadingLoadout):
-        check_type(NonReloadingLoadout, wrapped_loadout=wrapped_loadout)
-        tac_reload_time_secs = wrapped_loadout.get_tactical_reload_time_secs()
-        if tac_reload_time_secs is None:
-            raise ValueError(f'Weapon {wrapped_loadout} cannot be reloaded.')
-
-        super().__init__(f'{wrapped_loadout.get_name()} ({RELOAD})',
-                         wrapped_loadout.get_term().append(WITH_RELOAD_OPT))
-        self.wrapped_loadout = wrapped_loadout
-        self.reload_time_secs = float(wrapped_loadout.get_tactical_reload_time_secs())
-
-    def get_archetype(self) -> 'WeaponArchetype':
-        return self.wrapped_loadout.get_archetype()
-
-    def get_cumulative_damage(self, time_seconds: float) -> float:
-        reload_time_seconds = self.reload_time_secs
-        mag_duration_seconds = self.wrapped_loadout.get_magazine_duration_seconds(tactical=True)
-        cycle_duration_seconds = mag_duration_seconds + reload_time_seconds
-        num_completed_cycles, rel_time_seconds = divmod(time_seconds, cycle_duration_seconds)
-        if rel_time_seconds >= mag_duration_seconds:
-            cum_damage = 0
-            num_completed_cycles += 1
-        else:
-            cum_damage = self.wrapped_loadout.get_cumulative_damage(rel_time_seconds)
-        cum_damage += (num_completed_cycles *
-                       self.wrapped_loadout.get_cumulative_damage(mag_duration_seconds))
-        return cum_damage
-
-    def __hash__(self):
-        return hash(self.__class__) ^ hash(self.wrapped_loadout)
-
-    def __eq__(self, other):
-        return (isinstance(other, ReloadingLoadout) and
-                other.wrapped_loadout == self.wrapped_loadout)
-
-    def get_main_loadout(self) -> 'MainLoadout':
-        return self.wrapped_loadout.get_main_loadout()
-
-    def get_sidearm(self) -> Optional['Weapon']:
-        return self.wrapped_loadout.get_sidearm()
-
-
-class FullLoadout(NonReloadingLoadout):
-    def __init__(self, main_loadout: 'MainLoadout', sidearm: 'Weapon'):
-        check_type(MainLoadout, main_weapon=main_loadout)
+class FullLoadout(Loadout):
+    def __init__(self, main_loadout: 'SingleWeaponLoadout', sidearm: 'Weapon'):
+        check_type(SingleWeaponLoadout, main_weapon=main_loadout)
         check_type(Weapon, sidearm=sidearm)
         self.main_loadout = main_loadout
-        self.sidearm = sidearm
-        super().__init__(f'{main_loadout.get_name()}, {SIDEARM} {sidearm.get_name()}',
+        self.sidearm: Weapon = sidearm
+
+        main_reload_time_secs = main_loadout.get_weapon().get_tactical_reload_time_secs()
+        sidearm_reload_time_secs = sidearm.get_tactical_reload_time_secs()
+        if main_reload_time_secs is None and sidearm_reload_time_secs is None:
+            reloading_loadout_config = _ReloadConfiguration.RELOAD_NEITHER
+        elif main_reload_time_secs is None:
+            reloading_loadout_config = _ReloadConfiguration.RELOAD_SIDEARM
+        elif (sidearm_reload_time_secs is None or
+              (sidearm.get_swap_time_seconds(main_loadout) + main_reload_time_secs <
+               sidearm_reload_time_secs)):
+            reloading_loadout_config = _ReloadConfiguration.RELOAD_MAIN
+        else:
+            reloading_loadout_config = _ReloadConfiguration.RELOAD_SIDEARM
+
+        reload_str = (f' ({reloading_loadout_config})'
+                      if (reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN) else '')
+        super().__init__(f'{main_loadout.get_name()}, {SIDEARM} {sidearm.get_name()}{reload_str}',
                          MAIN.append(main_loadout.get_term(), WITH_SIDEARM, sidearm.get_term()))
+
+        self._reloading_loadout_config = reloading_loadout_config
 
     def get_holster_time_secs(self) -> float:
         return self.sidearm.get_holster_time_secs()
@@ -662,29 +631,58 @@ class FullLoadout(NonReloadingLoadout):
     def get_archetype(self) -> 'WeaponArchetype':
         return self.main_loadout.get_archetype()
 
-    def get_swap_time_seconds(self):
-        return (self.main_loadout.get_holster_time_secs() +
-                self.sidearm.get_ready_to_fire_time_secs())
-
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
         main_total_duration_seconds = self.main_loadout.get_magazine_duration_seconds()
-        cum_damage = self.main_loadout.get_cumulative_damage(
+        cum_damage = self.main_loadout.get_single_mag_cumulative_damage(
             min(time_seconds, main_total_duration_seconds))
 
-        sidearm_start_time_seconds = main_total_duration_seconds + self.get_swap_time_seconds()
+        swap_time_seconds = self.main_loadout.get_swap_time_seconds(self.sidearm)
+        sidearm_start_time_seconds = main_total_duration_seconds + swap_time_seconds
         if time_seconds >= sidearm_start_time_seconds:
             time_seconds -= sidearm_start_time_seconds
-            cum_damage += self.sidearm.get_cumulative_damage(time_seconds)
+            cum_damage += self.sidearm.get_single_mag_cumulative_damage(time_seconds)
 
         return cum_damage
 
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        return (self.main_loadout.get_magazine_duration_seconds(tactical=False) +
-                self.sidearm.get_ready_to_fire_time_secs() +
-                self.sidearm.get_magazine_duration_seconds(tactical=tactical))
+    def _get_cumulative_damage(self,
+                               reloading_loadout: 'SingleWeaponLoadout',
+                               time_seconds: float,
+                               swap_time_seconds: float = 0) -> float:
+        single_mag_cumulative_damage = self.get_single_mag_cumulative_damage(time_seconds)
+        reload_time_secs = reloading_loadout.get_weapon().get_tactical_reload_time_secs()
+        if reload_time_secs is None:
+            raise ValueError('Reloading loadout must be reloadable.')
 
-    def get_tactical_reload_time_secs(self) -> float | None:
-        return self.sidearm.get_tactical_reload_time_secs()
+        reload_stop_time_seconds = (self.get_magazine_duration_seconds() +
+                                    reload_time_secs +
+                                    swap_time_seconds)
+
+        if time_seconds < reload_stop_time_seconds:
+            return single_mag_cumulative_damage
+
+        return (single_mag_cumulative_damage +
+                reloading_loadout.get_cumulative_damage(time_seconds - reload_stop_time_seconds))
+
+    def get_cumulative_damage(self, time_seconds: float) -> float:
+        check_float(min_value=0, time_seconds=time_seconds)
+        reloading_loadout_config = self._reloading_loadout_config
+        if reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN:
+            return self._get_cumulative_damage(
+                reloading_loadout=self.main_loadout,
+                time_seconds=time_seconds,
+                swap_time_seconds=self.sidearm.get_swap_time_seconds(self.main_loadout))
+        elif reloading_loadout_config is _ReloadConfiguration.RELOAD_SIDEARM:
+            return self._get_cumulative_damage(reloading_loadout=self.sidearm,
+                                               time_seconds=time_seconds)
+        else:
+            return self.get_single_mag_cumulative_damage(time_seconds)
+
+    def get_magazine_duration_seconds(self) -> float:
+        tactical_main = self._reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN
+        tactical_sidearm = self._reloading_loadout_config is _ReloadConfiguration.RELOAD_SIDEARM
+        return (self.main_loadout.get_magazine_duration_seconds(tactical=tactical_main) +
+                self.sidearm.get_ready_to_fire_time_secs() +
+                self.sidearm.get_magazine_duration_seconds(tactical=tactical_sidearm))
 
     def __hash__(self):
         return hash(self.__class__) ^ hash((self.main_loadout, self.sidearm))
@@ -693,21 +691,25 @@ class FullLoadout(NonReloadingLoadout):
         return (isinstance(other, FullLoadout) and
                 other.main_loadout == self.main_loadout and other.sidearm == self.sidearm)
 
-    def get_main_loadout(self) -> 'MainLoadout':
+    def get_main_loadout(self) -> 'SingleWeaponLoadout':
         return self.main_loadout
 
     def get_sidearm(self) -> 'Weapon':
         return self.sidearm
 
 
-class MainLoadout(NonReloadingLoadout, abc.ABC):
+class SingleWeaponLoadout(Loadout, abc.ABC):
     @final
     def get_sidearm(self) -> Optional['Weapon']:
         return None
 
     @final
-    def get_main_loadout(self) -> 'MainLoadout':
+    def get_main_loadout(self) -> 'SingleWeaponLoadout':
         return self
+
+    @abc.abstractmethod
+    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
+        raise NotImplementedError()
 
     @final
     def add_sidearm(self, sidearm: 'Weapon') -> 'FullLoadout':
@@ -718,12 +720,16 @@ class MainLoadout(NonReloadingLoadout, abc.ABC):
         weapon, _ = self.unwrap()
         return weapon
 
+    def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout'):
+        check_type(SingleWeaponLoadout, weapon_swap_to=weapon_swap_to)
+        return self.get_holster_time_secs() + weapon_swap_to.get_ready_to_fire_time_secs()
+
     @abc.abstractmethod
     def unwrap(self) -> Tuple['Weapon', bool]:
         raise NotImplementedError()
 
 
-class Weapon(MainLoadout):
+class Weapon(SingleWeaponLoadout):
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
@@ -779,8 +785,25 @@ class Weapon(MainLoadout):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.tactical_reload_time_secs
 
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
         return self.spinup.get_cumulative_damage(self, time_seconds)
+
+    def get_cumulative_damage(self, time_seconds: float) -> float:
+        reload_time_seconds = self.get_tactical_reload_time_secs()
+        if reload_time_seconds is None:
+            return self.get_single_mag_cumulative_damage(time_seconds)
+
+        mag_duration_seconds = self.get_magazine_duration_seconds(tactical=True)
+        period_seconds = mag_duration_seconds + reload_time_seconds
+        num_completed_cycles, rel_time_seconds = divmod(time_seconds, period_seconds)
+        if rel_time_seconds >= mag_duration_seconds:
+            cum_damage = 0
+            num_completed_cycles += 1
+        else:
+            cum_damage = self.get_single_mag_cumulative_damage(rel_time_seconds)
+        cum_damage += (num_completed_cycles *
+                       self.get_single_mag_cumulative_damage(mag_duration_seconds))
+        return cum_damage
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
         return self.spinup.get_magazine_duration_seconds(self, tactical=tactical)
@@ -829,7 +852,7 @@ class Weapon(MainLoadout):
         return seconds_per_round >= self.holster_time_secs
 
 
-class SingleShotLoadout(MainLoadout):
+class SingleShotLoadout(SingleWeaponLoadout):
     def __init__(self, wrapped_weapon: Weapon):
         if not wrapped_weapon.is_single_shot_advisable():
             raise ValueError(f'Weapon {wrapped_weapon} must have single shots being advisable!')
@@ -850,8 +873,11 @@ class SingleShotLoadout(MainLoadout):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.wrapped_weapon.get_tactical_reload_time_secs()
 
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
         return self.wrapped_weapon.get_damage_per_round()
+
+    def get_cumulative_damage(self, time_seconds: float) -> float:
+        return self.wrapped_weapon.get_cumulative_damage(time_seconds)
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
         return HUMAN_REACTION_TIME_SECONDS
@@ -975,11 +1001,11 @@ class WeaponArchetype:
         stock_term_and_val, words = self.stock_dependant_stats.translate_stats(words)
 
         if overall_level is not OverallLevel.PARSE_WORDS:
-            stats_list = ', '.join(f'"{term}"'
-                                   for term, _ in (rpm_term_and_val,
-                                                   mag_term_and_val,
-                                                   stock_term_and_val)
-                                   if term is not None)
+            stats_list = ', '.join(f'"{term_and_val[0]}"'
+                                   for term_and_val in (rpm_term_and_val,
+                                                        mag_term_and_val,
+                                                        stock_term_and_val)
+                                   if term_and_val is not None)
             if len(stats_list) > 0:
                 overall_level_name = overall_level.name.lower().replace('_', ' ')
                 _LOGGER.warning(

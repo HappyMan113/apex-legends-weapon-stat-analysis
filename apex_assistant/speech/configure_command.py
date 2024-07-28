@@ -24,8 +24,6 @@ class ConfigureCommand(ApexCommand):
                          loadout_comparator=loadout_comparator)
         log_level = Term('log level', 'logging', 'logging level')
         self._defaults_translator: Translator[_METHOD] = Translator({
-            apex_terms.WITH_RELOAD: self._parse_with_reload_term,
-            apex_terms.WITHOUT_RELOAD: self._parse_without_reload_term,
             apex_terms.SIDEARM: self._parse_with_sidearm_term,
             log_level: self._parse_log_level_term,
         })
@@ -37,20 +35,6 @@ class ConfigureCommand(ApexCommand):
             Term('error'): logging.ERROR,
             Term('critical', 'quiet'): logging.CRITICAL
         })
-
-    def _parse_with_reload_term(self, arguments: Words) -> str:
-        check_type(Words, arguments=arguments)
-        reload_by_default = self._bool_translator.translate_term(arguments, True)
-        return self._set_reload_by_default(reload_by_default)
-
-    def _parse_without_reload_term(self, arguments: Words) -> str:
-        check_type(Words, arguments=arguments)
-        return self._set_reload_by_default(False)
-
-    def _set_reload_by_default(self, reload_by_default: bool) -> str:
-        old_value = self.get_translator().set_reload_by_default(reload_by_default)
-        _LOGGER.info(f'Set reload_by_default to {reload_by_default} (was {old_value}).')
-        return f'Set reload by default to {reload_by_default}. Was {old_value}.'
 
     def _parse_with_sidearm_term(self, arguments: Words) -> str:
         translator = self.get_translator()

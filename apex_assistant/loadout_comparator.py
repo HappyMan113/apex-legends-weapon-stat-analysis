@@ -6,7 +6,7 @@ from typing import Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 
-from apex_assistant.checker import check_bool, check_int, check_tuple, check_type
+from apex_assistant.checker import check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import Loadout, Weapon, WeaponArchetype
 from apex_assistant.weapon_class import WeaponClass
@@ -181,11 +181,9 @@ class LoadoutComparator:
     def get_best_loadouts(self,
                           weapons: Tuple[Weapon],
                           max_num_loadouts: Optional[int] = None,
-                          reload: bool = True,
                           main_weapon_class: Optional[WeaponClass] = None) -> Tuple[Loadout, ...]:
         check_tuple(Weapon, weapons=weapons)
         check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
-        check_bool(reload=reload)
         check_type(WeaponClass, optional=True, main_weapon_class=main_weapon_class)
 
         filtered_weapons: set[Weapon] = set(weapon
@@ -202,16 +200,14 @@ class LoadoutComparator:
 
         while len(best_loadouts_and_terms) < max_num_loadouts:
             best_loadout, best_score = self._get_best_loadout(main_weapons=filtered_weapons,
-                                                              sidearms=unfiltered_weapons,
-                                                              reload=reload)
+                                                              sidearms=unfiltered_weapons)
             loadout_is_swapped = False
 
             if main_weapon_class is not None:
                 # We need to try also having the unfiltered weapons as main weapons.
                 best_loadout_swapped, swapped_score = self._get_best_loadout(
                     main_weapons=unfiltered_weapons - filtered_weapons,
-                    sidearms=filtered_weapons,
-                    reload=reload)
+                    sidearms=filtered_weapons)
                 if swapped_score > best_score:
                     best_loadout = best_loadout_swapped
                     loadout_is_swapped = True
@@ -227,10 +223,9 @@ class LoadoutComparator:
 
     def _get_best_loadout(self,
                           main_weapons: Iterable[Weapon],
-                          sidearms: Iterable[Weapon],
-                          reload: bool) -> Tuple[Loadout, float]:
+                          sidearms: Iterable[Weapon]) -> Tuple[Loadout, float]:
         loadouts = tuple(
-            LoadoutComparator._get_loadout(main_weapon, sidearm, reload, single_shot)
+            LoadoutComparator._get_loadout(main_weapon, sidearm, single_shot)
             for main_weapon in main_weapons
             for sidearm in sidearms
             for single_shot in ((False, True) if main_weapon.is_single_shot_advisable() else
@@ -238,10 +233,8 @@ class LoadoutComparator:
         return self.compare_loadouts(loadouts).get_best_loadout()
 
     @staticmethod
-    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, reload: bool, single_shot: bool):
+    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, single_shot: bool):
         if single_shot:
             main_weapon = main_weapon.single_shot()
         loadout = main_weapon.add_sidearm(sidearm)
-        if reload:
-            loadout = loadout.reload()
         return loadout

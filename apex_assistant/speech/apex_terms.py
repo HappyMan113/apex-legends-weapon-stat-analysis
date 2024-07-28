@@ -98,10 +98,6 @@ ALL_MAG_TERMS = _create_level_terms(MAG, Term('nomag', 'nomad'))
 STOCK = Term('stock', 'standard stock', 'sniper stock')
 ALL_STOCK_TERMS = _create_level_terms(STOCK)
 
-RELOAD = Term('reloads', 'reload', 'reloading')
-WITHOUT_RELOAD = WITHOUT + RELOAD
-WITH_RELOAD: RequiredTerm = (WITH + RELOAD) | RELOAD
-WITH_RELOAD_OPT: OptTerm = WITH_RELOAD.opt()
 SINGLE_SHOT = Term('single shot', 'single-shot')
 FIRE_MODE_SINGLE = Term('single', 'single fire')
 CHARGED = Term('charged')
@@ -155,7 +151,7 @@ G7_SCOUT = Term(
     'she\'s having a scowl', 'd7', 'you seven', 'This is XanathScout', 'G-Zone Scout',
     'let\'s go', 'ciao')
 HAVOC = Term(
-    'havoc', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC'
+    'havoc', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC', 'epic'
     # Also sounds like "Hammerpoint": 'have a good one',
 )
 HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',
@@ -195,7 +191,7 @@ PEACEKEEPER = Term('Peacekeeper', 'today', '2k', 'BK', 'P.K.', 'PK', 'piecekeepe
 DISRUPTOR = Term('Disruptor', 'it\'s Raptor', 'the softer', 'stopping', 'disrupted')
 PROWLER = Term(
     'Prowler', 'power', 'browler', 'howdy', 'probably', 'brawler', 'powler', 'howler', 'fowler',
-    'brother', 'totaler', 'teller', 'proudly')
+    'brother', 'totaler', 'teller', 'proudly', 'prouler')
 _R = Term('I\'ll', 'bye', 'or', 'I', 'oh I', 'wash', 'or I\'ll', 'that\'s', 'I\'m')
 _R3 = Term('R3', 'R2-D2')
 _THREE_O_ALT = Term('ruined', 'a second', 'is there', 'see you all', 'forgot')
@@ -234,7 +230,8 @@ SPITFIRE = Term('Spitfire', 'step out of the car', 'is that her', 'it\'s a bit b
                 'skip her', 'zip fire', 'stay fire', 'set fire')
 TRIPLE_TAKE = Term('Triple Take', 'triple-tick', 'triple T', 'chipotle', 'sure thing', 'chilti',
                    'Chanté', 'triple-click', 'it\'s real thick')
-VOLT = ((Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'volts') + SMG_OPT) |
+VOLT = ((Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'volts', 'vault') +
+         SMG_OPT) |
         (BOLT + SMG))
 WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
