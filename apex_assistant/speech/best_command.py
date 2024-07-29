@@ -12,12 +12,10 @@ from apex_assistant.speech.apex_terms import (BEST,
                                               SIDEARM,
                                               SIDEARMS,
                                               SINGLE_SHOT,
-                                              WEAPON,
-                                              WEAPONS_OPT,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, Term, TermBase, Words
 from apex_assistant.speech.term_translator import IntTranslator, Translator
-from apex_assistant.weapon import Loadout, SingleWeaponLoadout, Weapon
+from apex_assistant.weapon import FullLoadout, Loadout, SingleWeaponLoadout, Weapon
 from apex_assistant.weapon_class import WeaponClass
 
 
@@ -31,9 +29,7 @@ class BestCommand(ApexCommand):
         check_type(LoadoutTranslator, loadout_translator=loadout_translator)
         check_type(LoadoutComparator, loadout_comparator=loadout_comparator)
 
-        subcommands = (_BestMainWeaponCommand(self),
-                       _BestSidearmCommand(self),
-                       _BestLoadoutCommand(self))
+        subcommands = (_BestSidearmCommand(self), _BestLoadoutCommand(self))
         super().__init__(term=BEST,
                          loadout_translator=loadout_translator,
                          loadout_comparator=loadout_comparator)
@@ -122,7 +118,7 @@ class _BestSubcommand:
         return self._main_command.get_comparator()
 
     @abc.abstractmethod
-    def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
+    def get_loadouts(self, arguments: Words, number: int) -> Dict[FullLoadout, TermBase]:
         raise NotImplementedError()
 
     def is_default(self):
@@ -132,24 +128,13 @@ class _BestSubcommand:
         return self.get_term().to_audible_str()
 
 
-class _BestMainWeaponCommand(_BestSubcommand):
-    def __init__(self, main_command: BestCommand):
-        super().__init__(singular_subcommand_term=WEAPON,
-                         plural_subcommand_term=WEAPONS_OPT,
-                         main_command=main_command)
-
-    def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
-        return {loadout: loadout.get_archetype().get_base_term()
-                for loadout in self.get_translator().get_fully_kitted_loadouts()}
-
-
 class _BestSidearmCommand(_BestSubcommand):
     def __init__(self, main_command: BestCommand):
         super().__init__(singular_subcommand_term=SIDEARM,
                          plural_subcommand_term=SIDEARMS,
                          main_command=main_command)
 
-    def get_loadouts(self, arguments: Words, number: int) -> Dict[Loadout, TermBase]:
+    def get_loadouts(self, arguments: Words, number: int) -> Dict[FullLoadout, TermBase]:
         translator = self.get_translator()
         main_weapon = translator.translate_weapon(arguments)
         if main_weapon is None:
@@ -162,7 +147,7 @@ class _BestSidearmCommand(_BestSubcommand):
         return self._add_sidearms(main_loadouts)
 
     def _add_sidearms(self, main_loadouts: Tuple[SingleWeaponLoadout, ...]) -> \
-            Dict[Loadout, TermBase]:
+            Dict[FullLoadout, TermBase]:
         return {main_loadout.add_sidearm(sidearm): sidearm.get_archetype().get_base_term()
                 for main_loadout in main_loadouts
                 for sidearm in self.get_translator().get_fully_kitted_weapons()}

@@ -8,7 +8,7 @@ import numpy as np
 
 from apex_assistant.checker import check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
-from apex_assistant.weapon import Loadout, Weapon, WeaponArchetype
+from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
 from apex_assistant.weapon_class import WeaponClass
 
 logger = logging.getLogger()
@@ -16,8 +16,8 @@ logger = logging.getLogger()
 
 class ComparisonResult:
     def __init__(self,
-                 sorted_archetypes: MappingProxyType[WeaponArchetype, Tuple[float, Loadout]],
-                 sorted_weapons: MappingProxyType[Loadout, float]):
+                 sorted_archetypes: MappingProxyType[WeaponArchetype, Tuple[float, FullLoadout]],
+                 sorted_weapons: MappingProxyType[FullLoadout, float]):
         self.sorted_archetypes = sorted_archetypes
         self.sorted_weapons = sorted_weapons
         self.weighted_average_damage = np.array(list(sorted_weapons.values()))
@@ -43,16 +43,16 @@ class ComparisonResult:
             weapon: tup
             for weapon, tup in itertools.islice(weapon_dict.items(), num)})
 
-    def get_archetypes(self) -> MappingProxyType[WeaponArchetype, tuple[float, Loadout]]:
+    def get_archetypes(self) -> MappingProxyType[WeaponArchetype, tuple[float, FullLoadout]]:
         return self.sorted_archetypes
 
-    def get_sorted_loadouts(self) -> MappingProxyType[Loadout, float]:
+    def get_sorted_loadouts(self) -> MappingProxyType[FullLoadout, float]:
         return self.sorted_weapons
 
-    def get_best_loadout(self) -> tuple[Loadout, float]:
+    def get_best_loadout(self) -> tuple[FullLoadout, float]:
         return self.get_nth_best_weapon(1)
 
-    def get_nth_best_weapon(self, n_one_indexed: int) -> tuple[Loadout, float]:
+    def get_nth_best_weapon(self, n_one_indexed: int) -> tuple[FullLoadout, float]:
         assert n_one_indexed >= 1
         n_one_indexed = min(n_one_indexed, len(self.sorted_weapons))
         return list(itertools.islice(self.sorted_weapons.items(), n_one_indexed))[-1]
@@ -88,12 +88,7 @@ class LoadoutComparator:
         ttks.sort()
         self.ttks = ttks
 
-    def get_expected_mean_dps(self, loadout: Loadout) -> float:
-        """Convenience method for the getting the expected mean DPS of a particular loadout."""
-        _, expected_mean_dps = self.compare_loadouts((loadout,)).get_best_loadout()
-        return expected_mean_dps
-
-    def compare_loadouts(self, loadouts: Sequence[Loadout], show_plots: bool = False) -> \
+    def compare_loadouts(self, loadouts: Sequence[FullLoadout], show_plots: bool = False) -> \
             ComparisonResult:
         if len(loadouts) == 0:
             raise ValueError('loadouts cannot be empty!')
@@ -116,8 +111,8 @@ class LoadoutComparator:
         num_base_weapons = len(loadouts)
         damage_table: np.ndarray[np.floating] = np.empty((num_base_weapons, len(ts)))
         for idx, weapon in enumerate(loadouts):
-            check_type(Loadout, weapon=weapon)
-            weapon: Loadout = weapon
+            check_type(FullLoadout, weapon=weapon)
+            weapon: FullLoadout = weapon
             damage_table[idx] = np.array([weapon.get_cumulative_damage(t) for t in ts])
 
         # This is the mean dps up till time t for t in TTKs.
@@ -127,14 +122,14 @@ class LoadoutComparator:
         expected_mean_dps = np.average(mean_dps_till_time_t, axis=1, weights=weights)
         sorti = expected_mean_dps.argsort()[::-1]
 
-        sorted_weapons_dict: dict[Loadout, float] = {
+        sorted_weapons_dict: dict[FullLoadout, float] = {
             loadouts[idx]: weighted_avg_damage
             for idx, weighted_avg_damage in zip(sorti, expected_mean_dps[sorti])
         }
         if len(sorted_weapons_dict) < num_base_weapons:
             logger.warning('Duplicate weapons found. Only unique weapons will be compared.')
 
-        sorted_archetypes_dict: dict[WeaponArchetype, tuple[float, Loadout]] = {}
+        sorted_archetypes_dict: dict[WeaponArchetype, tuple[float, FullLoadout]] = {}
         for loadout, weighted_avg_damage in sorted_weapons_dict.items():
             if loadout.get_archetype() not in sorted_archetypes_dict:
                 sorted_archetypes_dict[loadout.get_archetype()] = (weighted_avg_damage, loadout)
@@ -181,7 +176,8 @@ class LoadoutComparator:
     def get_best_loadouts(self,
                           weapons: Tuple[Weapon],
                           max_num_loadouts: Optional[int] = None,
-                          main_weapon_class: Optional[WeaponClass] = None) -> Tuple[Loadout, ...]:
+                          main_weapon_class: Optional[WeaponClass] = None) -> \
+            Tuple[FullLoadout, ...]:
         check_tuple(Weapon, weapons=weapons)
         check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
         check_type(WeaponClass, optional=True, main_weapon_class=main_weapon_class)
@@ -196,7 +192,7 @@ class LoadoutComparator:
             max_num_loadouts = len(filtered_weapons)
         else:
             max_num_loadouts = min(len(filtered_weapons), max_num_loadouts)
-        best_loadouts_and_terms: list[Loadout] = []
+        best_loadouts_and_terms: list[FullLoadout] = []
 
         while len(best_loadouts_and_terms) < max_num_loadouts:
             best_loadout, best_score = self._get_best_loadout(main_weapons=filtered_weapons,
@@ -223,7 +219,7 @@ class LoadoutComparator:
 
     def _get_best_loadout(self,
                           main_weapons: Iterable[Weapon],
-                          sidearms: Iterable[Weapon]) -> Tuple[Loadout, float]:
+                          sidearms: Iterable[Weapon]) -> Tuple[FullLoadout, float]:
         loadouts = tuple(
             LoadoutComparator._get_loadout(main_weapon, sidearm, single_shot)
             for main_weapon in main_weapons

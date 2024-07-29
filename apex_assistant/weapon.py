@@ -81,11 +81,6 @@ class StatsBase(abc.ABC, Generic[T]):
             term_and_val = first_term.get_term(), first_term.get_value()
         return term_and_val, translation.get_untranslated_words()
 
-    @staticmethod
-    def translate_level(words: Words) -> Tuple[Optional[int], Words]:
-        translation = StatsBase._LEVEL_TRANSLATOR.translate_terms(words)
-        return translation.get_latest_value(), translation.get_untranslated_words()
-
     def _get_highest_level(self):
         return len(self._all_terms) - 1
 
@@ -554,10 +549,6 @@ class Loadout(abc.ABC):
     def get_main_loadout(self) -> 'SingleWeaponLoadout':
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    def get_sidearm(self) -> Optional['Weapon']:
-        raise NotImplementedError()
-
     def get_name(self):
         return self.name
 
@@ -699,10 +690,6 @@ class FullLoadout(Loadout):
 
 
 class SingleWeaponLoadout(Loadout, abc.ABC):
-    @final
-    def get_sidearm(self) -> Optional['Weapon']:
-        return None
-
     @final
     def get_main_loadout(self) -> 'SingleWeaponLoadout':
         return self
@@ -1019,7 +1006,11 @@ class WeaponArchetype:
         else:
             if any(term is None
                    for term in (rpm_term_and_val, mag_term_and_val, stock_term_and_val)):
-                default_level, words = StatsBase.translate_level(words)
+                # TODO: Maybe allow level to be specified after archetype term. Could be confusing
+                #  though with trying to decide if it applies to the previous or the next
+                #  archetype.
+                default_level = None
+
                 if rpm_term_and_val is None:
                     rpm_term_and_val = self.rounds_per_minute.get_stats_for_level(default_level)
 

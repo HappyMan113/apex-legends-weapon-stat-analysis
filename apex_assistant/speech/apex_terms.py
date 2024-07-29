@@ -85,7 +85,7 @@ LEVEL_3 = (LEVEL + THREE) | PURPLE
 LEVEL_4 = (LEVEL + FOUR) | GOLDEN
 LEVEL_3_OR_4 = LEVEL_3 | LEVEL_4 | LEVEL.append(THREE, OR, FOUR)
 LEVEL_TERMS: tuple[RequiredTerm, ...] = (LEVEL_1, LEVEL_2, LEVEL_3_OR_4)
-BASE = Term('base') | _LEVEL_0
+BASE = Term('base', 'bass', 'face') | _LEVEL_0
 WITHOUT = (Term('no', 'without', 'with no', 'without a', 'without any', 'without an') | BASE |
            (WITH + BASE))
 NONE = Term('none', 'nun', 'left out', 'excluded')
