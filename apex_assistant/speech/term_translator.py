@@ -183,10 +183,10 @@ class SingleTermFinder:
 
 
 class BoolTranslator:
-    def __init__(self, true_term: RequiredTerm, false_term: RequiredTerm):
+    def __init__(self, false_term: RequiredTerm, true_term: RequiredTerm):
         self._translator = Translator[bool]({true_term: True, false_term: False})
 
-    def translate_term(self, words: Words, default: Optional[bool]) -> Optional[bool]:
+    def translate_term(self, words: Words, default: Optional[bool] = None) -> Optional[bool]:
         translation = self._translator.translate_terms(words)
         if len(translation) > 1:
             _LOGGER.warning('More than one bool value found. Only the last one will be used.')

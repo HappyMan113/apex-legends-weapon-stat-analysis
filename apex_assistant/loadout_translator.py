@@ -91,21 +91,20 @@ class LoadoutTranslator:
             parser.get_term(): parser
             for parser in parsers})
 
-    def _weapon_name_to_weapon(self, weapon_name: Optional[str]) -> Optional[Weapon]:
-        if weapon_name is None:
-            return None
-        return self.translate_weapon(Words(weapon_name))
-
-    def translate_weapon(self, words: Words) -> Optional[Weapon]:
+    def translate_weapons(self, words: Words) -> Generator[Weapon, None, None]:
         check_type(Words, words=words)
         translation = self._direct_archetypes_translator.translate_terms(words)
-        words = translation.get_untranslated_words()
-        if len(translation) > 1:
-            self._LOGGER.warning('More than one value found. Only the last one will be used.')
-        archetypes = translation.get_latest_value()
-        if archetypes is None:
-            return None
-        return archetypes.get_best_match(words).get_value()
+
+        overall_level = self.get_overall_level(translation.get_preamble())
+        for term in translation:
+            archetypes = term.get_value()
+            weapon_args = term.get_following_words()
+            translated_value = archetypes.get_best_match(words=weapon_args,
+                                                         overall_level=overall_level)
+
+            yield translated_value.get_value()
+
+            overall_level = self.get_overall_level(translated_value.get_untranslated_words())
 
     def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
         return self._fully_kitted_weapons

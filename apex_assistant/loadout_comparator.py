@@ -9,7 +9,6 @@ import numpy as np
 from apex_assistant.checker import check_int, check_tuple, check_type
 from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
-from apex_assistant.weapon_class import WeaponClass
 
 logger = logging.getLogger()
 
@@ -175,43 +174,22 @@ class LoadoutComparator:
 
     def get_best_loadouts(self,
                           weapons: Tuple[Weapon],
-                          max_num_loadouts: Optional[int] = None,
-                          main_weapon_class: Optional[WeaponClass] = None) -> \
-            Tuple[FullLoadout, ...]:
+                          max_num_loadouts: Optional[int] = None) -> Tuple[FullLoadout, ...]:
         check_tuple(Weapon, weapons=weapons)
         check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
-        check_type(WeaponClass, optional=True, main_weapon_class=main_weapon_class)
 
-        filtered_weapons: set[Weapon] = set(weapon
-                                            for weapon in weapons
-                                            if (main_weapon_class is None or
-                                                (weapon.get_weapon_class() is main_weapon_class)))
-        unfiltered_weapons: set[Weapon] = set(weapons)
-
+        weapons_set = set(weapons)
         if max_num_loadouts is None:
-            max_num_loadouts = len(filtered_weapons)
+            max_num_loadouts = len(weapons_set)
         else:
-            max_num_loadouts = min(len(filtered_weapons), max_num_loadouts)
+            max_num_loadouts = min(len(weapons_set), max_num_loadouts)
         best_loadouts_and_terms: list[FullLoadout] = []
 
         while len(best_loadouts_and_terms) < max_num_loadouts:
-            best_loadout, best_score = self._get_best_loadout(main_weapons=filtered_weapons,
-                                                              sidearms=unfiltered_weapons)
-            loadout_is_swapped = False
-
-            if main_weapon_class is not None:
-                # We need to try also having the unfiltered weapons as main weapons.
-                best_loadout_swapped, swapped_score = self._get_best_loadout(
-                    main_weapons=unfiltered_weapons - filtered_weapons,
-                    sidearms=filtered_weapons)
-                if swapped_score > best_score:
-                    best_loadout = best_loadout_swapped
-                    loadout_is_swapped = True
-
-            filtered_weapon = (best_loadout.get_main_weapon() if not loadout_is_swapped else
-                               best_loadout.get_sidearm())
-            filtered_weapons.remove(filtered_weapon)
-            unfiltered_weapons.remove(filtered_weapon)
+            best_loadout, best_score = self._get_best_loadout(main_weapons=weapons_set,
+                                                              sidearms=weapons_set)
+            weapon = best_loadout.get_main_weapon()
+            weapons_set.remove(weapon)
 
             best_loadouts_and_terms.append(best_loadout)
 

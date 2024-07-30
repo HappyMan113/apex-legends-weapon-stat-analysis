@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Optional, TypeAlias
+from typing import Callable, TypeAlias
 
 from apex_assistant.checker import check_type
 from apex_assistant.loadout_comparator import LoadoutComparator
@@ -7,8 +7,7 @@ from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.term import RequiredTerm, Term, Words
-from apex_assistant.speech.term_translator import BoolTranslator, TranslatedTerm, Translator
-from apex_assistant.weapon import Weapon
+from apex_assistant.speech.term_translator import TranslatedTerm, Translator
 
 
 _LOGGER = logging.getLogger()
@@ -24,10 +23,8 @@ class ConfigureCommand(ApexCommand):
                          loadout_comparator=loadout_comparator)
         log_level = Term('log level', 'logging', 'logging level')
         self._defaults_translator: Translator[_METHOD] = Translator({
-            apex_terms.SIDEARM: self._parse_with_sidearm_term,
             log_level: self._parse_log_level_term,
         })
-        self._bool_translator = BoolTranslator(apex_terms.TRUE, apex_terms.FALSE)
         self._log_level_translator: Translator[int] = Translator({
             Term('debug', 'verbose', 'trace'): logging.DEBUG,
             Term('info'): logging.INFO,
@@ -35,33 +32,6 @@ class ConfigureCommand(ApexCommand):
             Term('error'): logging.ERROR,
             Term('critical', 'quiet'): logging.CRITICAL
         })
-
-    def _parse_with_sidearm_term(self, arguments: Words) -> str:
-        translator = self.get_translator()
-        if len(arguments) == 0:
-            sidearm = translator.get_default_sidearm()
-            _LOGGER.info(f'Default sidearm is {sidearm}).')
-            return f'Current default sidearm is {self._get_term(sidearm)}.'
-
-        if apex_terms.NONE.find_term(arguments):
-            old_sidearm = translator.set_default_sidearm(None)
-            _LOGGER.info(f'Set default sidearm to None (was {old_sidearm}).')
-            return f'Set default sidearm to none. Was {self._get_term(old_sidearm)}.'
-
-        sidearm = translator.translate_weapon(arguments).get_value()
-        if sidearm is None:
-            _LOGGER.debug(f'Could not find weapon for "{arguments}".')
-            return f'No weapon found named {arguments}.'
-
-        old_sidearm = translator.set_default_sidearm(sidearm)
-        _LOGGER.info(f'Set default sidearm to {sidearm} (was {old_sidearm}).')
-        return (f'Set default sidearm to {self._get_term(sidearm)}. Was'
-                f' {self._get_term(old_sidearm)}.')
-
-    @staticmethod
-    def _get_term(weapon: Optional[Weapon]) -> str:
-        check_type(Weapon, optional=True, weapon=weapon)
-        return weapon.get_term().to_audible_str() if weapon is not None else 'none'
 
     def _parse_log_level_term(self, arguments: Words) -> str:
         check_type(Words, arguments=arguments)

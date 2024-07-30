@@ -997,43 +997,27 @@ class WeaponArchetype:
         mag_term_and_val, words = self.magazine_capacity.translate_stats(words)
         stock_term_and_val, words = self.stock_dependant_stats.translate_stats(words)
 
-        if overall_level is not OverallLevel.PARSE_WORDS:
-            stats_list = ', '.join(f'"{term_and_val[0]}"'
-                                   for term_and_val in (rpm_term_and_val,
-                                                        mag_term_and_val,
-                                                        stock_term_and_val)
-                                   if term_and_val is not None)
-            if len(stats_list) > 0:
-                overall_level_name = overall_level.name.lower().replace('_', ' ')
-                _LOGGER.warning(
-                    f'Specific attachments ({stats_list}) for {self} will be overridden by the '
-                    f'overall weapon level: {overall_level_name}.')
+        if any(term is None
+               for term in (rpm_term_and_val, mag_term_and_val, stock_term_and_val)):
+            # TODO: Maybe allow level to be specified after archetype term. Could be confusing
+            #  though with trying to decide if it applies to the previous or the next archetype.
+            default_level = (int(overall_level)
+                             if overall_level is not OverallLevel.PARSE_WORDS
+                             else None)
 
-            level = int(overall_level)
-            rpm_term, rpm = self.rounds_per_minute.get_stats_for_level(level)
-            mag_term, mag = self.magazine_capacity.get_stats_for_level(level)
-            stock_term, stock_stats = self.stock_dependant_stats.get_stats_for_level(level)
-        else:
-            if any(term is None
-                   for term in (rpm_term_and_val, mag_term_and_val, stock_term_and_val)):
-                # TODO: Maybe allow level to be specified after archetype term. Could be confusing
-                #  though with trying to decide if it applies to the previous or the next
-                #  archetype.
-                default_level = None
+            if rpm_term_and_val is None:
+                rpm_term_and_val = self.rounds_per_minute.get_stats_for_level(default_level)
 
-                if rpm_term_and_val is None:
-                    rpm_term_and_val = self.rounds_per_minute.get_stats_for_level(default_level)
+            if mag_term_and_val is None:
+                mag_term_and_val = self.magazine_capacity.get_stats_for_level(default_level)
 
-                if mag_term_and_val is None:
-                    mag_term_and_val = self.magazine_capacity.get_stats_for_level(default_level)
+            if stock_term_and_val is None:
+                stock_term_and_val = \
+                    self.stock_dependant_stats.get_stats_for_level(default_level)
 
-                if stock_term_and_val is None:
-                    stock_term_and_val = \
-                        self.stock_dependant_stats.get_stats_for_level(default_level)
-
-            rpm_term, rpm = rpm_term_and_val
-            mag_term, mag = mag_term_and_val
-            stock_term, stock_stats = stock_term_and_val
+        rpm_term, rpm = rpm_term_and_val
+        mag_term, mag = mag_term_and_val
+        stock_term, stock_stats = stock_term_and_val
 
         weapon = self._get_weapon(rounds_per_minute=rpm,
                                   magazine_capacity=mag,

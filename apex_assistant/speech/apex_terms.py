@@ -24,7 +24,7 @@ def _create_level_terms(attachment_base_name: RequiredTerm,
 
 ZERO = IntTerm(0, 'zero', 'oh', 'you', 'out', 'own', 'we\'re', 'go', 'I go', 'you at')
 ONE = IntTerm(1, 'one', 'won', 'a', 'on', 'in', 'run', 'when in', 'learn', 'the', 'in a', 'when',
-              'the', 'of', 'into')
+              'of', 'into')
 TWO = IntTerm(2, 'two', 'too', 'to')
 THREE = IntTerm(3, 'three', 'see', 'think', 'say', 'fear', 'throw', 'threw', 'should', 'show',
                 'a lot', 'stay', 'day', 'take')
@@ -42,7 +42,7 @@ NUMBER_TERMS = (ZERO,
                 IntTerm(10, 'ten'))
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
                'what\'s better', 'air', 'bear')
-BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss')
+BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss') + Term('the').opt()
 WEAPON: RequiredTerm = Term('weapon', 'gun')
 WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
 _SIDE = Term('side', 'secondary', 'starred')
@@ -191,7 +191,8 @@ PEACEKEEPER = Term('Peacekeeper', 'today', '2k', 'BK', 'P.K.', 'PK', 'piecekeepe
 DISRUPTOR = Term('Disruptor', 'it\'s Raptor', 'the softer', 'stopping', 'disrupted')
 PROWLER = Term(
     'Prowler', 'power', 'browler', 'howdy', 'probably', 'brawler', 'powler', 'howler', 'fowler',
-    'brother', 'totaler', 'teller', 'proudly', 'prouler')
+    'brother', 'totaler', 'teller', 'proudly', 'prouler', 'plowler', 'Sprawler', 'Proller',
+    'parlor')
 _R = Term('I\'ll', 'bye', 'or', 'I', 'oh I', 'wash', 'or I\'ll', 'that\'s', 'I\'m')
 _R3 = Term('R3', 'R2-D2')
 _THREE_O_ALT = Term('ruined', 'a second', 'is there', 'see you all', 'forgot')
