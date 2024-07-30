@@ -128,34 +128,6 @@ class _BestSubcommand:
         return self.get_term().to_audible_str()
 
 
-class _BestSidearmCommand(_BestSubcommand):
-    def __init__(self, main_command: BestCommand):
-        super().__init__(singular_subcommand_term=SIDEARM,
-                         plural_subcommand_term=SIDEARMS,
-                         main_command=main_command)
-
-    def get_loadouts(self, arguments: Words, number: int) -> Dict[FullLoadout, TermBase]:
-        translator = self.get_translator()
-        main_weapon = translator.translate_weapon(arguments)
-        if main_weapon is None:
-            return {}
-
-        main_loadouts: Tuple[SingleWeaponLoadout, ...] = (
-            (main_weapon, main_weapon.single_shot()) if main_weapon.is_single_shot_advisable() else
-            (main_weapon,))
-
-        return self._add_sidearms(main_loadouts)
-
-    def _add_sidearms(self, main_loadouts: Tuple[SingleWeaponLoadout, ...]) -> \
-            Dict[FullLoadout, TermBase]:
-        return {main_loadout.add_sidearm(sidearm): sidearm.get_archetype().get_base_term()
-                for main_loadout in main_loadouts
-                for sidearm in self.get_translator().get_fully_kitted_weapons()}
-
-    def get_what_to_specify(self) -> str:
-        return 'primary weapon'
-
-
 class _BestLoadoutCommand(_BestSubcommand):
     def __init__(self, main_command: BestCommand):
         super().__init__(singular_subcommand_term=LOADOUT,

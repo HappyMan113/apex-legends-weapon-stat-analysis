@@ -707,6 +707,11 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
         weapon, _ = self.unwrap()
         return weapon
 
+    @final
+    def is_single_shot(self):
+        _, single_shot = self.unwrap()
+        return single_shot
+
     def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout'):
         check_type(SingleWeaponLoadout, weapon_swap_to=weapon_swap_to)
         return self.get_holster_time_secs() + weapon_swap_to.get_ready_to_fire_time_secs()
@@ -830,6 +835,11 @@ class Weapon(SingleWeaponLoadout):
 
     def unwrap(self) -> Tuple['Weapon', bool]:
         return self, False
+
+    def get_main_loadout_variants(self) -> Tuple[SingleWeaponLoadout, ...]:
+        return ((self, self.single_shot())
+                if self.is_single_shot_advisable() else
+                (self,))
 
     def single_shot(self) -> 'SingleShotLoadout':
         return SingleShotLoadout(self)

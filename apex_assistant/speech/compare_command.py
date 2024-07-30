@@ -6,7 +6,7 @@ from apex_assistant.checker import check_tuple, check_type
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_command import ApexCommand
-from apex_assistant.speech.apex_terms import COMPARE, MAIN, SIDEARM
+from apex_assistant.speech.apex_terms import COMPARE, MAIN, SIDEARM, SINGLE_SHOT
 from apex_assistant.speech.term import TermBase, Words
 from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
 
@@ -32,7 +32,7 @@ class CompareCommand(ApexCommand):
                          loadout_comparator=loadout_comparator)
 
     def _execute(self, arguments: Words) -> str:
-        loadouts = tuple(self.get_translator().translate_any_loadouts(arguments))
+        loadouts = tuple(self.get_translator().translate_loadouts(arguments))
         unique_loadouts = tuple(set(loadouts))
         if len(unique_loadouts) < 2:
             if len(unique_loadouts) == 1:
@@ -125,6 +125,8 @@ class CompareCommand(ApexCommand):
 
         if uniqueness is _Uniqueness.SAY_MAIN_ARCHETYPE_NAMES:
             loadout_term = MAIN.append(loadout.get_archetype().get_term())
+            if loadout.get_main_loadout().is_single_shot():
+                loadout_term = loadout_term.append(SINGLE_SHOT)
         elif uniqueness is _Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES:
             loadout_term = SIDEARM + loadout.get_sidearm().get_archetype().get_term()
         elif uniqueness is _Uniqueness.SAY_MAIN_LOADOUT_NAMES:

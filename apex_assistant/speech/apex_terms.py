@@ -65,9 +65,9 @@ SWITCHING_TO = WITH | Term('and', 'switching to', 'and switching to', 'and then 
 SIDEARM_OPT_OF = SIDEARM + Term('of').opt()
 WITH_SIDEARM = (SWITCHING_TO + SIDEARM_OPT_OF) | SIDEARM_OPT_OF
 MAIN = Term('main', 'may', 'name', 'primary')
-THE_SAME_MAIN_WEAPON: RequiredTerm = (Term('the').opt() +
-                                      Term('same') +
-                                      (MAIN | WEAPON | (MAIN + WEAPON)))
+_THE_SAME = Term('the').opt() + Term('same')
+THE_SAME_SIDEARM: RequiredTerm = _THE_SAME + SIDEARM
+THE_SAME_MAIN_WEAPON: RequiredTerm = (_THE_SAME + (MAIN | WEAPON | (MAIN + WEAPON)))
 REVERSED = Term('reversed', 'reverse', 'opposite', 'swapped', 'vice versa', 'a verse',
                 'the verse', 'averse', 'Verbermans', 'roofs')
 
@@ -216,7 +216,7 @@ R99 = \
           'I already need a 9', '$1.99', 'R-89', 'iron 9', 'oh I don\'t even know', 'R-9', 'are 99',
           'I\'m 99', 'on and none', 'Auto-Nine', 'on a new 9', 'on 8 to 9', 'on 9 to 9',
           'oddity nine', '099', 'Ardney to 9', '90 to 9', 'R-909', 'R29', 'alrighty nine',
-          'arlington nine') |
+          'arlington nine', 'Ardena 9') |
      (_R.opt() + Term('99', '89')))
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
               'R.I.P.', 'round')

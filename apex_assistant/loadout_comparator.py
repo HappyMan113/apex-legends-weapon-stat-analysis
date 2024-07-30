@@ -221,16 +221,8 @@ class LoadoutComparator:
                           main_weapons: Iterable[Weapon],
                           sidearms: Iterable[Weapon]) -> Tuple[FullLoadout, float]:
         loadouts = tuple(
-            LoadoutComparator._get_loadout(main_weapon, sidearm, single_shot)
+            main_loadout.add_sidearm(sidearm)
             for main_weapon in main_weapons
-            for sidearm in sidearms
-            for single_shot in ((False, True) if main_weapon.is_single_shot_advisable() else
-                                (False,)))
+            for main_loadout in main_weapon.get_main_loadout_variants()
+            for sidearm in sidearms)
         return self.compare_loadouts(loadouts).get_best_loadout()
-
-    @staticmethod
-    def _get_loadout(main_weapon: Weapon, sidearm: Weapon, single_shot: bool):
-        if single_shot:
-            main_weapon = main_weapon.single_shot()
-        loadout = main_weapon.add_sidearm(sidearm)
-        return loadout
