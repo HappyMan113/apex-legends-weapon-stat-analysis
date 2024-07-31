@@ -15,7 +15,7 @@ from apex_assistant.weapon_class import WeaponClass
 LOGGER = logging.getLogger()
 
 
-class BestCommand(ApexCommand):
+class BestLoadoutsCommand(ApexCommand):
     SINGULAR_TERM = LOADOUT
     PLURAL_TERM = LOADOUTS
 

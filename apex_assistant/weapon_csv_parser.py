@@ -176,6 +176,7 @@ class TTKCsvReader(CsvReader[TTKDatum]):
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = "Weapon"
     KEY_WEAPON_CLASS = "Weapon Class"
+    KEY_80_PERCENT_ACCURACY_RANGE = "80% accuracy range"
     KEY_STOCKS_INCOMPATIBLE = "Stocks Incompatible"
     KEY_DAMAGE_BODY = "Damage (body)"
     KEY_RPM_BASE = "RPM (base)"
@@ -438,6 +439,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         name, term, suffix = self._parse_weapon_archetype_term(row)
         weapon_class: WeaponClass = row.parse_str_enum(key=self.KEY_WEAPON_CLASS,
                                                        enum_type=WeaponClass)
+        eighty_percent_accuracy_range = row.parse_int(self.KEY_80_PERCENT_ACCURACY_RANGE)
         damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
 
         rpm = self._parse_rpm(row)
@@ -449,6 +451,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                base_term=term,
                                hopup_suffix=suffix,
                                weapon_class=weapon_class,
+                               eighty_percent_accuracy_range=eighty_percent_accuracy_range,
                                damage_body=damage_body,
                                rounds_per_minute=rpm,
                                magazine_capacity=mag,

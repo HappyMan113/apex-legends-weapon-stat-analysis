@@ -103,8 +103,8 @@ class ApexCommand(Command, abc.ABC):
         if uniqueness is Uniqueness.SAY_MAIN_ARCHETYPE_NAMES:
             main_loadout = loadout.get_main_loadout()
             loadout_term = MAIN.append(main_loadout.get_archetype().get_term())
-            if main_loadout.is_single_shot():
-                loadout_term = loadout_term.append(SINGLE_SHOT)
+            if main_loadout.get_variant_term() is not None:
+                loadout_term = loadout_term.append(main_loadout.get_variant_term())
         elif uniqueness is Uniqueness.SAY_SIDEARM_ARCHETYPE_NAMES:
             loadout_term = SIDEARM + loadout.get_sidearm().get_archetype().get_term()
         elif uniqueness is Uniqueness.SAY_MAIN_LOADOUT_NAMES:
@@ -112,8 +112,8 @@ class ApexCommand(Command, abc.ABC):
         elif uniqueness is Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES:
             main_loadout = loadout.get_main_loadout()
             main_term = main_loadout.get_archetype().get_term()
-            if main_loadout.is_single_shot():
-                main_term = main_term.append(SINGLE_SHOT)
+            if main_loadout.get_variant_term() is not None:
+                main_term = main_term.append(main_loadout.get_variant_term())
             sidearm_term = loadout.get_sidearm().get_archetype().get_term()
             loadout_term = main_term.append(SIDEARM, sidearm_term)
         elif uniqueness is Uniqueness.SAY_SIDEARM_WEAPON_NAMES:

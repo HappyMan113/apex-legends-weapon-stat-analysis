@@ -8,10 +8,11 @@ from pydub.utils import which
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_config import ApexConfig
-from apex_assistant.speech.best_command import BestCommand
+from apex_assistant.speech.best_command import BestLoadoutsCommand
 from apex_assistant.speech.command_registry import CommandRegistry
 from apex_assistant.speech.compare_command import CompareCommand
 from apex_assistant.speech.configure_command import ConfigureCommand
+from apex_assistant.speech.create_summary_report_command import CreateSummaryReportCommand
 from apex_assistant.speech.speech_client import SpeechClient
 from apex_assistant.weapon import WeaponArchetypes
 from apex_assistant.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
@@ -44,8 +45,9 @@ def register_commands() -> CommandRegistry:
 
     registry = CommandRegistry(
         CompareCommand(loadout_translator=translator, loadout_comparator=comparator),
-        BestCommand(loadout_translator=translator, loadout_comparator=comparator),
-        ConfigureCommand(loadout_translator=translator, loadout_comparator=comparator))
+        BestLoadoutsCommand(loadout_translator=translator, loadout_comparator=comparator),
+        ConfigureCommand(loadout_translator=translator, loadout_comparator=comparator),
+        CreateSummaryReportCommand(loadout_translator=translator, loadout_comparator=comparator))
     return registry
 
 

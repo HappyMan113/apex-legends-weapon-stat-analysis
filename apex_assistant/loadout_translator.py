@@ -247,7 +247,7 @@ class ArchetypeParser(_Parser):
             loadouts = tuple(main_loadout.add_sidearm(weapon)
                              for main_loadout in loadouts_requesting_sidearm.get_main_loadouts())
         else:
-            main_loadouts = weapon.get_main_loadout_variants()
+            main_loadouts = tuple(weapon.get_main_loadout_variants())
             if with_sidearm is WithSidearm.FIGURE_OUT_LATER:
                 # We need to hold up and look for a sidearm.
                 return tuple(), LoadoutsRequestingSidearm(main_loadouts), following_args

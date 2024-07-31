@@ -43,6 +43,7 @@ NUMBER_TERMS = (ZERO,
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
                'what\'s better', 'air', 'bear')
 BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss') + Term('the').opt()
+CREATE_SUMMARY_REPORT = Term('create summary report')
 WEAPON: RequiredTerm = Term('weapon', 'gun')
 WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
 _SIDE = Term('side', 'secondary', 'starred')
@@ -99,6 +100,7 @@ STOCK = Term('stock', 'standard stock', 'sniper stock')
 ALL_STOCK_TERMS = _create_level_terms(STOCK)
 
 SINGLE_SHOT = Term('single shot', 'single-shot')
+SKIPPED = Term('skipped')
 FIRE_MODE_SINGLE = Term('single', 'single fire')
 CHARGED = Term('charged')
 

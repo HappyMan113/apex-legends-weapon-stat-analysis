@@ -3,7 +3,7 @@ import logging
 import math
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Dict, Generator, Generic, Iterable, Optional, Tuple, TypeVar, Union, final
+from typing import Dict, Generator, Generic, Iterable, List, Optional, Tuple, TypeVar, Union, final
 
 import numpy as np
 
@@ -23,7 +23,7 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               MAIN,
                                               SIDEARM,
                                               SINGLE_SHOT,
-                                              WITH_SIDEARM)
+                                              SKIPPED, WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.speech.translations import TranslatedValue
@@ -690,9 +690,20 @@ class FullLoadout(Loadout):
 
 
 class SingleWeaponLoadout(Loadout, abc.ABC):
+    def __init__(self, name: str, term: RequiredTerm, variant_term: Optional[TermBase]):
+        if variant_term is not None:
+            term = term + variant_term
+            name = f'{name} ({variant_term})'
+        super().__init__(name=name, term=term)
+        self.variant_term = variant_term
+
     @final
     def get_main_loadout(self) -> 'SingleWeaponLoadout':
         return self
+
+    @final
+    def get_variant_term(self) -> Optional[TermBase]:
+        return self.variant_term
 
     @abc.abstractmethod
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
@@ -702,23 +713,13 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
     def add_sidearm(self, sidearm: 'Weapon') -> 'FullLoadout':
         return FullLoadout(self, sidearm)
 
-    @final
+    @abc.abstractmethod
     def get_weapon(self) -> 'Weapon':
-        weapon, _ = self.unwrap()
-        return weapon
-
-    @final
-    def is_single_shot(self):
-        _, single_shot = self.unwrap()
-        return single_shot
+        raise NotImplementedError()
 
     def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout'):
         check_type(SingleWeaponLoadout, weapon_swap_to=weapon_swap_to)
         return self.get_holster_time_secs() + weapon_swap_to.get_ready_to_fire_time_secs()
-
-    @abc.abstractmethod
-    def unwrap(self) -> Tuple['Weapon', bool]:
-        raise NotImplementedError()
 
 
 class Weapon(SingleWeaponLoadout):
@@ -727,6 +728,7 @@ class Weapon(SingleWeaponLoadout):
                  name: str,
                  term: RequiredTerm,
                  weapon_class: WeaponClass,
+                 eighty_percent_accuracy_range: int,
                  damage_body: float,
                  holster_time_secs: float,
                  ready_to_fire_time_secs: float,
@@ -738,6 +740,7 @@ class Weapon(SingleWeaponLoadout):
         check_str(name=name)
         check_type(RequiredTerm, term=term)
         check_type(WeaponClass, weapon_class=weapon_class)
+        check_int(min_value=1, eighty_percent_accuracy_range=eighty_percent_accuracy_range)
         check_float(min_value=0,
                     min_is_exclusive=True,
                     damage_body=damage_body,
@@ -751,9 +754,10 @@ class Weapon(SingleWeaponLoadout):
                     min_is_exclusive=True,
                     tactical_reload_time_secs=tactical_reload_time_secs)
 
-        super().__init__(name=name, term=term)
+        super().__init__(name=name, term=term, variant_term=None)
         self.archetype = archetype
         self.weapon_class = weapon_class
+        self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
         self.damage_body = damage_body
         self.holster_time_secs = holster_time_secs
         self.ready_to_fire_time_secs = ready_to_fire_time_secs
@@ -803,6 +807,9 @@ class Weapon(SingleWeaponLoadout):
     def get_damage_per_second_body(self) -> float:
         return self._damage_per_second_body
 
+    def get_eighty_percent_accuracy_range(self) -> int:
+        return self.eighty_percent_accuracy_range
+
     def get_damage_per_round(self) -> float:
         return self.damage_body
 
@@ -818,28 +825,25 @@ class Weapon(SingleWeaponLoadout):
     def __hash__(self):
         return hash(self.__class__) ^ hash(self.name)
 
-    def __eq__(self, other):
-        return (isinstance(other, Weapon) and
-                self.archetype == other.archetype and
-                self.weapon_class == other.weapon_class and
-                self.damage_body == other.damage_body and
-                self.holster_time_secs == other.holster_time_secs and
-                self.ready_to_fire_time_secs == other.ready_to_fire_time_secs and
-                self.rounds_per_minute == other.rounds_per_minute and
-                self.magazine_capacity == other.magazine_capacity and
-                self.spinup == other.spinup and
-                self.tactical_reload_time_secs == other.tactical_reload_time_secs)
+    def __eq__(self, other: 'Weapon'):
+        return isinstance(other, Weapon) and self.name == other.name
 
     def get_weapon_class(self) -> WeaponClass:
         return self.weapon_class
 
-    def unwrap(self) -> Tuple['Weapon', bool]:
-        return self, False
+    def get_weapon(self) -> 'Weapon':
+        return self
 
-    def get_main_loadout_variants(self) -> Tuple[SingleWeaponLoadout, ...]:
-        return ((self, self.single_shot())
-                if self.is_single_shot_advisable() else
-                (self,))
+    def get_main_loadout_variants(self, allow_skipping: bool = False) -> \
+            Generator[SingleWeaponLoadout, None, None]:
+        yield self
+        if self.is_single_shot_advisable():
+            yield self.single_shot()
+        if allow_skipping:
+            yield self.skip()
+
+    def skip(self) -> 'SkippedLoadout':
+        return SkippedLoadout(self)
 
     def single_shot(self) -> 'SingleShotLoadout':
         return SingleShotLoadout(self)
@@ -854,8 +858,7 @@ class SingleShotLoadout(SingleWeaponLoadout):
         if not wrapped_weapon.is_single_shot_advisable():
             raise ValueError(f'Weapon {wrapped_weapon} must have single shots being advisable!')
         check_type(Weapon, wrapped_weapon=wrapped_weapon)
-        super().__init__(f'{wrapped_weapon.get_name()} ({SINGLE_SHOT})',
-                         wrapped_weapon.get_term().append(SINGLE_SHOT))
+        super().__init__(wrapped_weapon.get_name(), wrapped_weapon.get_term(), SINGLE_SHOT)
         self.wrapped_weapon = wrapped_weapon
 
     def get_archetype(self) -> 'WeaponArchetype':
@@ -866,9 +869,6 @@ class SingleShotLoadout(SingleWeaponLoadout):
 
     def get_ready_to_fire_time_secs(self) -> float:
         return self.wrapped_weapon.get_ready_to_fire_time_secs()
-
-    def get_tactical_reload_time_secs(self) -> float | None:
-        return self.wrapped_weapon.get_tactical_reload_time_secs()
 
     def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
         return self.wrapped_weapon.get_damage_per_round()
@@ -886,8 +886,45 @@ class SingleShotLoadout(SingleWeaponLoadout):
         return (isinstance(other, SingleShotLoadout) and
                 self.wrapped_weapon == other.wrapped_weapon)
 
-    def unwrap(self) -> Tuple['Weapon', bool]:
-        return self.wrapped_weapon, True
+    def get_weapon(self) -> 'Weapon':
+        return self.wrapped_weapon
+
+
+class SkippedLoadout(SingleWeaponLoadout):
+    def __init__(self, skipped_weapon: Weapon):
+        check_type(Weapon, skipped_weapon=skipped_weapon)
+        super().__init__(skipped_weapon.get_name(), skipped_weapon.get_term(), SKIPPED)
+        self.skipped_weapon = skipped_weapon
+
+    def get_archetype(self) -> 'WeaponArchetype':
+        return self.skipped_weapon.get_archetype()
+
+    def get_holster_time_secs(self) -> float:
+        return 0
+
+    def get_ready_to_fire_time_secs(self) -> float:
+        return 0
+
+    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
+        return 0
+
+    def get_cumulative_damage(self, time_seconds: float) -> float:
+        return 0
+
+    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
+        return 0
+
+    def __hash__(self):
+        return hash(self.__class__) ^ hash(self.skipped_weapon)
+
+    def __eq__(self, other):
+        return isinstance(other, SkippedLoadout) and self.skipped_weapon == other.skipped_weapon
+
+    def get_weapon(self) -> 'Weapon':
+        return self.skipped_weapon
+
+    def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout'):
+        return 0
 
 
 class WeaponArchetype:
@@ -896,6 +933,7 @@ class WeaponArchetype:
                  base_term: RequiredTerm,
                  hopup_suffix: Optional[TermBase],
                  weapon_class: WeaponClass,
+                 eighty_percent_accuracy_range: int,
                  damage_body: float,
                  rounds_per_minute: RoundsPerMinuteBase,
                  magazine_capacity: MagazineCapacityBase,
@@ -908,6 +946,7 @@ class WeaponArchetype:
                                         if hopup_suffix is not None
                                         else base_term)
         self.weapon_class = weapon_class
+        self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
         self.damage_body = damage_body
         self.rounds_per_minute = rounds_per_minute
         self.magazine_capacity = magazine_capacity
@@ -934,6 +973,7 @@ class WeaponArchetype:
         name = self.name
         full_term = self.full_term
         weapon_class = self.weapon_class
+        eighty_percent_accuracy_range = self.eighty_percent_accuracy_range
         damage_body = self.damage_body
         spinup = self.spinup
 
@@ -957,6 +997,7 @@ class WeaponArchetype:
                       name=full_name,
                       term=full_term,
                       weapon_class=weapon_class,
+                      eighty_percent_accuracy_range=eighty_percent_accuracy_range,
                       damage_body=damage_body,
                       holster_time_secs=holster_time_secs,
                       ready_to_fire_time_secs=ready_to_fire_time_secs,
