@@ -2,6 +2,7 @@ import logging
 from typing import Callable, TypeAlias
 
 from apex_assistant.checker import check_type
+from apex_assistant.legend import Legend
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
@@ -21,9 +22,15 @@ class ConfigureCommand(ApexCommand):
         super().__init__(apex_terms.CONFIGURE,
                          loadout_translator=loadout_translator,
                          loadout_comparator=loadout_comparator)
+        legend = Term('legend')
         log_level = Term('log level', 'logging', 'logging level')
         self._defaults_translator: Translator[_METHOD] = Translator({
+            legend: self._parse_legend_term,
             log_level: self._parse_log_level_term,
+        })
+        self._legend_translator = Translator[Legend]({
+            Term(legend): legend
+            for legend in Legend
         })
         self._log_level_translator: Translator[int] = Translator({
             Term('debug', 'verbose', 'trace'): logging.DEBUG,
@@ -58,6 +65,21 @@ class ConfigureCommand(ApexCommand):
                                     for argument in results.values())
         result = ' '.join(actions) if len(actions) > 0 else 'Nothing was configured.'
         return result
+
+    def _parse_legend_term(self, arguments: Words) -> str:
+        check_type(Words, arguments=arguments)
+        translation = self._legend_translator.translate_terms(arguments)
+        if len(translation) > 1:
+            return 'Must specify only one legend.'
+        legend = translation.get_latest_value()
+        return self._set_legend(legend)
+
+    def _set_legend(self, legend: Legend) -> str:
+        old_legend = self.get_translator().set_legend(legend)
+        _LOGGER.info(f'Set legend to {legend} (was {old_legend}).')
+        if old_legend is legend:
+            return f'Legend was already set to {legend}.'
+        return f'Set legend to {legend}. Was {old_legend}.'
 
     @staticmethod
     def _parse_argument(argument: TranslatedTerm[_METHOD]) -> str:

@@ -4,6 +4,7 @@ from enum import IntEnum
 from typing import Generator, List, Optional, Tuple
 
 from apex_assistant.checker import check_bool, check_tuple, check_type
+from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
 from apex_assistant.speech.apex_config import ApexConfig
 from apex_assistant.speech.apex_terms import (BASE,
@@ -18,7 +19,8 @@ from apex_assistant.speech.apex_terms import (BASE,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import Translator
-from apex_assistant.weapon import (FullLoadout, Loadout,
+from apex_assistant.weapon import (FullLoadout,
+                                   Loadout,
                                    SingleWeaponLoadout,
                                    Weapon,
                                    WeaponArchetypes)
@@ -76,9 +78,7 @@ class LoadoutTranslator:
         check_tuple(WeaponArchetypes, weapon_archetypes=weapon_archetypes)
         check_type(ApexConfig, apex_config=apex_config)
 
-        self._fully_kitted_weapons: Tuple[Weapon, ...] = tuple(
-            weapon_archetype.get_fully_kitted_weapon()
-            for weapon_archetype in weapon_archetypes)
+        self._weapon_archetypes = weapon_archetypes
         self._direct_archetypes_translator = Translator[WeaponArchetypes]({
             weapon_archetype.get_base_term(): weapon_archetype
             for weapon_archetype in weapon_archetypes})
@@ -90,31 +90,62 @@ class LoadoutTranslator:
         self._loadout_parser_translator = Translator[_Parser]({
             parser.get_term(): parser
             for parser in parsers})
+        self._apex_config = apex_config
+
+    def set_legend(self, legend: Optional[Legend]) -> Optional[Legend]:
+        return self._apex_config.set_legend(legend)
+
+    def get_legend(self) -> Optional[Legend]:
+        return self._apex_config.get_legend()
+
+    def _should_include_legends(self, associated_legend: Optional[Legend]) -> bool:
+        return associated_legend is None or self.get_legend() is associated_legend
+
+    def _should_include_archetype(self, archetypes: WeaponArchetypes) -> bool:
+        return self._should_include_legends(archetypes.get_associated_legend())
+
+    def _should_include_loadout(self, loadout: FullLoadout) -> bool:
+        return (self._should_include_weapon(loadout.get_main_loadout()) and
+                self._should_include_weapon(loadout.get_sidearm()))
+
+    def _should_include_weapon(self, weapon: SingleWeaponLoadout) -> bool:
+        return self._should_include_legends(weapon.get_archetype().get_associated_legend())
 
     def translate_weapons(self, words: Words) -> Generator[Weapon, None, None]:
         check_type(Words, words=words)
         translation = self._direct_archetypes_translator.translate_terms(words)
 
         overall_level = self.get_overall_level(translation.get_preamble())
+        legend = self.get_legend()
+
         for term in translation:
             archetypes = term.get_value()
+
             weapon_args = term.get_following_words()
             translated_value = archetypes.get_best_match(words=weapon_args,
-                                                         overall_level=overall_level)
+                                                         overall_level=overall_level,
+                                                         legend=legend)
 
-            yield translated_value.get_value()
+            if self._should_include_archetype(archetypes):
+                yield translated_value.get_value()
+            else:
+                self._LOGGER.warning(f'Weapon {archetypes.get_base_term()} is associated with '
+                                     f'{archetypes.get_associated_legend()}, and current legend '
+                                     f'is configured as {self.get_legend()}. Skipping weapon.')
 
             overall_level = self.get_overall_level(translated_value.get_untranslated_words())
 
     def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
-        return self._fully_kitted_weapons
+        legend = self.get_legend()
+        return tuple(weapon_archetypes.get_fully_kitted_weapon(legend)
+                     for weapon_archetypes in self._weapon_archetypes
+                     if self._should_include_archetype(weapon_archetypes))
 
     def translate_loadouts(self, words: Words) -> Generator[FullLoadout, None, None]:
         check_type(Words, words=words)
 
         # The most recent weapon parsed.
         preceding_loadouts: Tuple[FullLoadout, ...] = tuple()
-        # Whether that most recent main weapon is intended to have a sidearm.
         translation = self._loadout_parser_translator.translate_terms(words)
         loadouts_requesting_sidearm: Optional[LoadoutsRequestingSidearm] = None
         preceding_args = translation.get_preamble()
@@ -139,7 +170,12 @@ class LoadoutTranslator:
             check_type(Words, preceding_args=preceding_args)
 
             for loadout in loadouts:
-                yield loadout
+                if self._should_include_loadout(loadout):
+                    yield loadout
+                else:
+                    self._LOGGER.warning(
+                        f'Loadout {loadout} contains one or more weapons which are not associated '
+                        f'with {self.get_legend()}. Skipping.')
 
             if len(loadouts) != 0:
                 preceding_loadouts = loadouts
@@ -198,6 +234,9 @@ class _Parser(abc.ABC):
     def get_overall_level(self, words: Words):
         return self._loadout_translator.get_overall_level(words)
 
+    def get_legend(self) -> Optional[Legend]:
+        return self._loadout_translator.get_legend()
+
     def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
         return self._loadout_translator.get_fully_kitted_weapons()
 
@@ -234,7 +273,8 @@ class ArchetypeParser(_Parser):
 
         overall_level = self.get_overall_level(preceding_args)
         parsed_weapon = self._archetype.get_best_match(words=following_args,
-                                                       overall_level=overall_level)
+                                                       overall_level=overall_level,
+                                                       legend=self.get_legend())
         weapon: Weapon = parsed_weapon.get_value()
         following_args = parsed_weapon.get_untranslated_words()
 

@@ -15,6 +15,7 @@ from typing import (Any,
                     Union)
 
 from apex_assistant.checker import check_type
+from apex_assistant.legend import Legend
 from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT
 from apex_assistant.speech.term import OptTerm, RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
@@ -176,6 +177,7 @@ class TTKCsvReader(CsvReader[TTKDatum]):
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = "Weapon"
     KEY_WEAPON_CLASS = "Weapon Class"
+    KEY_LEGEND = "Legend"
     KEY_80_PERCENT_ACCURACY_RANGE = "80% accuracy range"
     KEY_STOCKS_INCOMPATIBLE = "Stocks Incompatible"
     KEY_DAMAGE_BODY = "Damage (body)"
@@ -206,6 +208,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_FULL_RELOAD_TIME_LEVEL_1 = 'Full Reload Time (level 1)'
     KEY_FULL_RELOAD_TIME_LEVEL_2 = 'Full Reload Time (level 2)'
     KEY_FULL_RELOAD_TIME_LEVEL_3 = 'Full Reload Time (level 3)'
+    KEY_HEAT_BASED = 'Heat Based'
 
     _ARCHETYPES_TRANSLATOR = Translator[Optional[SingleTermFinder]]({
         term: (SingleTermFinder(suffix) if suffix is not None else None)
@@ -439,6 +442,9 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         name, term, suffix = self._parse_weapon_archetype_term(row)
         weapon_class: WeaponClass = row.parse_str_enum(key=self.KEY_WEAPON_CLASS,
                                                        enum_type=WeaponClass)
+        legend = (row.parse_str_enum(self.KEY_LEGEND, Legend)
+                  if row.has_value(self.KEY_LEGEND)
+                  else None)
         eighty_percent_accuracy_range = row.parse_int(self.KEY_80_PERCENT_ACCURACY_RANGE)
         damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
 
@@ -446,6 +452,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         mag = self._parse_mag(row)
         stock_dependant_stats = self._parse_stock_dependant_stats(row, weapon_class=weapon_class)
         spinup = self._parse_spinup(row)
+        heat_based = row.parse_bool(self.KEY_HEAT_BASED, default_value=False)
 
         return WeaponArchetype(name=name,
                                base_term=term,
@@ -456,4 +463,6 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                rounds_per_minute=rpm,
                                magazine_capacity=mag,
                                stock_dependant_stats=stock_dependant_stats,
-                               spinup=spinup)
+                               spinup=spinup,
+                               heat_based=heat_based,
+                               associated_legend=legend)

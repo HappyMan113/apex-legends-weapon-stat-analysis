@@ -5,7 +5,7 @@ from typing import Dict, Iterable, Tuple
 from apex_assistant.checker import check_tuple, check_type
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
-from apex_assistant.speech.apex_terms import MAIN, SIDEARM, SINGLE_SHOT
+from apex_assistant.speech.apex_terms import MAIN, SIDEARM
 from apex_assistant.speech.command import Command
 from apex_assistant.speech.term import RequiredTerm
 from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
@@ -32,10 +32,10 @@ class ApexCommand(Command, abc.ABC):
         self._translator = loadout_translator
         self._comparator = loadout_comparator
 
-    def get_translator(self):
+    def get_translator(self) -> LoadoutTranslator:
         return self._translator
 
-    def get_comparator(self):
+    def get_comparator(self) -> LoadoutComparator:
         return self._comparator
 
     @staticmethod
@@ -53,7 +53,8 @@ class ApexCommand(Command, abc.ABC):
     def _get_uniqueness(loadouts: Tuple[FullLoadout, ...]) -> Uniqueness:
         check_tuple(FullLoadout, loadouts=loadouts)
 
-        main_weapon_archetypes = set(loadout.get_archetype() for loadout in loadouts)
+        main_weapon_archetypes = set(loadout.get_main_loadout().get_archetype()
+                                     for loadout in loadouts)
         main_weapon_archetypes_unique = len(main_weapon_archetypes) == len(loadouts)
         sidearms = set(weapon.get_sidearm() for weapon in loadouts)
 

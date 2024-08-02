@@ -28,13 +28,13 @@ class BestLoadoutsCommand(ApexCommand):
         self._plural_translator = BoolTranslator(self.SINGULAR_TERM, self.PLURAL_TERM)
         self._number_translator = IntTranslator()
         weapon_classes: Tuple[WeaponClass, ...] = tuple(WeaponClass)
-        self._weapon_class_translator = Translator[frozenset[Weapon]]({
-            Term(weapon_class): self.get_weapons_of_class(loadout_translator, weapon_class)
+        self._weapon_class_translator = Translator[WeaponClass]({
+            Term(weapon_class): weapon_class
             for weapon_class in weapon_classes
         })
 
-    @staticmethod
-    def get_weapons_of_class(loadout_translator: LoadoutTranslator, weapon_class: WeaponClass):
+    def get_weapons_of_class(self, weapon_class: WeaponClass):
+        loadout_translator = self.get_translator()
         weapons = tuple(weapon
                         for weapon in loadout_translator.get_fully_kitted_weapons()
                         if weapon.get_weapon_class() is weapon_class)
@@ -109,7 +109,7 @@ class BestLoadoutsCommand(ApexCommand):
             yield weapon
 
         for class_term in class_translation:
-            for weapon in class_term.get_value():
+            for weapon in self.get_weapons_of_class(class_term.get_value()):
                 yield weapon
 
             for weapon in loadout_translator.translate_weapons(class_term.get_following_words()):

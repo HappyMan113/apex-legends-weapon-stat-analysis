@@ -3,7 +3,7 @@ import logging
 import math
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Dict, Generator, Generic, Iterable, List, Optional, Tuple, TypeVar, Union, final
+from typing import Dict, Generator, Generic, Iterable, Optional, Tuple, TypeVar, Union, final
 
 import numpy as np
 
@@ -14,6 +14,7 @@ from apex_assistant.checker import (check_bool,
                                     check_str,
                                     check_type,
                                     to_kwargs)
+from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
 from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_MAG_TERMS,
@@ -537,10 +538,6 @@ class Loadout(abc.ABC):
     def get_term(self) -> RequiredTerm:
         return self.term
 
-    @abc.abstractmethod
-    def get_archetype(self) -> 'WeaponArchetype':
-        raise NotImplementedError()
-
     @final
     def get_main_weapon(self) -> 'Weapon':
         return self.get_main_loadout().get_weapon()
@@ -593,8 +590,8 @@ class FullLoadout(Loadout):
         self.main_loadout = main_loadout
         self.sidearm: Weapon = sidearm
 
-        main_reload_time_secs = main_loadout.get_weapon().get_tactical_reload_time_secs()
-        sidearm_reload_time_secs = sidearm.get_tactical_reload_time_secs()
+        main_reload_time_secs = main_loadout.get_weapon().get_tactical_reload_time_secs(True)
+        sidearm_reload_time_secs = sidearm.get_tactical_reload_time_secs(False)
         if main_reload_time_secs is None and sidearm_reload_time_secs is None:
             reloading_loadout_config = _ReloadConfiguration.RELOAD_NEITHER
         elif main_reload_time_secs is None:
@@ -619,9 +616,6 @@ class FullLoadout(Loadout):
     def get_ready_to_fire_time_secs(self) -> float:
         return self.main_loadout.get_ready_to_fire_time_secs()
 
-    def get_archetype(self) -> 'WeaponArchetype':
-        return self.main_loadout.get_archetype()
-
     def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
         main_total_duration_seconds = self.main_loadout.get_magazine_duration_seconds()
         cum_damage = self.main_loadout.get_single_mag_cumulative_damage(
@@ -638,9 +632,10 @@ class FullLoadout(Loadout):
     def _get_cumulative_damage(self,
                                reloading_loadout: 'SingleWeaponLoadout',
                                time_seconds: float,
-                               swap_time_seconds: float = 0) -> float:
+                               swap_time_seconds: float = 0,
+                               swapped: bool = False) -> float:
         single_mag_cumulative_damage = self.get_single_mag_cumulative_damage(time_seconds)
-        reload_time_secs = reloading_loadout.get_weapon().get_tactical_reload_time_secs()
+        reload_time_secs = reloading_loadout.get_weapon().get_tactical_reload_time_secs(swapped)
         if reload_time_secs is None:
             raise ValueError('Reloading loadout must be reloadable.')
 
@@ -661,7 +656,8 @@ class FullLoadout(Loadout):
             return self._get_cumulative_damage(
                 reloading_loadout=self.main_loadout,
                 time_seconds=time_seconds,
-                swap_time_seconds=self.sidearm.get_swap_time_seconds(self.main_loadout))
+                swap_time_seconds=self.sidearm.get_swap_time_seconds(self.main_loadout),
+                swapped=True)
         elif reloading_loadout_config is _ReloadConfiguration.RELOAD_SIDEARM:
             return self._get_cumulative_damage(reloading_loadout=self.sidearm,
                                                time_seconds=time_seconds)
@@ -696,6 +692,10 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
             name = f'{name} ({variant_term})'
         super().__init__(name=name, term=term)
         self.variant_term = variant_term
+
+    @abc.abstractmethod
+    def get_archetype(self) -> 'WeaponArchetype':
+        raise NotImplementedError()
 
     @final
     def get_main_loadout(self) -> 'SingleWeaponLoadout':
@@ -735,7 +735,9 @@ class Weapon(SingleWeaponLoadout):
                  rounds_per_minute: float,
                  magazine_capacity: int,
                  spinup: RoundTiming,
-                 tactical_reload_time_secs: Optional[float]):
+                 heat_based: bool,
+                 tactical_reload_time_secs: Optional[float],
+                 legend: Optional[Legend]):
         check_type(WeaponArchetype, archetype=archetype)
         check_str(name=name)
         check_type(RequiredTerm, term=term)
@@ -753,6 +755,15 @@ class Weapon(SingleWeaponLoadout):
                     min_value=0,
                     min_is_exclusive=True,
                     tactical_reload_time_secs=tactical_reload_time_secs)
+        check_bool(heat_based=heat_based)
+        check_type(Legend, optional=True, legend=legend)
+
+        if (legend is Legend.RAMPART and
+                weapon_class is WeaponClass.LMG and
+                tactical_reload_time_secs is not None):
+            # Take into account Rampart's Modded Loader passive ability.
+            magazine_capacity = round(magazine_capacity * 1.15)
+            tactical_reload_time_secs *= 0.75
 
         super().__init__(name=name, term=term, variant_term=None)
         self.archetype = archetype
@@ -764,6 +775,7 @@ class Weapon(SingleWeaponLoadout):
         self.rounds_per_minute = rounds_per_minute
         self.magazine_capacity = magazine_capacity
         self.spinup = spinup
+        self.heat_based = heat_based
         self.tactical_reload_time_secs = tactical_reload_time_secs
 
         damage_per_minute_body = damage_body * rounds_per_minute
@@ -778,8 +790,10 @@ class Weapon(SingleWeaponLoadout):
     def get_ready_to_fire_time_secs(self) -> float:
         return self.ready_to_fire_time_secs
 
-    def get_tactical_reload_time_secs(self) -> float | None:
-        return self.tactical_reload_time_secs
+    def get_tactical_reload_time_secs(self, from_swap: bool = False) -> float | None:
+        if self.tactical_reload_time_secs is None:
+            return None
+        return self.tactical_reload_time_secs if not from_swap or not self.heat_based else 0
 
     def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
         return self.spinup.get_cumulative_damage(self, time_seconds)
@@ -938,7 +952,9 @@ class WeaponArchetype:
                  rounds_per_minute: RoundsPerMinuteBase,
                  magazine_capacity: MagazineCapacityBase,
                  stock_dependant_stats: StockStatsBase,
-                 spinup: RoundTiming):
+                 spinup: RoundTiming,
+                 heat_based: bool,
+                 associated_legend: Optional[Legend]):
         self.name = name
         self.base_term = base_term
         self.hopup_suffix = hopup_suffix
@@ -952,16 +968,11 @@ class WeaponArchetype:
         self.magazine_capacity = magazine_capacity
         self.stock_dependant_stats = stock_dependant_stats
         self.spinup = spinup
+        self.heat_based = heat_based
+        self.associated_legend = associated_legend
 
-        rpm_term, rpm = rounds_per_minute.get_best_stats()
-        mag_term, mag = magazine_capacity.get_best_stats()
-        stock_term, stock_stats = stock_dependant_stats.get_best_stats()
-        self._best_weapon: Weapon = self._get_weapon(rounds_per_minute=rpm,
-                                                     magazine_capacity=mag,
-                                                     stock_stats=stock_stats,
-                                                     rpm_term=rpm_term,
-                                                     mag_term=mag_term,
-                                                     stock_term=stock_term)
+    def get_associated_legend(self) -> Optional[Legend]:
+        return self.associated_legend
 
     def _get_weapon(self,
                     rounds_per_minute: float,
@@ -969,13 +980,15 @@ class WeaponArchetype:
                     stock_stats: Optional[StockStatValues],
                     rpm_term: Optional[RequiredTerm],
                     mag_term: Optional[RequiredTerm],
-                    stock_term: Optional[RequiredTerm]) -> Weapon:
+                    stock_term: Optional[RequiredTerm],
+                    legend: Optional[Legend]) -> Weapon:
         name = self.name
         full_term = self.full_term
         weapon_class = self.weapon_class
         eighty_percent_accuracy_range = self.eighty_percent_accuracy_range
         damage_body = self.damage_body
         spinup = self.spinup
+        heat_based = self.heat_based
 
         rpm_name = f' ({rpm_term})' if rpm_term is not None else ''
         mag_name = f' ({mag_term})' if mag_term is not None else ''
@@ -1004,7 +1017,9 @@ class WeaponArchetype:
                       rounds_per_minute=rounds_per_minute,
                       magazine_capacity=magazine_capacity,
                       spinup=spinup,
-                      tactical_reload_time_secs=tactical_reload_time_secs)
+                      heat_based=heat_based,
+                      tactical_reload_time_secs=tactical_reload_time_secs,
+                      legend=legend)
 
     def get_base_term(self) -> RequiredTerm:
         return self.base_term
@@ -1024,15 +1039,27 @@ class WeaponArchetype:
     def __repr__(self) -> str:
         return self.name
 
-    def get_best_weapon(self) -> Weapon:
-        return self._best_weapon
+    def get_best_weapon(self, legend: Optional[Legend] = None) -> Weapon:
+        rpm_term, rpm = self.rounds_per_minute.get_best_stats()
+        mag_term, mag = self.magazine_capacity.get_best_stats()
+        stock_term, stock_stats = self.stock_dependant_stats.get_best_stats()
+        best_weapon = self._get_weapon(rounds_per_minute=rpm,
+                                       magazine_capacity=mag,
+                                       stock_stats=stock_stats,
+                                       rpm_term=rpm_term,
+                                       mag_term=mag_term,
+                                       stock_term=stock_term,
+                                       legend=legend)
+        return best_weapon
 
     def get_best_match(self,
                        words: Words,
-                       overall_level: OverallLevel = OverallLevel.PARSE_WORDS) -> \
+                       overall_level: OverallLevel = OverallLevel.PARSE_WORDS,
+                       legend: Optional[Legend] = None) -> \
             TranslatedValue[Weapon]:
         check_type(Words, words=words)
         check_type(OverallLevel, overall_level=overall_level)
+        check_type(Legend, optional=True, legend=legend)
 
         rpm_term_and_val, words = self.rounds_per_minute.translate_stats(words)
         mag_term_and_val, words = self.magazine_capacity.translate_stats(words)
@@ -1065,7 +1092,8 @@ class WeaponArchetype:
                                   stock_stats=stock_stats,
                                   rpm_term=rpm_term,
                                   mag_term=mag_term,
-                                  stock_term=stock_term)
+                                  stock_term=stock_term,
+                                  legend=legend)
         return TranslatedValue(weapon, words)
 
 
@@ -1077,11 +1105,16 @@ class WeaponArchetypes:
         check_type(WeaponArchetype, optional=True, suffixed_archetype=suffixed_archetype)
 
         base_term = base_archetype.get_base_term()
+        associated_legend = base_archetype.get_associated_legend()
         if suffixed_archetype is None:
             suffix_finder_and_archetype = None
         elif base_term != suffixed_archetype.get_base_term():
             raise ValueError(f'Both weapon archetypes must have the same base term ('
                              f'{repr(base_term)} != {repr(suffixed_archetype.get_base_term())}).')
+        elif associated_legend != suffixed_archetype.get_associated_legend():
+            raise ValueError(
+                'Both weapon archetypes must have the same required legend '
+                f'({associated_legend} != {suffixed_archetype.get_associated_legend()}).')
         else:
             hopup_term = suffixed_archetype.get_hopup_suffix()
             if hopup_term is None:
@@ -1101,6 +1134,10 @@ class WeaponArchetypes:
         self._base_is_best = base_is_best
         self._best_archetype = base_archetype if base_is_best else suffixed_archetype
         self._base_term = base_term
+        self._associated_legend = associated_legend
+
+    def get_associated_legend(self) -> Optional[Legend]:
+        return self._associated_legend
 
     def _get_archetype(self,
                        words: Words,
@@ -1133,15 +1170,18 @@ class WeaponArchetypes:
     def get_base_term(self) -> RequiredTerm:
         return self._base_term
 
-    def get_fully_kitted_weapon(self) -> Weapon:
-        return self._best_archetype.get_best_weapon()
+    def get_fully_kitted_weapon(self, legend: Optional[Legend] = None) -> Weapon:
+        return self._best_archetype.get_best_weapon(legend=legend)
 
     def get_best_match(self,
                        words: Words,
-                       overall_level: OverallLevel = OverallLevel.PARSE_WORDS) -> \
+                       overall_level: OverallLevel = OverallLevel.PARSE_WORDS,
+                       legend: Optional[Legend] = None) -> \
             TranslatedValue[Weapon]:
         archetype = self._get_archetype(words, overall_level=overall_level)
-        return archetype.get_best_match(words=words, overall_level=overall_level)
+        return archetype.get_best_match(words=words,
+                                        overall_level=overall_level,
+                                        legend=legend)
 
     @staticmethod
     def group_archetypes(archetypes: Iterable[WeaponArchetype]) -> \

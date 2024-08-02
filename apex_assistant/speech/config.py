@@ -7,48 +7,51 @@ from typing import Callable, Generic, Optional, Tuple, Type, TypeVar, Union, fin
 
 from apex_assistant.checker import check_str, check_type
 
-_CONFIG_VALUE = Union[str, bool]
+CONFIG_VALUE = Union[str, bool]
 _LOGGER = logging.getLogger()
 T = TypeVar('T')
 U = TypeVar('U')
 
 
 class PropertyBase(abc.ABC, Generic[T]):
-    @abc.abstractmethod
-    def get_value(self) -> T:
-        raise NotImplementedError('Must implement.')
-
-
-class Property(Generic[T], PropertyBase[T]):
-    def __init__(self, name: str, value: T):
-        check_str(allow_blank=False, name=name)
-        check_type(_CONFIG_VALUE, optional=True, value=value)
-        self._name = name
-        self._value = value
+    def __init__(self, value: T):
+        check_type(CONFIG_VALUE, optional=True, value=value)
         self._listeners: list[Callable[[T], None]] = []
+        self._value = value
 
-    def map(self, transformer: Callable[[T], U]) -> 'PropertyBase[U]':
-        return _MappedProperty(self, transformer)
+    @final
+    def get_value(self) -> T:
+        return self._value
+
+    @final
+    def _set_value(self, new_value: T):
+        self._value = new_value
+        self._notify_listeners(new_value=new_value)
 
     def add_listener(self, listener: Callable[[T], None]):
         self._listeners.append(listener)
-        listener(self._value)
 
     def remove_listener(self, listener: Callable[[T], None]):
         self._listeners.remove(listener)
-
-    def set_value(self, new_value: T) -> T:
-        old_value = self._value
-        self._value = new_value
-        self._notify_listeners(new_value=new_value)
-        return old_value
 
     def _notify_listeners(self, new_value: T):
         for listener in self._listeners:
             listener(new_value)
 
-    def get_value(self) -> T:
-        return self._value
+
+class Property(Generic[T], PropertyBase[T]):
+    def __init__(self, name: str, value: T):
+        PropertyBase.__init__(self, value=value)
+        check_str(allow_blank=False, name=name)
+        self._name = name
+
+    def map(self, transformer: Callable[[T], U]) -> 'PropertyBase[U]':
+        return _MappedProperty(self, transformer)
+
+    def set_value(self, new_value: T) -> T:
+        old_value = self.get_value()
+        self._set_value(new_value)
+        return old_value
 
     def get_name(self) -> str:
         return self._name
@@ -56,25 +59,19 @@ class Property(Generic[T], PropertyBase[T]):
 
 class _MappedProperty(Generic[T, U], PropertyBase[U]):
     def __init__(self, parent_property: Property[T], transformer: Callable[[T], U]):
+        PropertyBase.__init__(self, transformer(parent_property.get_value()))
         self._parent_property = parent_property
-        self._transformer = transformer
-        self._value: T = None
-        parent_property.add_listener(self._set_value)
-
-    def get_value(self) -> T:
-        return self._value
-
-    def _set_value(self, new_value: T):
-        self._value = self._transformer(new_value)
+        self._listener = lambda new_value: self._set_value(transformer(new_value))
+        parent_property.add_listener(self._listener)
 
     def __del__(self):
-        self._parent_property.remove_listener(self._set_value)
+        self._parent_property.remove_listener(self._listener)
 
 
 class Config(abc.ABC):
     _REQUIRED_EXTENSION = '.json'
 
-    def __init__(self, *properties: Property[_CONFIG_VALUE]):
+    def __init__(self, *properties: Property[CONFIG_VALUE]):
         self._properties = properties
         self._config_filename: str | None = None
         for prop in properties:
@@ -91,32 +88,32 @@ class Config(abc.ABC):
     def load(cls: Type['Config'], config_filename: str) -> T:
         _, ext = os.path.splitext(config_filename)
         if ext != cls._REQUIRED_EXTENSION:
-            configuration: dict[str, _CONFIG_VALUE] = {}
+            configuration: dict[str, CONFIG_VALUE] = {}
 
         elif not os.path.exists(config_filename):
             _LOGGER.warning(f'Configuration file {config_filename} did not contain a JSON '
                             'dictionary. Content will be ignored.')
-            configuration: dict[str, _CONFIG_VALUE] = {}
+            configuration: dict[str, CONFIG_VALUE] = {}
 
         else:
             with open(config_filename, 'r') as fp:
-                configuration: dict[str, _CONFIG_VALUE] = json.load(fp)
+                configuration: dict[str, CONFIG_VALUE] = json.load(fp)
             if not isinstance(configuration, dict):
                 _LOGGER.warning(f'Configuration file {config_filename} did not contain a JSON '
                                 'dictionary. Content will be ignored.')
 
-        configuration: MappingProxyType[str, _CONFIG_VALUE] = MappingProxyType(configuration)
+        configuration: MappingProxyType[str, CONFIG_VALUE] = MappingProxyType(configuration)
         config = cls._load_config(configuration)
         config._config_filename = config_filename
         return config
 
     @classmethod
     @abc.abstractmethod
-    def _load_config(cls: Type[T], configuration: MappingProxyType[str, _CONFIG_VALUE]) -> T:
+    def _load_config(cls: Type[T], configuration: MappingProxyType[str, CONFIG_VALUE]) -> T:
         raise NotImplementedError('Must implement.')
 
     @staticmethod
-    def _get_str(configuration: MappingProxyType[str, _CONFIG_VALUE],
+    def _get_str(configuration: MappingProxyType[str, CONFIG_VALUE],
                  key: str,
                  default_value: str | None) -> Property[str | None]:
         return Config._get_val_of_type(configuration=configuration,
@@ -125,7 +122,7 @@ class Config(abc.ABC):
                                        value_type=str)
 
     @staticmethod
-    def _get_bool(configuration: MappingProxyType[str, _CONFIG_VALUE],
+    def _get_bool(configuration: MappingProxyType[str, CONFIG_VALUE],
                   key: str,
                   default_value: bool) -> Property[bool]:
         if default_value is None:
@@ -136,7 +133,7 @@ class Config(abc.ABC):
                                        value_type=bool)
 
     @staticmethod
-    def _get_val_of_type(configuration: MappingProxyType[str, _CONFIG_VALUE],
+    def _get_val_of_type(configuration: MappingProxyType[str, CONFIG_VALUE],
                          key: str,
                          default_value: T | None,
                          value_type: Type[T] | Tuple[Type[T]],
@@ -148,24 +145,24 @@ class Config(abc.ABC):
 
         value: T | None = configuration.get(key, None)
         if value is None:
-            _LOGGER.info(f'No value found for {key}. Loading default: {default_value}.')
+            _LOGGER.debug(f'No value found for {key}. Loading default: {default_value}.')
             value = default_value
-        if not isinstance(value, value_type):
+        elif not isinstance(value, value_type):
             _LOGGER.warning(f'Value for {key} ({value}) was not of type {value_type}. Loading '
                             f'default: {default_value}.')
             value = default_value
         return Property(name=key, value=value)
 
     @final
-    def _serialize(self) -> dict[str, Optional[_CONFIG_VALUE]]:
+    def _serialize(self) -> dict[str, Optional[CONFIG_VALUE]]:
         return {prop.get_name(): prop.get_value()
                 for prop in self._properties}
 
     @final
     def save(self, config_filename: str) -> None:
-        config: dict[str, _CONFIG_VALUE] = {key: value
-                                            for key, value in self._serialize().items()
-                                            if value is not None}
+        config: dict[str, CONFIG_VALUE] = {key: value
+                                           for key, value in self._serialize().items()
+                                           if value is not None}
 
         with open(config_filename, 'w') as fp:
             json.dump(config, fp)

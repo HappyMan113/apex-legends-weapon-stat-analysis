@@ -130,8 +130,10 @@ class LoadoutComparator:
 
         sorted_archetypes_dict: dict[WeaponArchetype, tuple[float, FullLoadout]] = {}
         for loadout, weighted_avg_damage in sorted_weapons_dict.items():
-            if loadout.get_archetype() not in sorted_archetypes_dict:
-                sorted_archetypes_dict[loadout.get_archetype()] = (weighted_avg_damage, loadout)
+            if loadout.get_main_loadout().get_archetype() not in sorted_archetypes_dict:
+                sorted_archetypes_dict[loadout.get_main_loadout().get_archetype()] = (
+                    weighted_avg_damage,
+                    loadout)
 
         result = ComparisonResult(sorted_archetypes=MappingProxyType(sorted_archetypes_dict),
                                   sorted_weapons=MappingProxyType(sorted_weapons_dict))

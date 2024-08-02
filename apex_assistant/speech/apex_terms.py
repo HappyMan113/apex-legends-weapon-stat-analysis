@@ -42,7 +42,8 @@ NUMBER_TERMS = (ZERO,
                 IntTerm(10, 'ten'))
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
                'what\'s better', 'air', 'bear')
-BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss') + Term('the').opt()
+_BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss')
+BEST = _BEST | _BEST + Term('the')
 CREATE_SUMMARY_REPORT = Term('create summary report')
 WEAPON: RequiredTerm = Term('weapon', 'gun')
 WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
@@ -239,6 +240,7 @@ VOLT = ((Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'vo
 WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
+SHEILA = Term('Sheila', 'CELA', 'Sila')
 
 _T: TypeAlias = MappingProxyType[RequiredTerm, Union[Optional[TermBase], Optional[TermBase]]]
 ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
@@ -279,5 +281,6 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
     SPITFIRE: None,
     TRIPLE_TAKE: None,
     VOLT.append(SMG_OPT): None,
-    WINGMAN: BOOSTED_LOADER
+    WINGMAN: BOOSTED_LOADER,
+    SHEILA: None,
 })
