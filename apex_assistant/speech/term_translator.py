@@ -90,12 +90,13 @@ class Translator(Generic[T]):
                                                   word_stop_idx=prev_stop_idx))
         return self._get_translation(words, tuple(translated_terms))
 
-    def translate_at_start(self, words: Words) -> Optional[TranslatedTerm[T]]:
+    def translate_at_start(self, words: Words) -> Tuple[Optional[T], Words]:
         translation = self.translate_terms(words)
         first_term = translation.get_first_term()
+        untranslated_words = translation.get_untranslated_words()
         if first_term is None or first_term.get_word_start_idx() != 0:
-            return None
-        return first_term
+            return None, untranslated_words
+        return first_term.get_value(), untranslated_words
 
     @final
     def _get_translation(self,
@@ -186,11 +187,12 @@ class BoolTranslator:
     def __init__(self, false_term: RequiredTerm, true_term: RequiredTerm):
         self._translator = Translator[bool]({true_term: True, false_term: False})
 
-    def translate_term(self, words: Words, default: Optional[bool] = None) -> Optional[bool]:
+    def translate_term(self, words: Words, default: Optional[bool] = None) -> \
+            Tuple[Optional[bool], Words]:
         translation = self._translator.translate_terms(words)
         if len(translation) > 1:
             _LOGGER.warning('More than one bool value found. Only the last one will be used.')
-        return translation.get_latest_value(default)
+        return translation.get_latest_value(default), translation.get_untranslated_words()
 
 
 class IntTranslator(Translator[int]):

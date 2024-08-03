@@ -91,8 +91,8 @@ class Config(abc.ABC):
             configuration: dict[str, CONFIG_VALUE] = {}
 
         elif not os.path.exists(config_filename):
-            _LOGGER.warning(f'Configuration file {config_filename} did not contain a JSON '
-                            'dictionary. Content will be ignored.')
+            _LOGGER.debug(f'Configuration file {config_filename} does not exist. Loading default '
+                          'configuration.')
             configuration: dict[str, CONFIG_VALUE] = {}
 
         else:

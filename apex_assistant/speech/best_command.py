@@ -44,39 +44,29 @@ class BestLoadoutsCommand(ApexCommand):
         return weapon_set
 
     @staticmethod
-    def get_loadouts(required_weapons: Iterable[Weapon],
-                     optional_weapons: Iterable[Weapon]) -> Tuple[FullLoadout, ...]:
-        required_weapons = set(required_weapons)
-        optional_weapons = set(optional_weapons)
-        loadouts = tuple(
-            FullLoadout(main_loadout, sidearm)
-            for main_weapon in required_weapons
-            for main_loadout in main_weapon.get_main_loadout_variants()
-            for sidearm in optional_weapons
-        ) + tuple(FullLoadout(main_loadout, sidearm)
-                  for main_weapon in optional_weapons - required_weapons
-                  for main_loadout in main_weapon.get_main_loadout_variants()
-                  for sidearm in required_weapons
-                  )
+    def get_loadouts(required_weapons: Iterable[Weapon]) -> Tuple[FullLoadout, ...]:
+        loadouts = tuple(FullLoadout(main_loadout, sidearm)
+                         for main_weapon in required_weapons
+                         for sidearm in required_weapons
+                         if sidearm != main_weapon
+                         for main_loadout in main_weapon.get_main_loadout_variants())
         return loadouts
 
     @final
     def _execute(self, arguments: Words) -> str:
         check_type(Words, arguments=arguments)
 
-        plural = self._plural_translator.translate_term(arguments)
+        plural, arguments = self._plural_translator.translate_term(arguments)
         if plural is None:
             # Didn't say "loadouts". Must've misheard I guess.
             return ''
 
-        number_term = self._number_translator.translate_at_start(arguments)
+        number, arguments = self._number_translator.translate_at_start(arguments)
 
-        if number_term is None:
+        if number is None:
             number = 3 if plural else 1
-        elif number_term.get_value() <= 0:
+        elif number <= 0:
             return 'Number must be positive.'
-        else:
-            number = number_term.get_value()
 
         optional_weapons = self.get_translator().get_fully_kitted_weapons()
         required_weapons = tuple(self.get_weapons(arguments))
@@ -85,7 +75,7 @@ class BestLoadoutsCommand(ApexCommand):
             loadouts = comparator.get_best_loadouts(weapons=optional_weapons,
                                                     max_num_loadouts=number)
         else:
-            loadouts = self.get_loadouts(required_weapons, optional_weapons)
+            loadouts = self.get_loadouts(required_weapons)
 
         comparison_result = comparator.compare_loadouts(loadouts).limit_to_best_num(number)
         loadouts = tuple(comparison_result.get_sorted_loadouts().keys())
