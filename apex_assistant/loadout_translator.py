@@ -183,8 +183,8 @@ class LoadoutTranslator:
             for main_loadout in main_weapon.get_main_loadout_variants():
                 yield FullLoadout(main_loadout, either_slot_weapon)
 
-    def _get_mains_and_sidearms(self, words: Words) -> Generator[
-        'MainWeaponsAndSidearms', None, None]:
+    def _get_mains_and_sidearms(self, words: Words) -> \
+            Generator['MainWeaponsAndSidearms', None, None]:
         check_type(Words, words=words)
 
         translation = self._loadout_parser_translator.translate_terms(words)
