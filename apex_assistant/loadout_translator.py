@@ -1,9 +1,9 @@
 import abc
 import logging
 from enum import IntEnum
-from typing import Generator, List, Optional, Tuple
+from typing import Collection, Generator, Iterable, List, Optional, Tuple, TypeVar
 
-from apex_assistant.checker import check_bool, check_tuple, check_type
+from apex_assistant.checker import check_tuple, check_type
 from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
 from apex_assistant.speech.apex_config import ApexConfig
@@ -13,51 +13,26 @@ from apex_assistant.speech.apex_terms import (BASE,
                                               LEVEL_2,
                                               LEVEL_3,
                                               LEVEL_4,
-                                              REVERSED,
                                               THE_SAME_MAIN_WEAPON,
                                               THE_SAME_SIDEARM,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import Translator
-from apex_assistant.weapon import (FullLoadout,
-                                   Loadout,
-                                   SingleWeaponLoadout,
-                                   Weapon,
-                                   WeaponArchetypes)
+from apex_assistant.weapon import FullLoadout, SingleWeaponLoadout, Weapon, WeaponArchetypes
+from apex_assistant.weapon_class import WeaponClass
 
 
 class ArchetypeParseResult:
     pass
 
 
-class LoadoutsRequestingSidearm:
-    def __init__(self,
-                 main_loadouts: SingleWeaponLoadout | Tuple[SingleWeaponLoadout],
-                 requested_explicitly: bool = True):
-        if not isinstance(main_loadouts, tuple):
-            main_loadouts = (main_loadouts,)
-        check_bool(requested_explicitly=requested_explicitly)
-        check_tuple(SingleWeaponLoadout, main_loadouts=main_loadouts)
-        self._main_loadouts = main_loadouts
-        self._requested_explicitly = requested_explicitly
-
-    def explicit(self) -> bool:
-        return self._requested_explicitly
-
-    def get_main_loadouts(self) -> Tuple[SingleWeaponLoadout]:
-        return self._main_loadouts
-
-    def __repr__(self):
-        return repr(self._main_loadouts)
-
-    def __str__(self):
-        return str(self._main_loadouts)
-
-
 class WithSidearm(IntEnum):
     FIGURE_OUT_LATER = 0
     SAME_SIDEARM = 1
     WITHOUT_SIDEARM = 2
+
+
+T = TypeVar('T')
 
 
 class LoadoutTranslator:
@@ -77,20 +52,21 @@ class LoadoutTranslator:
     def __init__(self, weapon_archetypes: Tuple[WeaponArchetypes, ...], apex_config: ApexConfig):
         check_tuple(WeaponArchetypes, weapon_archetypes=weapon_archetypes)
         check_type(ApexConfig, apex_config=apex_config)
-
         self._weapon_archetypes = weapon_archetypes
+        self._apex_config = apex_config
         self._direct_archetypes_translator = Translator[WeaponArchetypes]({
             weapon_archetype.get_base_term(): weapon_archetype
             for weapon_archetype in weapon_archetypes})
 
-        parsers: List[_Parser] = [ArchetypeParser(self, weapon_archetype)
-                                  for weapon_archetype in weapon_archetypes]
-        parsers.append(SameMainParser(self))
-        parsers.append(ReversedParser(self))
-        self._loadout_parser_translator = Translator[_Parser]({
+        parsers: List[_WeaponParser] = [ArchetypeParser(self, weapon_archetype)
+                                        for weapon_archetype in weapon_archetypes]
+        parsers.append(SameMainParser())
+        # noinspection PyTypeChecker
+        parsers.extend(WeaponClassParser(self, weapon_class) for weapon_class in WeaponClass)
+
+        self._loadout_parser_translator = Translator[_WeaponParser]({
             parser.get_term(): parser
             for parser in parsers})
-        self._apex_config = apex_config
 
     def set_legend(self, legend: Optional[Legend]) -> Optional[Legend]:
         return self._apex_config.set_legend(legend)
@@ -98,18 +74,18 @@ class LoadoutTranslator:
     def get_legend(self) -> Optional[Legend]:
         return self._apex_config.get_legend()
 
-    def _should_include_legends(self, associated_legend: Optional[Legend]) -> bool:
+    def _legend_fits_archetypes(self, archetypes: WeaponArchetypes) -> bool:
+        return self._legend_fits(archetypes.get_associated_legend())
+
+    def _legend_fits_loadout(self, loadout: FullLoadout) -> bool:
+        return (self.legend_fits_weapon(loadout.get_main_loadout()) and
+                self.legend_fits_weapon(loadout.get_sidearm()))
+
+    def legend_fits_weapon(self, weapon: SingleWeaponLoadout) -> bool:
+        return self._legend_fits(weapon.get_archetype().get_associated_legend())
+
+    def _legend_fits(self, associated_legend: Optional[Legend]) -> bool:
         return associated_legend is None or self.get_legend() is associated_legend
-
-    def _should_include_archetype(self, archetypes: WeaponArchetypes) -> bool:
-        return self._should_include_legends(archetypes.get_associated_legend())
-
-    def _should_include_loadout(self, loadout: FullLoadout) -> bool:
-        return (self._should_include_weapon(loadout.get_main_loadout()) and
-                self._should_include_weapon(loadout.get_sidearm()))
-
-    def _should_include_weapon(self, weapon: SingleWeaponLoadout) -> bool:
-        return self._should_include_legends(weapon.get_archetype().get_associated_legend())
 
     def translate_weapons(self, words: Words) -> Generator[Weapon, None, None]:
         check_type(Words, words=words)
@@ -126,8 +102,8 @@ class LoadoutTranslator:
                                                          overall_level=overall_level,
                                                          legend=legend)
 
-            if self._should_include_archetype(archetypes):
-                yield translated_value.get_value()
+            if self._legend_fits_archetypes(archetypes):
+                yield translated_value
             else:
                 self._LOGGER.warning(f'Weapon {archetypes.get_base_term()} is associated with '
                                      f'{archetypes.get_associated_legend()}, and current legend '
@@ -139,57 +115,152 @@ class LoadoutTranslator:
         legend = self.get_legend()
         return tuple(weapon_archetypes.get_fully_kitted_weapon(legend)
                      for weapon_archetypes in self._weapon_archetypes
-                     if self._should_include_archetype(weapon_archetypes))
+                     if self._legend_fits_archetypes(weapon_archetypes))
 
-    def translate_loadouts(self, words: Words) -> Generator[FullLoadout, None, None]:
+    def get_fully_kitted_loadouts(self) -> Tuple[FullLoadout, ...]:
+        weapons = self.get_fully_kitted_weapons()
+        return tuple(main_loadout.add_sidearm(sidearm)
+                     for main_weapon in weapons
+                     for main_loadout in main_weapon.get_main_loadout_variants()
+                     for sidearm in weapons)
+
+    def translate_full_loadouts(self, words: Words) -> Generator[FullLoadout, None, None]:
         check_type(Words, words=words)
 
-        # The most recent weapon parsed.
-        preceding_loadouts: Tuple[FullLoadout, ...] = tuple()
-        translation = self._loadout_parser_translator.translate_terms(words)
-        loadouts_requesting_sidearm: Optional[LoadoutsRequestingSidearm] = None
-        preceding_args = translation.get_preamble()
+        explicit_loadouts: set[FullLoadout] = set()
+        either_slot_weapons: list[Weapon] = []
 
-        for parsed_archetype in translation:
-            parser = parsed_archetype.get_value()
-            following_args = parsed_archetype.get_following_words()
+        found_a_full_loadout = False
+        for result in self._get_mains_and_sidearms(words):
+            if not result.has_sidearms():
+                either_slot_weapons.extend(result.get_main_weapons())
+
+            found_a_full_loadout = found_a_full_loadout or result.has_full_loadouts()
+            for full_loadout in self._filter_loadouts(result.get_full_loadouts(),
+                                                      explicit_loadouts=explicit_loadouts):
+                yield full_loadout
+                explicit_loadouts.add(full_loadout)
+
+        for full_loadout in explicit_loadouts:
+            for reversed_loadout in self._reverse_loadout(full_loadout):
+                if reversed_loadout not in explicit_loadouts:
+                    yield reversed_loadout
+
+        if len(either_slot_weapons) > 1:
+            for full_loadout in self._filter_loadouts(FullLoadout.get_loadouts(either_slot_weapons),
+                                                      explicit_loadouts=explicit_loadouts):
+                yield full_loadout
+        elif len(either_slot_weapons) == 1:
+            for full_loadout in self._filter_loadouts(
+                    self.get_loadouts_with_other_fully_kitted(either_slot_weapons[0]),
+                    explicit_loadouts=explicit_loadouts):
+                yield full_loadout
+
+    def _filter_loadouts(self,
+                         loadouts: Iterable[FullLoadout],
+                         explicit_loadouts: Collection[FullLoadout]) -> \
+            Generator[FullLoadout, None, None]:
+        for loadout in loadouts:
+            if not self._legend_fits_loadout(loadout):
+                self._LOGGER.warning(
+                    f'Loadout {loadout} contains one or more weapons which are not associated with '
+                    f'{self.get_legend()}. Skipping.')
+                continue
+
+            if loadout in explicit_loadouts:
+                self._LOGGER.warning(f'Duplicate loadout {loadout} will be skipped.')
+                continue
+
+            yield loadout
+
+    def get_loadouts_with_other_fully_kitted(self, either_slot_weapon: Weapon) -> \
+            Generator[FullLoadout, None, None]:
+        for main_loadout in either_slot_weapon.get_main_loadout_variants():
+            for sidearm in self.get_fully_kitted_weapons():
+                yield FullLoadout(main_loadout, sidearm)
+
+        for main_weapon in self.get_fully_kitted_weapons():
+            for main_loadout in main_weapon.get_main_loadout_variants():
+                yield FullLoadout(main_loadout, either_slot_weapon)
+
+    def _get_mains_and_sidearms(self, words: Words) -> Generator[
+        'MainWeaponsAndSidearms', None, None]:
+        check_type(Words, words=words)
+
+        translation = self._loadout_parser_translator.translate_terms(words)
+        prev_result = MainWeaponsAndSidearms()
+        cur_result: Optional[MainWeaponsAndSidearms] = None
+        preceding_args = translation.get_preamble()
+        looking_for_sidearm = False
+
+        for parsed_parser in translation:
+            following_args = parsed_parser.get_following_words()
 
             with_sidearm, following_args = self.is_asking_for_sidearm(following_args)
-
-            loadouts, loadouts_requesting_sidearm, preceding_args = parser.process_archetype_args(
+            result = parsed_parser.get_value().process_archetype_args(
+                prev_result=prev_result,
                 preceding_args=preceding_args,
-                following_args=following_args,
-                preceding_loadouts=preceding_loadouts,
-                loadouts_requesting_sidearm=loadouts_requesting_sidearm,
+                following_args=following_args)
+            preceding_args = result.get_untranslated_following_args()
+
+            mains_and_sidearms, looking_for_sidearm = self._get_mains_and_sidearms2(
+                prev_result=prev_result,
+                weapons=result.get_weapons(),
+                looking_for_sidearm=looking_for_sidearm,
                 with_sidearm=with_sidearm)
 
-            check_tuple(FullLoadout, loadouts=loadouts)
-            check_type(LoadoutsRequestingSidearm,
-                       optional=True,
-                       loadouts_requesting_sidearm=loadouts_requesting_sidearm)
-            check_type(Words, preceding_args=preceding_args)
+            if not looking_for_sidearm:
+                yield mains_and_sidearms
 
-            for loadout in loadouts:
-                if self._should_include_loadout(loadout):
-                    yield loadout
-                else:
-                    self._LOGGER.warning(
-                        f'Loadout {loadout} contains one or more weapons which are not associated '
-                        f'with {self.get_legend()}. Skipping.')
+            prev_result = mains_and_sidearms.with_fallback(prev_result)
+            cur_result = mains_and_sidearms
 
-            if len(loadouts) != 0:
-                preceding_loadouts = loadouts
-
-        if loadouts_requesting_sidearm is None:
-            return
-
-        if loadouts_requesting_sidearm.explicit():
+        if looking_for_sidearm:
             self._LOGGER.warning(
-                f'Requested sidearm for {loadouts_requesting_sidearm}, but didn\'t find one. This '
-                'incomplete loadout will be ignored.')
+                f'Requested sidearm for {cur_result.get_main_weapons()}, but didn\'t find one. '
+                'This incomplete loadout will be ignored.')
+
+    @staticmethod
+    def _get_mains_and_sidearms2(prev_result: 'MainWeaponsAndSidearms',
+                                 weapons: Tuple[Weapon, ...],
+                                 looking_for_sidearm: bool,
+                                 with_sidearm: WithSidearm) -> \
+            Tuple['MainWeaponsAndSidearms', bool]:
+        if looking_for_sidearm:
+            if with_sidearm is not WithSidearm.WITHOUT_SIDEARM:
+                # TODO: This assumes that you can only have one sidearm, but maybe we should
+                #  consider Ballistic's third weapon and Rampart's "Sheila".
+                LoadoutTranslator._LOGGER.warning(
+                    'Only one sidearm allowed. Extraneous sidearm term will be ignored.')
+
+            mains_and_sidearms = MainWeaponsAndSidearms(main_weapons=prev_result.get_main_weapons(),
+                                                        sidearms=weapons)
+            looking_for_sidearm = False
+
+        elif with_sidearm is WithSidearm.FIGURE_OUT_LATER:
+            # We need to hold up and look for a sidearm.
+            mains_and_sidearms = MainWeaponsAndSidearms(main_weapons=weapons)
+            looking_for_sidearm = True
+
+        elif with_sidearm is WithSidearm.SAME_SIDEARM:
+            sidearms = prev_result.get_sidearms()
+            if len(sidearms) == 0:
+                LoadoutTranslator._LOGGER.warning(
+                    'No sidearm was specified previously. Skipping "same sidearm" loadout.')
+                mains_and_sidearms = MainWeaponsAndSidearms()
+            else:
+                mains_and_sidearms = MainWeaponsAndSidearms(main_weapons=weapons,
+                                                            sidearms=sidearms)
+            looking_for_sidearm = False
+
+        elif with_sidearm is WithSidearm.WITHOUT_SIDEARM:
+            mains_and_sidearms = MainWeaponsAndSidearms(main_weapons=weapons)
+            looking_for_sidearm = False
+
         else:
-            for loadout in loadouts_requesting_sidearm.get_main_loadouts():
-                yield loadout
+            raise RuntimeError(f'Unsupported with_sidearm: {with_sidearm}.')
+
+        return mains_and_sidearms, looking_for_sidearm
 
     @staticmethod
     def is_asking_for_sidearm(archetype_args: Words) -> Tuple[WithSidearm, Words]:
@@ -199,23 +270,100 @@ class LoadoutTranslator:
 
     @staticmethod
     def get_overall_level(preceding_args: Words) -> OverallLevel:
-        overall_level_translations = \
-            LoadoutTranslator._OVERALL_LEVEL_TRANSLATOR.translate_terms(preceding_args).values()
+        overall_level_translation = \
+            LoadoutTranslator._OVERALL_LEVEL_TRANSLATOR.translate_terms(preceding_args)
+        overall_level_translations = overall_level_translation.values()
         if len(set(overall_level_translations)) > 1:
             LoadoutTranslator._LOGGER.warning('More than one overall level specified. Only the '
                                               'last one will be used.')
+
         return (overall_level_translations[-1]
                 if len(overall_level_translations) != 0
                 else OverallLevel.PARSE_WORDS)
 
+    @staticmethod
+    def _reverse_loadout(loadout: FullLoadout) -> Generator[FullLoadout, None, None]:
+        return (FullLoadout(main_loadout=main_loadout, sidearm=loadout.get_main_weapon())
+                for main_loadout in loadout.get_sidearm().get_main_loadout_variants())
 
-class _Parser(abc.ABC):
-    _LOGGER = logging.getLogger()
 
-    def __init__(self, loadout_translator: LoadoutTranslator, term: RequiredTerm):
-        check_type(LoadoutTranslator, loadout_translator=loadout_translator)
+class MainWeaponsAndSidearms:
+    def __init__(self,
+                 main_weapons: Weapon | Tuple[Weapon, ...] = tuple[Weapon, ...](),
+                 sidearms: Weapon | Tuple[Weapon, ...] = tuple[Weapon, ...]()):
+        if not isinstance(main_weapons, Tuple):
+            check_type(Weapon, main_weapons=main_weapons)
+            main_weapons: Tuple[Weapon, ...] = (main_weapons,)
+        check_tuple(Weapon, main_weapons=main_weapons, sidearm=sidearms)
+        if len(sidearms) > 0 and len(main_weapons) == 0:
+            raise ValueError('Cannot specify a sidearm without a main weapon.')
+
+        self._main_weapons = main_weapons
+        self._sidearms = sidearms
+
+    def with_fallback(self, main_weapons_and_sidearms: 'MainWeaponsAndSidearms') -> \
+            'MainWeaponsAndSidearms':
+        main_weapons = (self._main_weapons if len(self._main_weapons) > 0 else
+                        main_weapons_and_sidearms._main_weapons)
+        sidearms = (self._sidearms if len(self._sidearms) > 0 else
+                    main_weapons_and_sidearms._sidearms)
+        return MainWeaponsAndSidearms(main_weapons=main_weapons,
+                                      sidearms=sidearms)
+
+    def get_full_loadouts(self) -> Generator[FullLoadout, None, None]:
+        for main_loadout in self.get_main_loadouts():
+            for sidearm in self._sidearms:
+                yield FullLoadout(main_loadout, sidearm)
+
+    def get_main_weapons(self) -> Tuple[Weapon, ...]:
+        return self._main_weapons
+
+    def has_main_weapons(self) -> bool:
+        return len(self._main_weapons) > 0
+
+    def get_main_loadouts(self) -> Generator[SingleWeaponLoadout, None, None]:
+        for main_weapon in self._main_weapons:
+            for main_loadout in main_weapon.get_main_loadout_variants():
+                yield main_loadout
+
+    def has_sidearms(self) -> bool:
+        return len(self._sidearms) > 0
+
+    def get_sidearms(self) -> Tuple[Weapon, ...]:
+        return self._sidearms
+
+    def has_full_loadouts(self):
+        return self.has_main_weapons() and self.has_sidearms()
+
+
+class ParserResult:
+    def __init__(self,
+                 untranslated_following_args: Words,
+                 main_weapons: Weapon | Tuple[Weapon, ...] = tuple[Weapon, ...]()):
+        check_type(Words, untranslated_following_args=untranslated_following_args)
+        if not isinstance(main_weapons, Tuple):
+            check_type(Weapon, main_weapons=main_weapons)
+            main_weapons: Tuple[Weapon, ...] = (main_weapons,)
+        check_tuple(Weapon, main_weapons=main_weapons)
+
+        self._untranslated_following_args = untranslated_following_args
+        self._main_weapons = main_weapons
+
+    def get_untranslated_following_args(self) -> Words:
+        return self._untranslated_following_args
+
+    def get_weapons(self) -> Tuple[Weapon, ...]:
+        return self._main_weapons
+
+    def get_loadouts(self) -> Generator[SingleWeaponLoadout, None, None]:
+        for main_weapon in self._main_weapons:
+            for main_loadout in main_weapon.get_main_loadout_variants():
+                yield main_loadout
+
+
+class _WeaponParser(abc.ABC):
+    def __init__(self, term: RequiredTerm):
         check_type(RequiredTerm, term=term)
-        self._loadout_translator = loadout_translator
         self._term = term
 
     def get_term(self) -> RequiredTerm:
@@ -223,163 +371,84 @@ class _Parser(abc.ABC):
 
     @abc.abstractmethod
     def process_archetype_args(self,
+                               prev_result: MainWeaponsAndSidearms,
                                preceding_args: Words,
-                               following_args: Words,
-                               preceding_loadouts: Tuple[FullLoadout, ...],
-                               loadouts_requesting_sidearm: Optional[LoadoutsRequestingSidearm],
-                               with_sidearm: WithSidearm) -> \
-            Tuple[Tuple[FullLoadout, ...], Optional[LoadoutsRequestingSidearm], Words]:
+                               following_args: Words) -> ParserResult:
         raise NotImplementedError()
 
-    def get_overall_level(self, words: Words):
+
+class ArchetypeParser(_WeaponParser):
+    def __init__(self, loadout_translator: LoadoutTranslator, archetypes: WeaponArchetypes):
+        check_type(WeaponArchetypes, archetypes=archetypes)
+        check_type(LoadoutTranslator, loadout_translator=loadout_translator)
+        super().__init__(term=archetypes.get_base_term())
+        self._archetype = archetypes
+        self._loadout_translator = loadout_translator
+
+    def get_overall_level(self, words: Words) -> OverallLevel:
         return self._loadout_translator.get_overall_level(words)
 
     def get_legend(self) -> Optional[Legend]:
         return self._loadout_translator.get_legend()
 
-    def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
-        return self._loadout_translator.get_fully_kitted_weapons()
-
-    @staticmethod
-    def is_asking_for_sidearm(archetype_args: Words) -> Tuple[WithSidearm, Words]:
-        return LoadoutTranslator.is_asking_for_sidearm(archetype_args)
-
-    @staticmethod
-    def warn(message: str):
-        _Parser._LOGGER.warning(message)
-
-
-class ArchetypeParser(_Parser):
-    def __init__(self, loadout_translator: LoadoutTranslator, archetypes: WeaponArchetypes):
-        check_type(WeaponArchetypes, archetypes=archetypes)
-        check_type(LoadoutTranslator, loadout_translator=loadout_translator)
-        super().__init__(loadout_translator=loadout_translator,
-                         term=archetypes.get_base_term())
-        self._archetype = archetypes
-
-    def process_archetype_args(self,
-                               preceding_args: Words,
-                               following_args: Words,
-                               preceding_loadouts: Tuple[FullLoadout, ...],
-                               loadouts_requesting_sidearm: Optional[LoadoutsRequestingSidearm],
-                               with_sidearm: WithSidearm) -> \
-            Tuple[Tuple[FullLoadout, ...], Optional[LoadoutsRequestingSidearm], Words]:
-        check_type(Words, preceding_args=preceding_args, following_args=following_args)
-        check_type(LoadoutsRequestingSidearm,
-                   optional=True,
-                   loadouts_requesting_sidearm=loadouts_requesting_sidearm)
-        check_tuple(FullLoadout, preceding_loadouts=preceding_loadouts)
-        check_type(WithSidearm, with_sidearm=with_sidearm)
-
+    def get_best_match(self, preceding_args: Words, following_args: Words):
         overall_level = self.get_overall_level(preceding_args)
         parsed_weapon = self._archetype.get_best_match(words=following_args,
                                                        overall_level=overall_level,
                                                        legend=self.get_legend())
-        weapon: Weapon = parsed_weapon.get_value()
+        return parsed_weapon
+
+    def process_archetype_args(self,
+                               prev_result: MainWeaponsAndSidearms,
+                               preceding_args: Words,
+                               following_args: Words) -> ParserResult:
+        check_type(Words, preceding_args=preceding_args, following_args=following_args)
+
+        parsed_weapon = self.get_best_match(preceding_args=preceding_args,
+                                            following_args=following_args)
+        weapon = parsed_weapon.get_value()
         following_args = parsed_weapon.get_untranslated_words()
-
-        if loadouts_requesting_sidearm is not None:
-            if with_sidearm in (WithSidearm.SAME_SIDEARM, WithSidearm.FIGURE_OUT_LATER):
-                # TODO: This assumes that you can only have one sidearm, but maybe we should
-                #  consider Ballistic's third weapon and Rampart's "Sheila".
-                self.warn('Only one sidearm allowed. Extraneous sidearm term will be ignored.')
-
-            loadouts = tuple(main_loadout.add_sidearm(weapon)
-                             for main_loadout in loadouts_requesting_sidearm.get_main_loadouts())
-        else:
-            main_loadouts = tuple(weapon.get_main_loadout_variants())
-            if with_sidearm is WithSidearm.FIGURE_OUT_LATER:
-                # We need to hold up and look for a sidearm.
-                return tuple(), LoadoutsRequestingSidearm(main_loadouts), following_args
-            elif with_sidearm is WithSidearm.SAME_SIDEARM:
-                sidearms = set(preceding_loadout.get_sidearm()
-                               for preceding_loadout in preceding_loadouts)
-            elif with_sidearm is WithSidearm.WITHOUT_SIDEARM:
-                sidearms = self.get_fully_kitted_weapons()
-            else:
-                raise RuntimeError(f'Unsupported with_sidearm: {with_sidearm}.')
-
-            loadouts = tuple(FullLoadout(main_loadout, sidearm)
-                             for main_loadout in main_loadouts
-                             for sidearm in sidearms)
-
-        return loadouts, None, following_args
+        return ParserResult(untranslated_following_args=following_args, main_weapons=weapon)
 
 
-class SameMainParser(_Parser):
-    def __init__(self, loadout_translator: LoadoutTranslator):
-        super().__init__(loadout_translator, term=THE_SAME_MAIN_WEAPON)
+class SameMainParser(_WeaponParser):
+    def __init__(self):
+        super().__init__(THE_SAME_MAIN_WEAPON)
 
     def process_archetype_args(self,
+                               prev_result: MainWeaponsAndSidearms,
                                preceding_args: Words,
-                               following_args: Words,
-                               preceding_loadouts: Tuple[FullLoadout, ...],
-                               loadouts_requesting_sidearm: Optional[LoadoutsRequestingSidearm],
-                               with_sidearm: WithSidearm) -> \
-            Tuple[Tuple[FullLoadout, ...], Optional[LoadoutsRequestingSidearm], Words]:
+                               following_args: Words) -> ParserResult:
         check_type(Words, preceding_args=preceding_args, following_args=following_args)
-        check_type(LoadoutsRequestingSidearm,
-                   optional=True,
-                   loadouts_requesting_sidearm=loadouts_requesting_sidearm)
-        check_tuple(FullLoadout, preceding_loadouts=preceding_loadouts)
-        check_type(WithSidearm, with_sidearm=with_sidearm)
-
-        if loadouts_requesting_sidearm is not None and loadouts_requesting_sidearm.explicit():
-            self.warn(
-                'Cannot have sidearm of a main weapon; that makes no sense. Ignoring sidearm term.')
-
-        if len(preceding_loadouts) == 0:
-            self.warn(f'No previous loadout specified for "{THE_SAME_MAIN_WEAPON}" to make sense. '
-                      'Term will be ignored.')
-            return tuple(), None, following_args
-
-        main_loadouts = tuple(set(
-            main_loadout
-            for preceding_loadout in preceding_loadouts
-            for main_loadout in preceding_loadout.get_main_weapon().get_main_loadout_variants()))
-
-        if with_sidearm is WithSidearm.FIGURE_OUT_LATER:
-            requested_explicitly = True
-        elif with_sidearm is WithSidearm.WITHOUT_SIDEARM:
-            requested_explicitly = False
-        elif with_sidearm is WithSidearm.SAME_SIDEARM:
-            self.warn('Same main weapon with same sidearm would result in a duplicate loadout. '
-                      'Skipping.')
-            return tuple(), None, following_args
-        else:
-            raise RuntimeError(f'Unsupported with_sidearm: {with_sidearm}')
-
-        loadouts_requesting_sidearm = LoadoutsRequestingSidearm(main_loadouts, requested_explicitly)
-        return tuple(), loadouts_requesting_sidearm, following_args
+        return ParserResult(untranslated_following_args=following_args,
+                            main_weapons=prev_result.get_main_weapons())
 
 
-class ReversedParser(_Parser):
-    def __init__(self, loadout_translator: LoadoutTranslator):
-        super().__init__(loadout_translator=loadout_translator, term=REVERSED)
+class WeaponClassParser(_WeaponParser):
+    def __init__(self, loadout_translator: LoadoutTranslator, weapon_class: WeaponClass):
+        check_type(WeaponClass, weapon_class=weapon_class)
+        check_type(LoadoutTranslator, loadout_translator=loadout_translator)
+        super().__init__(weapon_class.get_term())
+
+        weapons_of_class = tuple(weapon
+                                 for weapon in loadout_translator.get_fully_kitted_weapons()
+                                 if weapon.get_weapon_class() is weapon_class)
+        weapon_set = frozenset(weapons_of_class)
+        if len(weapon_set) < len(weapons_of_class):
+            raise RuntimeError(f'Weapons of {weapon_class} class were not all unique.')
+        self._weapons_of_class = weapons_of_class
+        self._weapon_class = weapon_class
+        self._loadout_translator = loadout_translator
 
     def process_archetype_args(self,
+                               prev_result: MainWeaponsAndSidearms,
                                preceding_args: Words,
-                               following_args: Words,
-                               preceding_loadouts: Tuple[FullLoadout, ...],
-                               loadouts_requesting_sidearm: Optional[LoadoutsRequestingSidearm],
-                               with_sidearm: WithSidearm) -> \
-            Tuple[Tuple[Loadout, ...], Optional[LoadoutsRequestingSidearm], Words]:
+                               following_args: Words) -> ParserResult:
+        check_type(MainWeaponsAndSidearms, prev_result=prev_result)
         check_type(Words, preceding_args=preceding_args, following_args=following_args)
-        check_type(LoadoutsRequestingSidearm,
-                   optional=True,
-                   loadouts_requesting_sidearm=loadouts_requesting_sidearm)
-        check_tuple(FullLoadout, preceding_loadouts=preceding_loadouts)
-        check_type(WithSidearm, with_sidearm=with_sidearm)
 
-        if loadouts_requesting_sidearm is not None:
-            self.warn('Sidearm term was not followed by a sidearm. Ignoring it.')
-        if with_sidearm in (WithSidearm.SAME_SIDEARM, WithSidearm.FIGURE_OUT_LATER):
-            self.warn('Sidearm of reverse term is implied. Ignoring sidearm term.')
-        if len(preceding_loadouts) == 0:
-            self.warn(f'No previous loadout to reverse.')
-
-        reversed_loadouts = tuple(
-            FullLoadout(main_loadout=main_loadout, sidearm=preceding_loadout.get_main_weapon())
-            for preceding_loadout in preceding_loadouts
-            for main_loadout in preceding_loadout.get_sidearm().get_main_loadout_variants())
-        return reversed_loadouts, None, following_args
+        weapons_of_class = tuple(weapon
+                                 for weapon in self._weapons_of_class
+                                 if self._loadout_translator.legend_fits_weapon(weapon))
+        return ParserResult(untranslated_following_args=following_args,
+                            main_weapons=weapons_of_class)

@@ -1,6 +1,15 @@
 <component name="InspectionProjectProfileManager">
   <profile version="1.0">
     <option name="myName" value="Project" />
+    <option name="scopesOrder">
+      <list>
+        <option value="All Changed Files" />
+        <option value="Open Files" />
+        <option value="Project Files" />
+        <option value="Scratches and Consoles" />
+        <option value="Terms" />
+      </list>
+    </option>
     <inspection_tool class="LongLine" enabled="true" level="ERROR" enabled_by_default="true" />
     <inspection_tool class="ProblematicWhitespace" enabled="true" level="ERROR" enabled_by_default="true" />
     <inspection_tool class="PyAbstractClassInspection" enabled="true" level="WARNING" enabled_by_default="true" />
@@ -91,6 +100,16 @@
           <option value="logging.Logger.bold" />
         </list>
       </option>
+    </inspection_tool>
+    <inspection_tool class="SpellCheckingInspection" enabled="true" level="TYPO" enabled_by_default="true">
+      <scope name="Terms" level="INFORMATION" enabled="true" editorAttributes="INFORMATION_ATTRIBUTES">
+        <option name="processCode" value="true" />
+        <option name="processLiterals" value="true" />
+        <option name="processComments" value="true" />
+      </scope>
+      <option name="processCode" value="true" />
+      <option name="processLiterals" value="true" />
+      <option name="processComments" value="true" />
     </inspection_tool>
   </profile>
 </component>

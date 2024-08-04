@@ -584,6 +584,8 @@ class _ReloadConfiguration(StrEnum):
 
 
 class FullLoadout(Loadout):
+    NUM_WEAPONS = 2
+
     def __init__(self, main_loadout: 'SingleWeaponLoadout', sidearm: 'Weapon'):
         check_type(SingleWeaponLoadout, main_weapon=main_loadout)
         check_type(Weapon, sidearm=sidearm)
@@ -683,6 +685,29 @@ class FullLoadout(Loadout):
 
     def get_sidearm(self) -> 'Weapon':
         return self.sidearm
+
+    @staticmethod
+    def get_loadouts(required_weapons: Iterable['Weapon']) -> Generator['FullLoadout', None, None]:
+        duplicated_weapons = FullLoadout._get_duplicates(required_weapons)
+        return (FullLoadout(main_loadout, sidearm)
+                for main_weapon in required_weapons
+                for sidearm in required_weapons
+                if (sidearm != main_weapon or main_weapon in duplicated_weapons)
+                for main_loadout in main_weapon.get_main_loadout_variants())
+
+    @staticmethod
+    def _get_duplicates(elements: Iterable['T']) -> set[T]:
+        singles: set[T] = set()
+        duplicates: set[T] = set()
+
+        for element in elements:
+            if element in duplicates:
+                continue
+            if element in singles:
+                duplicates.add(element)
+                continue
+            singles.add(element)
+        return duplicates
 
 
 class SingleWeaponLoadout(Loadout, abc.ABC):

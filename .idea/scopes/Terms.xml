@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Terms" pattern="file:apex_assistant/speech/apex_terms.py" />
+</component>

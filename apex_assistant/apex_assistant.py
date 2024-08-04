@@ -8,7 +8,6 @@ from pydub.utils import which
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_config import ApexConfig
-from apex_assistant.speech.best_command import BestLoadoutsCommand
 from apex_assistant.speech.command_registry import CommandRegistry
 from apex_assistant.speech.compare_command import CompareCommand
 from apex_assistant.speech.configure_command import ConfigureCommand
@@ -45,7 +44,6 @@ def register_commands() -> CommandRegistry:
 
     registry = CommandRegistry(
         CompareCommand(loadout_translator=translator, loadout_comparator=comparator),
-        BestLoadoutsCommand(loadout_translator=translator, loadout_comparator=comparator),
         ConfigureCommand(loadout_translator=translator, loadout_comparator=comparator),
         CreateSummaryReportCommand(loadout_translator=translator, loadout_comparator=comparator))
     return registry

@@ -29,6 +29,7 @@ TWO = IntTerm(2, 'two', 'too', 'to')
 THREE = IntTerm(3, 'three', 'see', 'think', 'say', 'fear', 'throw', 'threw', 'should', 'show',
                 'a lot', 'stay', 'day', 'take')
 FOUR = IntTerm(4, 'four')
+EIGHT = IntTerm(8, 'eight', 'eat', 'rate', 'right', 'bait', 'ate', 'wait', 'eat', 'may')
 NUMBER_TERMS = (ZERO,
                 ONE,
                 TWO,
@@ -37,11 +38,11 @@ NUMBER_TERMS = (ZERO,
                 IntTerm(5, 'five'),
                 IntTerm(6, 'six'),
                 IntTerm(7, 'seven'),
-                IntTerm(8, 'eight'),
+                EIGHT,
                 IntTerm(9, 'nine'),
                 IntTerm(10, 'ten'))
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
-               'what\'s better', 'air', 'bear')
+               'what\'s better', 'air', 'bear', 'compared')
 _BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss')
 BEST = _BEST | _BEST + Term('the')
 CREATE_SUMMARY_REPORT = Term('create summary report')
@@ -50,8 +51,8 @@ WEAPONS_OPT = Term('weapons', 'guns').opt(include_in_speech=True)
 _SIDE = Term('side', 'secondary', 'starred')
 _ARM = Term('arm', 'weapon')
 _ARMS = Term('arms', 'weapons')
-SIDEARM: RequiredTerm = Term('sidearm', 'sodarm', 'sadarm') | (_SIDE + _ARM)
-SIDEARMS: RequiredTerm = Term('sidearms', 'sodarms', 'sadarms') | (_SIDE + _ARMS)
+SIDEARM: RequiredTerm = Term('sidearm', 'sodarm', 'sadarm', 'sad arm') | (_SIDE + _ARM)
+SIDEARMS: RequiredTerm = Term('sidearms', 'sodarms', 'sadarms', 'sad arms') | (_SIDE + _ARMS)
 LOADOUT: RequiredTerm = Term('loadout', 'load out', 'load up', 'ludo', 'loan out')
 LOADOUTS: RequiredTerm = Term('loadouts', 'load outs', 'loanouts', 'loan outs')
 STOP = Term('stop')
@@ -63,15 +64,14 @@ FALSE = Term('false', 'off') | ZERO
 WITH = Term('with')
 OPT_WITH_INCL: OptTerm = WITH.opt(include_in_speech=True)
 OPT_WITH_EXCL: OptTerm = WITH.opt(include_in_speech=False)
-SWITCHING_TO = WITH | Term('and', 'switching to', 'and switching to', 'and then switching to')
+AND = Term('and', 'an', 'any')
+SWITCHING_TO = Term('switching to', 'and switching to', 'and then switching to')
 SIDEARM_OPT_OF = SIDEARM + Term('of').opt()
-WITH_SIDEARM = (SWITCHING_TO + SIDEARM_OPT_OF) | SIDEARM_OPT_OF
+WITH_SIDEARM = AND | (AND | SIDEARM) | ((WITH | SWITCHING_TO) + SIDEARM_OPT_OF) | SIDEARM_OPT_OF
 MAIN = Term('main', 'may', 'name', 'primary')
 _THE_SAME = Term('the').opt() + Term('same')
 THE_SAME_SIDEARM: RequiredTerm = _THE_SAME + SIDEARM
 THE_SAME_MAIN_WEAPON: RequiredTerm = (_THE_SAME + (MAIN | WEAPON | (MAIN + WEAPON)))
-REVERSED = Term('reversed', 'reverse', 'opposite', 'swapped', 'vice versa', 'a verse',
-                'the verse', 'averse', 'Verbermans', 'roofs')
 
 OR = Term('or')
 
@@ -109,7 +109,8 @@ FULLY_KITTED: RequiredTerm = (Term('fully', 'full').opt() + Term('kitted', 'kidd
                               Term('fully-kitted'))
 
 BOLT = Term('bolt')
-SHOTGUN_BOLT = Term('shotgun').opt() + BOLT
+SHOTGUN = Term('shotgun')
+SHOTGUN_BOLT = SHOTGUN.opt() + BOLT
 ALL_BOLT_TERMS = _create_level_terms(SHOTGUN_BOLT, Term('no-bolt'))
 
 SMG = Term('SMG')
@@ -138,13 +139,15 @@ TURBOCHARGER = Term(
     'Turbocharger', 'dipper charger', 'gerber charger', 'to a charger', 'turbo charger',
     'temperature', 'timber charger', 'supercharger', 'derpacharger', 'double charger',
     'There we are Roger', 'terroir charger', 'to butch rogers', 'gibber-chatter')
-EVA_8 = Term(
-    'EVA-8', 'either eat', 'e-rate', 'eve at 8', 'eva 8', 'ebay', 'you\'re right', 'you bait',
-    'ev8', 'eva', 'you ate', 'evade', 'eva8', 'E-V-A-T-E', 'ebate', 'you wait', 'ewait', 'evate',
-    'eat the eat', 'you may', 'if a', 'every', 'elley')
+_EVA = Term('eva', 'you', 'eat the', 'if a', 'either', 'ebay', 'you\'re', 'eve at', 'eve',
+            'of the')
+EVA_8 = (Term('eva 8', 'eva', 'e-rate', 'ebay', 'ev8', 'eva', 'evade', 'eva8', 'E-V-A-T-E', 'ebate',
+              'ewait', 'evate', 'if a', 'every', 'elley', 'EVEE') |
+         (_EVA + SHOTGUN) |
+         (_EVA + EIGHT))
 FLATLINE = Term(
     'Flatline', 'flat line', 'fly line', 'da-von', 'well then', 'batman', 'that one', 'it\'s fine',
-    'that line', 'it\'s not mine', 'flatlined', 'plant line'
+    'that line', 'it\'s not mine', 'flatlined', 'plant line', 'Flatlock'
     # Also sounds like "Prowler": 'bye-bye'
 )
 G7_SCOUT = Term(
@@ -155,6 +158,7 @@ G7_SCOUT = Term(
     'let\'s go', 'ciao')
 HAVOC = Term(
     'havoc', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC', 'epic'
+                                                                                              'Hathic'
     # Also sounds like "Hammerpoint": 'have a good one',
 )
 HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',

@@ -2,7 +2,7 @@ import itertools
 import logging
 import os
 from types import MappingProxyType
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Generator, Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -176,33 +176,27 @@ class LoadoutComparator:
 
     def get_best_loadouts(self,
                           weapons: Tuple[Weapon],
-                          max_num_loadouts: Optional[int] = None) -> Tuple[FullLoadout, ...]:
-        check_tuple(Weapon, weapons=weapons)
+                          max_num_loadouts: Optional[int] = None) -> \
+            Generator[FullLoadout, None, None]:
+        check_tuple(Weapon, allow_empty=False, weapons=weapons)
         check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
 
         weapons_set = set(weapons)
+        max_max_num_loadouts = len(weapons_set) - FullLoadout.NUM_WEAPONS + 1
         if max_num_loadouts is None:
-            max_num_loadouts = len(weapons_set)
+            max_num_loadouts = max_max_num_loadouts
         else:
-            max_num_loadouts = min(len(weapons_set), max_num_loadouts)
-        best_loadouts_and_terms: list[FullLoadout] = []
+            max_num_loadouts = min(max_max_num_loadouts, max_num_loadouts)
 
-        while len(best_loadouts_and_terms) < max_num_loadouts:
-            best_loadout, best_score = self._get_best_loadout(main_weapons=weapons_set,
-                                                              sidearms=weapons_set)
-            weapon = best_loadout.get_main_weapon()
-            weapons_set.remove(weapon)
+        num_loadouts = 0
+        while num_loadouts < max_num_loadouts:
+            best_loadout = self._compare_loadouts_containing_only(weapons_set)
+            weapons_set.remove(best_loadout.get_main_weapon())
 
-            best_loadouts_and_terms.append(best_loadout)
+            yield best_loadout
+            num_loadouts += 1
 
-        return tuple(best_loadouts_and_terms)
-
-    def _get_best_loadout(self,
-                          main_weapons: Iterable[Weapon],
-                          sidearms: Iterable[Weapon]) -> Tuple[FullLoadout, float]:
-        loadouts = tuple(
-            main_loadout.add_sidearm(sidearm)
-            for main_weapon in main_weapons
-            for main_loadout in main_weapon.get_main_loadout_variants()
-            for sidearm in sidearms)
-        return self.compare_loadouts(loadouts).get_best_loadout()
+    def _compare_loadouts_containing_only(self, weapons: Iterable[Weapon]) -> FullLoadout:
+        loadouts = tuple(FullLoadout.get_loadouts(weapons))
+        best_loadout, _ = self.compare_loadouts(loadouts).get_best_loadout()
+        return best_loadout
