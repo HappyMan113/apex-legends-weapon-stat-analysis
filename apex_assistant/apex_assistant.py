@@ -22,23 +22,29 @@ logger = logging.getLogger()
 
 def register_commands() -> CommandRegistry:
     # Load everything in.
-    self_path = os.path.dirname(__file__)
+    user_data_path = os.path.join(os.getenv('APPDATA'), 'Apex Assistant')
+    if not os.path.exists(user_data_path):
+        os.mkdir(user_data_path)
+    elif not os.path.isdir(user_data_path):
+        raise IOError(f'{user_data_path} is not a directory!')
+
+    module_path = os.path.dirname(__file__)
 
     # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
     #  Active firing means counting one round period per round fired. i.e. You can multiply number
     #  of rounds fired with round period and add reload time if you're in the open when reloading.
-    ttks_filename = os.path.join(self_path, 'historic_ttks.csv')
+    ttks_filename = os.path.join(module_path, 'historic_ttks.csv')
     with open(ttks_filename, encoding='utf-8-sig') as fp:
         dr = TTKCsvReader(fp)
         ttk_entries = tuple(dr)
     comparator = LoadoutComparator(ttk_entries)
 
-    apex_stats_filename = os.path.join(self_path, 'weapon_stats.csv')
+    apex_stats_filename = os.path.join(module_path, 'weapon_stats.csv')
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:
         dr = WeaponCsvReader(fp)
         weapons: Tuple[WeaponArchetypes, ...] = WeaponArchetypes.group_archetypes(dr)
 
-    apex_config_filename = os.path.join(self_path, 'apex_config.json')
+    apex_config_filename = os.path.join(user_data_path, 'config.json')
     apex_config = ApexConfig.load(apex_config_filename)
     translator = LoadoutTranslator(weapon_archetypes=weapons, apex_config=apex_config)
 

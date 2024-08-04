@@ -121,7 +121,7 @@ THIRTY_THIRTY_REPEATER = \
 _BOW = Term('bow', 'both', 'bo', 'bill')
 _CHECK = Term('check', 'checks')
 BOCEK = Term('bowcheck', 'Bocek', 'Bochek', 'bocheck', 'bo-check', 'bochek\'s') | (_BOW + _CHECK)
-CAR = Term('car', 'C.A.R.', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG')
+CAR = Term('car', 'C.A.R.', 'TARG', 'cut', 'tar', 'sorry', 'tower', 'tart', 'CAR-SMG', 'carr')
 CARE_PACKAGE_OPT: OptTerm = Term('care package', 'supply drop').opt()
 ALTERNATOR = Term('Alternator', 'I don\'t need her', 'I\'ll do neither')
 CHARGE_RIFLE = Term('Charge Rifle', 'charger full', 'charged rifle', 'Ciao Dreffel', 'charger')
@@ -227,7 +227,7 @@ R99 = \
           'arlington nine', 'Ardena 9') |
      (_R.opt() + Term('99', '89')))
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
-              'R.I.P.', 'round')
+              'R.I.P.', 'round', 'overclocked')
 RE_45 = Term('are e forty five', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45',
              'are you 45', 'R8-45', 'R445', 'RE 45', 'RE45', 'R. 45', 'R.A.45', 'R.E.45',
              'R.A. 45', 'R.E. 45', 'R.E.45', 'RIA-45', 'r a forty five', 'R435')
