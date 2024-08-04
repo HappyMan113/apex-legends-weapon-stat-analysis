@@ -157,8 +157,8 @@ G7_SCOUT = Term(
     'she\'s having a scowl', 'd7', 'you seven', 'This is XanathScout', 'G-Zone Scout',
     'let\'s go', 'ciao')
 HAVOC = Term(
-    'havoc', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC', 'epic'
-                                                                                              'Hathic'
+    'havoc', 'have it', 'add it', 'have a', 'evoke', 'have a look', 'avok', 'havok', 'HAPIC',
+    'epic', 'Hathic'
     # Also sounds like "Hammerpoint": 'have a good one',
 )
 HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',
