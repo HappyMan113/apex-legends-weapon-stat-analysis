@@ -25,6 +25,7 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               SIDEARM,
                                               SINGLE_SHOT,
                                               SKIPPED, WITH_SIDEARM)
+from apex_assistant.speech.suffix import Suffix, SuffixedArchetypeType
 from apex_assistant.speech.term import RequiredTerm, TermBase, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.speech.translations import TranslatedValue
@@ -970,7 +971,7 @@ class WeaponArchetype:
     def __init__(self,
                  name: str,
                  base_term: RequiredTerm,
-                 hopup_suffix: Optional[TermBase],
+                 suffix: Optional[Suffix],
                  weapon_class: WeaponClass,
                  eighty_percent_accuracy_range: int,
                  damage_body: float,
@@ -980,11 +981,13 @@ class WeaponArchetype:
                  spinup: RoundTiming,
                  heat_based: bool,
                  associated_legend: Optional[Legend]):
+        check_type(Suffix, optional=True, suffix=suffix)
+
         self.name = name
         self.base_term = base_term
-        self.hopup_suffix = hopup_suffix
-        self.full_term: RequiredTerm = ((base_term + hopup_suffix)
-                                        if hopup_suffix is not None
+        self.suffix = suffix
+        self.full_term: RequiredTerm = ((base_term + suffix.get_term())
+                                        if suffix is not None
                                         else base_term)
         self.weapon_class = weapon_class
         self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
@@ -1049,8 +1052,8 @@ class WeaponArchetype:
     def get_base_term(self) -> RequiredTerm:
         return self.base_term
 
-    def get_hopup_suffix(self) -> Optional[TermBase]:
-        return self.hopup_suffix
+    def get_suffix(self) -> Optional[Suffix]:
+        return self.suffix
 
     def get_term(self) -> RequiredTerm:
         return self.full_term
@@ -1141,25 +1144,35 @@ class WeaponArchetypes:
                 'Both weapon archetypes must have the same required legend '
                 f'({associated_legend} != {suffixed_archetype.get_associated_legend()}).')
         else:
-            hopup_term = suffixed_archetype.get_hopup_suffix()
-            if hopup_term is None:
-                raise ValueError('with_hopup_archetype must have a hopup suffix.')
-            suffix_finder = SingleTermFinder(hopup_term)
-            suffix_finder_and_archetype = suffix_finder, suffixed_archetype
+            suffix = suffixed_archetype.get_suffix()
+            if suffix is None:
+                raise ValueError('with_hopup_archetype must have a suffix.')
+            suffix_finder_and_archetype = suffix, suffixed_archetype
 
         self._base_archetype = base_archetype
-        self._suffix_finder_and_archetype = suffix_finder_and_archetype
+        self._suffix_and_archetype = suffix_finder_and_archetype
 
-        if suffixed_archetype is None:
-            base_is_best = True
-        else:
-            base_is_best = (base_archetype.get_best_weapon().get_damage_per_second_body() >
-                            suffixed_archetype.get_best_weapon().get_damage_per_second_body())
+        base_is_best = (suffixed_archetype is None or
+                        (base_archetype.get_best_weapon().get_damage_per_second_body() >
+                         suffixed_archetype.get_best_weapon().get_damage_per_second_body()))
 
-        self._base_is_best = base_is_best
         self._best_archetype = base_archetype if base_is_best else suffixed_archetype
         self._base_term = base_term
         self._associated_legend = associated_legend
+
+        fully_kitted_archetypes = []
+        if suffix_finder_and_archetype is not None:
+            suffix, _ = self._suffix_and_archetype
+            fully_kitted_archetypes.append(suffixed_archetype)
+            suffix_is_hopped_up = suffix.get_type() is SuffixedArchetypeType.HOPPED_UP
+        else:
+            suffix_is_hopped_up = False
+        if not suffix_is_hopped_up:
+            if base_is_best:
+                fully_kitted_archetypes.insert(0, base_archetype)
+            else:
+                fully_kitted_archetypes.append(base_archetype)
+        self._fully_kitted_archetypes = tuple(fully_kitted_archetypes)
 
     def get_associated_legend(self) -> Optional[Legend]:
         return self._associated_legend
@@ -1171,32 +1184,23 @@ class WeaponArchetypes:
         if overall_level in (OverallLevel.FULLY_KITTED, OverallLevel.LEVEL_3):
             return self._best_archetype
 
-        suffix_finder_and_archetype = self._suffix_finder_and_archetype
+        suffix_finder_and_archetype = self._suffix_and_archetype
         if suffix_finder_and_archetype is None:
             return self._base_archetype
 
-        suffix_finder, suffixed_archetype = suffix_finder_and_archetype
-        if suffix_finder.find_all(words):
+        suffix, suffixed_archetype = suffix_finder_and_archetype
+        if SingleTermFinder(suffix.get_term()).find_all(words):
             return suffixed_archetype
 
         return self._base_archetype
 
-    def _get_archetypes(self) -> Iterable[WeaponArchetype]:
-        archetypes = []
-        if self._suffix_finder_and_archetype is not None:
-            _, suffixed_archetype = self._suffix_finder_and_archetype
-            archetypes.append(suffixed_archetype)
-        archetypes.append(self._base_archetype)
-
-        if self._base_is_best:
-            archetypes = archetypes[::-1]
-        return archetypes
-
     def get_base_term(self) -> RequiredTerm:
         return self._base_term
 
-    def get_fully_kitted_weapon(self, legend: Optional[Legend] = None) -> Weapon:
-        return self._best_archetype.get_best_weapon(legend=legend)
+    def get_fully_kitted_weapons(self, legend: Optional[Legend] = None) -> \
+            Generator[Weapon, None, None]:
+        for archetype in self._fully_kitted_archetypes:
+            yield archetype.get_best_weapon(legend=legend)
 
     def get_best_match(self,
                        words: Words,
@@ -1217,7 +1221,7 @@ class WeaponArchetypes:
         for archetype in archetypes:
             check_type(WeaponArchetype, archetype=archetype)
             base_term = archetype.get_base_term()
-            hopup_suffix = archetype.get_hopup_suffix()
+            hopup_suffix = archetype.get_suffix()
             if hopup_suffix is None:
                 if base_term in base_archetypes:
                     raise RuntimeError(

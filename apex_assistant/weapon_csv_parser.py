@@ -11,15 +11,14 @@ from typing import (Any,
                     Tuple,
                     Type,
                     TypeAlias,
-                    TypeVar,
-                    Union)
+                    TypeVar)
 
 from apex_assistant.checker import check_type
 from apex_assistant.legend import Legend
 from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT
-from apex_assistant.speech.term import OptTerm, RequiredTerm, TermBase, Words
+from apex_assistant.speech.suffix import Suffix
+from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
-from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import (MagazineCapacities,
                                    MagazineCapacity,
                                    RoundTiming,
@@ -40,7 +39,7 @@ from apex_assistant.weapon_class import WeaponClass
 
 logger = logging.getLogger()
 T = TypeVar('T')
-_SUFFIX_T: TypeAlias = Optional[TermBase]
+_SUFFIX_T: TypeAlias = Optional[Suffix]
 
 
 class CsvReader(Generic[T]):
@@ -158,20 +157,22 @@ class CsvRow:
         return ','.join(map(str, self.row_dict.values()))
 
 
-class TTKCsvReader(CsvReader[TTKDatum]):
-    KEY_CLIP = 'Clip of classic blunder'
-    KEY_FRAMES_TO_KILL = 'Frames to Kill'
-    KEY_FPS = 'FPS'
+class TTKCsvReader(CsvReader[float]):
+    KEY_START_FRAME = 'Start Frame'
+    KEY_STOP_FRAME = 'Stop Frame'
+    KEY_PAUSE_FRAMES = 'Pause Frames'
+    KEY_FRAMES_PER_SECOND = 'FPS'
 
-    def _parse_item(self, item: CsvRow) -> TTKDatum:
-        try:
-            clip_name = item.parse_str(self.KEY_CLIP)
-        except KeyError:
-            clip_name = None
-        frames_to_kill = item.parse_int(self.KEY_FRAMES_TO_KILL)
-        fps = item.parse_float(self.KEY_FPS)
+    def _parse_item(self, item: CsvRow) -> float:
+        start_frame = item.parse_int(self.KEY_START_FRAME)
+        stop_frame = item.parse_int(self.KEY_STOP_FRAME)
+        pause_frames = item.parse_int(self.KEY_PAUSE_FRAMES, default_value=0)
+        frames_to_kill = stop_frame - start_frame - pause_frames
+
+        fps = item.parse_float(self.KEY_FRAMES_PER_SECOND)
         ttk_seconds = frames_to_kill / fps
-        return TTKDatum(clip_name, ttk_seconds)
+
+        return ttk_seconds
 
 
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
@@ -210,10 +211,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_FULL_RELOAD_TIME_LEVEL_3 = 'Full Reload Time (level 3)'
     KEY_HEAT_BASED = 'Heat Based'
 
-    _ARCHETYPES_TRANSLATOR = Translator[Optional[SingleTermFinder]]({
-        term: (SingleTermFinder(suffix) if suffix is not None else None)
-        for term, suffix in ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT.items()
-    })
+    _ARCHETYPES_TRANSLATOR = Translator[_SUFFIX_T](ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT)
 
     def __init__(self, fp: IO):
         super().__init__(fp)
@@ -226,25 +224,26 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         result: Optional[Tuple[RequiredTerm, _SUFFIX_T]] = None
         for translated_term in WeaponCsvReader._ARCHETYPES_TRANSLATOR.translate_terms(name):
             suffix = translated_term.get_value()
-            if suffix is not None and suffix.find_all(translated_term.get_following_words()):
+            if (suffix is not None and
+                    SingleTermFinder(suffix.get_term()).find_all(
+                        translated_term.get_following_words())):
                 if result is not None:
                     logger.warning(f'More than one term for weapon archetype {name} found. We\'ll '
                                    'assume that the first one is right.')
                     return result
 
-                result = translated_term.get_term(), suffix.get_term()
+                result = translated_term.get_term(), suffix
 
             if result is None:
                 result = translated_term.get_term(), None
 
         if result is None:
-            raise RuntimeError(f'No term found for weapon archetype: {name}. Speech-to-text '
-                               'will not work for it.')
+            raise RuntimeError(f'No term found for weapon archetype: {name}. Speech-to-text will '
+                               'not work for it.')
 
         return result
 
-    def _parse_weapon_archetype_term(self, item: CsvRow) -> \
-            tuple[str, RequiredTerm, Optional[Union[RequiredTerm, OptTerm]]]:
+    def _parse_weapon_archetype_term(self, item: CsvRow) -> tuple[str, RequiredTerm, Suffix]:
         # Figure out what term matches the weapon name.
         read_name = item.parse_str(self.KEY_WEAPON_ARCHETYPE)
         name_words = Words(read_name)
@@ -456,7 +455,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         return WeaponArchetype(name=name,
                                base_term=term,
-                               hopup_suffix=suffix,
+                               suffix=suffix,
                                weapon_class=weapon_class,
                                eighty_percent_accuracy_range=eighty_percent_accuracy_range,
                                damage_body=damage_body,

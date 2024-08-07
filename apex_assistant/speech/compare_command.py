@@ -48,7 +48,7 @@ class CompareCommand(ApexCommand):
         audible_name = self._make_audible(best_loadout, uniqueness=uniqueness)
 
         if len(loadouts) == 2:
-            second_best_weapon, second_best_score = comparison_result.get_nth_best_weapon(2)
+            second_best_weapon, second_best_score = comparison_result.get_nth_best_loadout(2)
             second_audible_name = self._make_audible(second_best_weapon, uniqueness=uniqueness)
             better_percentage = round(((score / second_best_score) - 1) * 100)
             return (f'{audible_name} is {better_percentage} percent better than '

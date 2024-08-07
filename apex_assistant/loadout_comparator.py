@@ -7,7 +7,6 @@ from typing import Generator, Iterable, Optional, Sequence, Tuple
 import numpy as np
 
 from apex_assistant.checker import check_int, check_tuple, check_type
-from apex_assistant.ttk_datum import TTKDatum
 from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
 
 logger = logging.getLogger()
@@ -49,9 +48,9 @@ class ComparisonResult:
         return self.sorted_weapons
 
     def get_best_loadout(self) -> tuple[FullLoadout, float]:
-        return self.get_nth_best_weapon(1)
+        return self.get_nth_best_loadout(1)
 
-    def get_nth_best_weapon(self, n_one_indexed: int) -> tuple[FullLoadout, float]:
+    def get_nth_best_loadout(self, n_one_indexed: int) -> tuple[FullLoadout, float]:
         assert n_one_indexed >= 1
         n_one_indexed = min(n_one_indexed, len(self.sorted_weapons))
         return list(itertools.islice(self.sorted_weapons.items(), n_one_indexed))[-1]
@@ -80,10 +79,10 @@ class ComparisonResult:
 
 
 class LoadoutComparator:
-    def __init__(self, ttk_entries: tuple[TTKDatum, ...]):
-        check_tuple(TTKDatum, ttk_entries=ttk_entries)
+    def __init__(self, ttks: Tuple[float, ...]):
+        check_tuple((float, int), ttks=ttks)
 
-        ttks = np.array(list(map(float, ttk_entries)))
+        ttks = np.array(ttks)
         ttks.sort()
         self.ttks = ttks
 

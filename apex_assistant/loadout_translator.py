@@ -111,11 +111,15 @@ class LoadoutTranslator:
 
             overall_level = self.get_overall_level(translated_value.get_untranslated_words())
 
-    def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
+    def iget_fully_kitted_weapons(self) -> Generator[Weapon, None, None]:
         legend = self.get_legend()
-        return tuple(weapon_archetypes.get_fully_kitted_weapon(legend)
-                     for weapon_archetypes in self._weapon_archetypes
-                     if self._legend_fits_archetypes(weapon_archetypes))
+        return (fully_kitted_weapon
+                for weapon_archetypes in self._weapon_archetypes
+                if self._legend_fits_archetypes(weapon_archetypes)
+                for fully_kitted_weapon in weapon_archetypes.get_fully_kitted_weapons(legend))
+
+    def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
+        return tuple(self.iget_fully_kitted_weapons())
 
     def get_fully_kitted_loadouts(self) -> Tuple[FullLoadout, ...]:
         weapons = self.get_fully_kitted_weapons()
@@ -175,11 +179,12 @@ class LoadoutTranslator:
 
     def get_loadouts_with_other_fully_kitted(self, either_slot_weapon: Weapon) -> \
             Generator[FullLoadout, None, None]:
+        fully_kitted_weapons = self.get_fully_kitted_weapons()
         for main_loadout in either_slot_weapon.get_main_loadout_variants():
-            for sidearm in self.get_fully_kitted_weapons():
+            for sidearm in fully_kitted_weapons:
                 yield FullLoadout(main_loadout, sidearm)
 
-        for main_weapon in self.get_fully_kitted_weapons():
+        for main_weapon in fully_kitted_weapons:
             for main_loadout in main_weapon.get_main_loadout_variants():
                 yield FullLoadout(main_loadout, either_slot_weapon)
 
@@ -431,7 +436,7 @@ class WeaponClassParser(_WeaponParser):
         super().__init__(weapon_class.get_term())
 
         weapons_of_class = tuple(weapon
-                                 for weapon in loadout_translator.get_fully_kitted_weapons()
+                                 for weapon in loadout_translator.iget_fully_kitted_weapons()
                                  if weapon.get_weapon_class() is weapon_class)
         weapon_set = frozenset(weapons_of_class)
         if len(weapon_set) < len(weapons_of_class):

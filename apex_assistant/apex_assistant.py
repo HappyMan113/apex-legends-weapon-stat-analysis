@@ -33,7 +33,7 @@ def register_commands() -> CommandRegistry:
     # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
     #  Active firing means counting one round period per round fired. i.e. You can multiply number
     #  of rounds fired with round period and add reload time if you're in the open when reloading.
-    ttks_filename = os.path.join(module_path, 'historic_ttks.csv')
+    ttks_filename = os.path.join(module_path, 'historic_ttffs.csv')
     with open(ttks_filename, encoding='utf-8-sig') as fp:
         dr = TTKCsvReader(fp)
         ttk_entries = tuple(dr)

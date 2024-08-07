@@ -1,7 +1,8 @@
 from types import MappingProxyType
-from typing import Optional, TypeAlias, Union
+from typing import TypeAlias
 
-from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term, TermBase
+from apex_assistant.speech.suffix import Suffix, SuffixedArchetypeType
+from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term
 
 
 def _create_level_terms(attachment_base_name: RequiredTerm,
@@ -42,7 +43,7 @@ NUMBER_TERMS = (ZERO,
                 IntTerm(9, 'nine'),
                 IntTerm(10, 'ten'))
 COMPARE = Term('compare', 'which is better', 'which weapon is better', 'which one is better',
-               'what\'s better', 'air', 'bear', 'compared')
+               'what\'s better', 'air', 'bear', 'compared', 'can bear', 'can bare')
 _BEST = Term('best', 'that\'s', 'this', 'this is', 'test', 'miss')
 BEST = _BEST | _BEST + Term('the')
 CREATE_SUMMARY_REPORT = Term('create summary report')
@@ -246,45 +247,46 @@ BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
 SHEILA = Term('Sheila', 'CELA', 'Sila')
 
-_T: TypeAlias = MappingProxyType[RequiredTerm, Union[Optional[TermBase], Optional[TermBase]]]
+_T: TypeAlias = MappingProxyType[RequiredTerm: Suffix | None]
 ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
-    THIRTY_THIRTY_REPEATER: SLOW,
-    ALTERNATOR: DISRUPTOR,
+    THIRTY_THIRTY_REPEATER: Suffix(SLOW, SuffixedArchetypeType.SLOW),
+    ALTERNATOR: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
-    # BOCEK: (MINIMAL_DRAW.opt(),
+    # BOCEK, (MINIMAL_DRAW.opt(, SuffixedArchetypeType.SLOW,
     #         DRAWN,
     #         SHATTER_CAPS + OPT_WITH_INCL + MINIMAL_DRAW,
     #         SHATTER_CAPS + DRAWN),
-    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): MINIMAL_DRAW,
+    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): Suffix(MINIMAL_DRAW,
+                                                            SuffixedArchetypeType.SLOW),
     CAR.append(SMG_OPT): None,
     CHARGE_RIFLE: None,
     # Devotion is in the care package right now.
-    # DEVOTION: TURBOCHARGER,
+    # DEVOTION, (TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
     DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
-    # EVA_8: None,
+    # EVA_8,
     EVA_8.append_order_agnostic(CARE_PACKAGE_OPT): None,
     FLATLINE: None,
     G7_SCOUT: None,
-    HAVOC: TURBOCHARGER,
-    HEMLOCK: FIRE_MODE_SINGLE,
+    HAVOC: Suffix(TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
+    HEMLOCK: Suffix(FIRE_MODE_SINGLE, SuffixedArchetypeType.SLOW),
     KRABER: None,
     LONGBOW: None,
     L_STAR: None,
     MASTIFF: None,
-    MOZAMBIQUE: HAMMERPOINT,
-    NEMESIS: CHARGED,
-    P2020: HAMMERPOINT,
-    PEACEKEEPER: DISRUPTOR,
+    MOZAMBIQUE: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
+    NEMESIS: Suffix(CHARGED, SuffixedArchetypeType.REVVED_UP),
+    P2020: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
+    PEACEKEEPER: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
     PROWLER: None,
     R301_CARBINE: None,
     R99: None,
-    RAMPAGE: REVVED,
-    RE_45: HAMMERPOINT,
-    SENTINEL: AMPED,
+    RAMPAGE: Suffix(REVVED, SuffixedArchetypeType.REVVED_UP),
+    RE_45: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
+    SENTINEL: Suffix(AMPED, SuffixedArchetypeType.REVVED_UP),
     SPITFIRE: None,
     TRIPLE_TAKE: None,
     VOLT.append(SMG_OPT): None,
-    WINGMAN: BOOSTED_LOADER,
-    SHEILA: None,
+    WINGMAN: Suffix(BOOSTED_LOADER, SuffixedArchetypeType.HOPPED_UP),
+    SHEILA: None
 })
