@@ -19,6 +19,7 @@ highest expected average damage ser second in close quarters combat.
         - [S20 patch notes](https://www.ea.com/games/apex-legends/news/breakout-patch-notes)
         - [S21 patch notes](https://www.ea.com/games/apex-legends/news/upheaval-patch-notes)
         - [S21 mid-season patch notes](https://www.ea.com/games/apex-legends/news/double-take-collection-event)
+        - [S22 patch notes](https://www.ea.com/games/apex-legends/news/shockwave-patch-notes)
         - [Reddit comment with the new G7 Scout fire rate](https://www.reddit.com/r/apexlegends/comments/1dwbf4o/comment/lbtsc84/)
     - Reload times are assumed to be tactical reload times with only 1 bullet left in the magazine.
     - Swap times were calculated as "Holster Time" + "Ready to Fire" time that I calculated from my

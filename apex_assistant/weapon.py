@@ -3,7 +3,8 @@ import logging
 import math
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Dict, Generator, Generic, Iterable, Optional, Tuple, TypeVar, Union, final
+from typing import Dict, Generator, Generic, Iterable, List, Optional, Tuple, TypeVar, \
+    Union, final
 
 import numpy as np
 
@@ -12,7 +13,7 @@ from apex_assistant.checker import (check_bool,
                                     check_float,
                                     check_int,
                                     check_str,
-                                    check_type,
+                                    check_tuple, check_type,
                                     to_kwargs)
 from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
@@ -986,8 +987,7 @@ class WeaponArchetype:
         self.name = name
         self.base_term = base_term
         self.suffix = suffix
-        self.full_term: RequiredTerm = ((base_term + suffix.get_term())
-                                        if suffix is not None
+        self.full_term: RequiredTerm = (base_term.append(*suffix.get_terms()) if suffix is not None
                                         else base_term)
         self.weapon_class = weapon_class
         self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
@@ -1124,55 +1124,66 @@ class WeaponArchetype:
                                   legend=legend)
         return TranslatedValue(weapon, words)
 
+    @staticmethod
+    def find_suffix(suffix: Suffix, words: Words):
+        check_type(Suffix, suffix=suffix)
+        check_type(Words, words=words)
+        return all(SingleTermFinder(term).find_all(words) for term in suffix.get_terms())
+
 
 class WeaponArchetypes:
     def __init__(self,
                  base_archetype: WeaponArchetype,
-                 suffixed_archetype: Optional[WeaponArchetype]):
+                 suffixed_archetypes: Tuple[WeaponArchetype, ...]):
         check_type(WeaponArchetype, base_archetype=base_archetype)
-        check_type(WeaponArchetype, optional=True, suffixed_archetype=suffixed_archetype)
+        check_tuple(WeaponArchetype, suffixed_archetypes=suffixed_archetypes)
 
         base_term = base_archetype.get_base_term()
         associated_legend = base_archetype.get_associated_legend()
-        if suffixed_archetype is None:
-            suffix_finder_and_archetype = None
-        elif base_term != suffixed_archetype.get_base_term():
-            raise ValueError(f'Both weapon archetypes must have the same base term ('
-                             f'{repr(base_term)} != {repr(suffixed_archetype.get_base_term())}).')
-        elif associated_legend != suffixed_archetype.get_associated_legend():
-            raise ValueError(
-                'Both weapon archetypes must have the same required legend '
-                f'({associated_legend} != {suffixed_archetype.get_associated_legend()}).')
-        else:
-            suffix = suffixed_archetype.get_suffix()
-            if suffix is None:
+
+        for suffixed_archetype in suffixed_archetypes:
+            if base_term != suffixed_archetype.get_base_term():
+                raise ValueError(
+                    f'Both weapon archetypes must have the same base term ('
+                    f'{repr(base_term)} != {repr(suffixed_archetype.get_base_term())}).')
+
+            if associated_legend != suffixed_archetype.get_associated_legend():
+                raise ValueError(
+                    'Both weapon archetypes must have the same required legend '
+                    f'({associated_legend} != {suffixed_archetype.get_associated_legend()}).')
+
+            if suffixed_archetype.get_suffix() is None:
                 raise ValueError('with_hopup_archetype must have a suffix.')
-            suffix_finder_and_archetype = suffix, suffixed_archetype
+
+        suffixes_and_archetypes: Tuple[Tuple[Suffix, WeaponArchetype], ...] = \
+            tuple(sorted(((suffixed_archetype.get_suffix(), suffixed_archetype)
+                          for suffixed_archetype in suffixed_archetypes),
+                         key=lambda suffix_and_archetype: len(suffix_and_archetype[0]),
+                         reverse=True))
 
         self._base_archetype = base_archetype
-        self._suffix_and_archetype = suffix_finder_and_archetype
+        self._suffixes_and_archetypes = suffixes_and_archetypes
 
-        base_is_best = (suffixed_archetype is None or
-                        (base_archetype.get_best_weapon().get_damage_per_second_body() >
-                         suffixed_archetype.get_best_weapon().get_damage_per_second_body()))
+        all_archetypes = (base_archetype,) + suffixed_archetypes
+        sort_key = lambda a: a.get_best_weapon().get_damage_per_second_body()
 
-        self._best_archetype = base_archetype if base_is_best else suffixed_archetype
+        self._best_archetype = max(all_archetypes, key=sort_key)
         self._base_term = base_term
         self._associated_legend = associated_legend
 
-        fully_kitted_archetypes = []
-        if suffix_finder_and_archetype is not None:
-            suffix, _ = self._suffix_and_archetype
-            fully_kitted_archetypes.append(suffixed_archetype)
-            suffix_is_hopped_up = suffix.get_type() is SuffixedArchetypeType.HOPPED_UP
-        else:
-            suffix_is_hopped_up = False
-        if not suffix_is_hopped_up:
-            if base_is_best:
-                fully_kitted_archetypes.insert(0, base_archetype)
-            else:
-                fully_kitted_archetypes.append(base_archetype)
-        self._fully_kitted_archetypes = tuple(fully_kitted_archetypes)
+        any_suffix_is_hopped_up = any(self.is_hopped_up_suffix(suffix)
+                                      for suffix, _ in suffixes_and_archetypes)
+        fully_kitted_archetypes = [archetype for suffix, archetype in suffixes_and_archetypes]
+        if not any_suffix_is_hopped_up:
+            fully_kitted_archetypes.append(base_archetype)
+        self._fully_kitted_archetypes = tuple(sorted(fully_kitted_archetypes,
+                                                     key=sort_key,
+                                                     reverse=True))
+
+    @staticmethod
+    def is_hopped_up_suffix(suffix: Suffix):
+        check_type(Suffix, suffix=suffix)
+        return SuffixedArchetypeType.HOPPED_UP in suffix.get_types()
 
     def get_associated_legend(self) -> Optional[Legend]:
         return self._associated_legend
@@ -1184,13 +1195,9 @@ class WeaponArchetypes:
         if overall_level in (OverallLevel.FULLY_KITTED, OverallLevel.LEVEL_3):
             return self._best_archetype
 
-        suffix_finder_and_archetype = self._suffix_and_archetype
-        if suffix_finder_and_archetype is None:
-            return self._base_archetype
-
-        suffix, suffixed_archetype = suffix_finder_and_archetype
-        if SingleTermFinder(suffix.get_term()).find_all(words):
-            return suffixed_archetype
+        for suffix, suffixed_archetype in self._suffixes_and_archetypes:
+            if WeaponArchetype.find_suffix(suffix, words):
+                return suffixed_archetype
 
         return self._base_archetype
 
@@ -1216,7 +1223,7 @@ class WeaponArchetypes:
     def group_archetypes(archetypes: Iterable[WeaponArchetype]) -> \
             Tuple['WeaponArchetypes', ...]:
         base_archetypes: Dict[RequiredTerm, WeaponArchetype] = {}
-        suffixed_archetypes: Dict[RequiredTerm, WeaponArchetype] = {}
+        suffixed_archetypes: Dict[RequiredTerm, List[WeaponArchetype]] = {}
 
         for archetype in archetypes:
             check_type(WeaponArchetype, archetype=archetype)
@@ -1227,17 +1234,20 @@ class WeaponArchetypes:
                     raise RuntimeError(
                         f'Duplicate base weapon archetype base term found: {base_term}')
                 base_archetypes[base_term] = archetype
-            elif base_term in suffixed_archetypes:
+            elif base_term not in suffixed_archetypes:
+                suffixed_archetypes[base_term] = [archetype]
+            elif archetype in suffixed_archetypes[base_term]:
                 raise RuntimeError(
                     f'Duplicate suffixed weapon archetype base term found: {base_term}')
             else:
-                suffixed_archetypes[base_term] = archetype
+                suffixed_archetypes[base_term].append(archetype)
 
         archetype_groups: list[WeaponArchetypes] = []
         for base_term, base_archetype in base_archetypes.items():
-            suffixed_archetype = suffixed_archetypes.pop(base_term, None)
-            archetype_groups.append(WeaponArchetypes(base_archetype=base_archetype,
-                                                     suffixed_archetype=suffixed_archetype))
+            suffixed_archetypes_list = suffixed_archetypes.pop(base_term, [])
+            archetype_groups.append(WeaponArchetypes(
+                base_archetype=base_archetype,
+                suffixed_archetypes=tuple(suffixed_archetypes_list)))
 
         if len(suffixed_archetypes) > 0:
             raise RuntimeError(

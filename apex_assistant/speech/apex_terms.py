@@ -1,5 +1,4 @@
 from types import MappingProxyType
-from typing import TypeAlias
 
 from apex_assistant.speech.suffix import Suffix, SuffixedArchetypeType
 from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term
@@ -190,6 +189,8 @@ HAMMERPOINT = Term(
     'error point', 'airpoint', 'camera point', 'here I\'ll play it', 'him right point',
     'fair point', 'him our point', 'hear my point', 'your own point', 'hammer point',
     'hammer points', 'And we\'re playing', 'her point')
+AKIMBO = Term('akimbo', 'A Kimbo')
+AKIMBO_WITH_HAMMERPOINT = AKIMBO.append_order_agnostic(HAMMERPOINT)
 NEMESIS = Term(
     'Nemesis', 'and this is', 'now what\'s this', 'Namaste', 'messes', 'nervousness', 'yes',
     'gracias', 'there it is', 'no messes', 'and that\'s this', 'he misses', 'and that\'s just')
@@ -247,10 +248,14 @@ BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
 SHEILA = Term('Sheila', 'CELA', 'Sila')
 
-_T: TypeAlias = MappingProxyType[RequiredTerm: Suffix | None]
-ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
+_AKIMBO_SUFFIXES = (Suffix((HAMMERPOINT, AKIMBO),
+                           (SuffixedArchetypeType.AKIMBO, SuffixedArchetypeType.HOPPED_UP)),
+                    Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
+                    Suffix(AKIMBO, SuffixedArchetypeType.AKIMBO))
+ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT = MappingProxyType({
     THIRTY_THIRTY_REPEATER: Suffix(SLOW, SuffixedArchetypeType.SLOW),
-    ALTERNATOR: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
+    # ALTERNATOR: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
+    ALTERNATOR: None,
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
     # BOCEK, (MINIMAL_DRAW.opt(, SuffixedArchetypeType.SLOW,
@@ -264,8 +269,8 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
     # Devotion is in the care package right now.
     # DEVOTION, (TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
     DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
-    # EVA_8,
-    EVA_8.append_order_agnostic(CARE_PACKAGE_OPT): None,
+    # EVA_8: None,
+    EVA_8: Suffix(BOOSTED_LOADER, SuffixedArchetypeType.HOPPED_UP),
     FLATLINE: None,
     G7_SCOUT: None,
     HAVOC: Suffix(TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
@@ -274,13 +279,15 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT: _T = MappingProxyType({
     LONGBOW: None,
     L_STAR: None,
     MASTIFF: None,
-    MOZAMBIQUE: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
+    MOZAMBIQUE: _AKIMBO_SUFFIXES,
     NEMESIS: Suffix(CHARGED, SuffixedArchetypeType.REVVED_UP),
-    P2020: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
-    PEACEKEEPER: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
+    P2020: _AKIMBO_SUFFIXES,
+    # PEACEKEEPER: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
+    PEACEKEEPER: None,
     PROWLER: None,
     R301_CARBINE: None,
-    R99: None,
+    # R99: None,
+    R99.append_order_agnostic(CARE_PACKAGE_OPT): None,
     RAMPAGE: Suffix(REVVED, SuffixedArchetypeType.REVVED_UP),
     RE_45: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
     SENTINEL: Suffix(AMPED, SuffixedArchetypeType.REVVED_UP),

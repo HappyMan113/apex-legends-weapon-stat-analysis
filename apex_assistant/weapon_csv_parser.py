@@ -11,14 +11,14 @@ from typing import (Any,
                     Tuple,
                     Type,
                     TypeAlias,
-                    TypeVar)
+                    TypeVar, Union)
 
 from apex_assistant.checker import check_type
 from apex_assistant.legend import Legend
-from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT
+from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT
 from apex_assistant.speech.suffix import Suffix
 from apex_assistant.speech.term import RequiredTerm, Words
-from apex_assistant.speech.term_translator import SingleTermFinder, Translator
+from apex_assistant.speech.term_translator import Translator
 from apex_assistant.weapon import (MagazineCapacities,
                                    MagazineCapacity,
                                    RoundTiming,
@@ -39,7 +39,7 @@ from apex_assistant.weapon_class import WeaponClass
 
 logger = logging.getLogger()
 T = TypeVar('T')
-_SUFFIX_T: TypeAlias = Optional[Suffix]
+_SUFFIX_T: TypeAlias = Union[Suffix, Tuple[Suffix, ...]]
 
 
 class CsvReader(Generic[T]):
@@ -211,25 +211,31 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_FULL_RELOAD_TIME_LEVEL_3 = 'Full Reload Time (level 3)'
     KEY_HEAT_BASED = 'Heat Based'
 
-    _ARCHETYPES_TRANSLATOR = Translator[_SUFFIX_T](ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIX_DICT)
+    _ARCHETYPES_TRANSLATOR = Translator[_SUFFIX_T](ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT)
 
     def __init__(self, fp: IO):
         super().__init__(fp)
         self._taken_terms: dict[Tuple[RequiredTerm, _SUFFIX_T], str] = {}
 
     @staticmethod
-    def get_term_and_suffix(name: Words) -> Tuple[RequiredTerm, _SUFFIX_T]:
+    def get_term_and_suffix(name: Words) -> Tuple[RequiredTerm, Optional[Suffix]]:
         check_type(Words, name=name)
 
-        result: Optional[Tuple[RequiredTerm, _SUFFIX_T]] = None
+        result: Optional[Tuple[RequiredTerm, Optional[Suffix]]] = None
         for translated_term in WeaponCsvReader._ARCHETYPES_TRANSLATOR.translate_terms(name):
-            suffix = translated_term.get_value()
-            if (suffix is not None and
-                    SingleTermFinder(suffix.get_term()).find_all(
-                        translated_term.get_following_words())):
+            suffixes: _SUFFIX_T = translated_term.get_value()
+            if suffixes is None:
+                suffixes: _SUFFIX_T = tuple()
+            elif not isinstance(suffixes, tuple):
+                suffixes: _SUFFIX_T = (suffixes,)
+
+            for suffix in suffixes:
+                if not WeaponArchetype.find_suffix(suffix, translated_term.get_following_words()):
+                    continue
+
                 if result is not None:
-                    logger.warning(f'More than one term for weapon archetype {name} found. We\'ll '
-                                   'assume that the first one is right.')
+                    logger.debug(f'More than one term for weapon archetype {name} found. We\'ll '
+                                 'assume that the first one is right.')
                     return result
 
                 result = translated_term.get_term(), suffix
