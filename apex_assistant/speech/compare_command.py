@@ -6,7 +6,8 @@ from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_command import ApexCommand, Uniqueness
 from apex_assistant.speech.apex_terms import BEST, COMPARE, LOADOUT, LOADOUTS, MAIN, SIDEARM
-from apex_assistant.speech.term import Words
+from apex_assistant.speech.term import Term, Words
+from apex_assistant.speech.term_translator import SingleTermFinder
 from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
 
 
@@ -20,11 +21,15 @@ class CompareCommand(ApexCommand):
         super().__init__(term=COMPARE | (BEST + (LOADOUT | LOADOUTS)),
                          loadout_translator=loadout_translator,
                          loadout_comparator=loadout_comparator)
+        show = Term('show', 'so')
+        plots = Term('plots')
+        self._show_plots_finder = SingleTermFinder(show + plots)
 
     def _execute(self, arguments: Words) -> str:
         translator = self.get_translator()
         comparator = self.get_comparator()
         loadouts: Tuple[FullLoadout, ...] = tuple(translator.translate_full_loadouts(arguments))
+        show_plots = bool(self._show_plots_finder.find_all(arguments))
         unique_loadouts = set(loadouts)
         if len(unique_loadouts) < len(loadouts):
             LOGGER.warning('Duplicate weapons found. Only unique weapons will be compared.')
@@ -41,7 +46,7 @@ class CompareCommand(ApexCommand):
         else:
             uniqueness = self._get_uniqueness(loadouts)
 
-        comparison_result = comparator.compare_loadouts(loadouts)
+        comparison_result = comparator.compare_loadouts(loadouts, show_plots=show_plots)
         best_loadout, score = comparison_result.get_best_loadout()
 
         LOGGER.info(f'Comparison result: {comparison_result}')
