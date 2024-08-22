@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, TypeAlias
+from typing import Callable, Tuple, TypeAlias
 
 from apex_assistant.checker import check_type
 from apex_assistant.legend import Legend
@@ -28,9 +28,10 @@ class ConfigureCommand(ApexCommand):
             legend: self._parse_legend_term,
             log_level: self._parse_log_level_term,
         })
+        legends: Tuple[Legend, ...] = (Legend.RAMPART,)
         self._legend_translator = Translator[Legend]({
             Term(legend): legend
-            for legend in Legend
+            for legend in legends
         })
         self._log_level_translator: Translator[int] = Translator({
             Term('debug', 'verbose', 'trace'): logging.DEBUG,

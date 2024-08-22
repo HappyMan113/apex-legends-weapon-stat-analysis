@@ -1,8 +1,10 @@
 import logging
+import math
 import os
 import sys
 from typing import Tuple
 
+import numpy as np
 from pydub.utils import which
 
 from apex_assistant.loadout_comparator import LoadoutComparator
@@ -13,8 +15,9 @@ from apex_assistant.speech.compare_command import CompareCommand
 from apex_assistant.speech.configure_command import ConfigureCommand
 from apex_assistant.speech.create_summary_report_command import CreateSummaryReportCommand
 from apex_assistant.speech.speech_client import SpeechClient
+from apex_assistant.ttk_entry import Engagement
 from apex_assistant.weapon import WeaponArchetypes
-from apex_assistant.weapon_csv_parser import TTKCsvReader, WeaponCsvReader
+from apex_assistant.weapon_csv_parser import WeaponCsvReader
 
 
 logger = logging.getLogger()
@@ -33,11 +36,19 @@ def register_commands() -> CommandRegistry:
     # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
     #  Active firing means counting one round period per round fired. i.e. You can multiply number
     #  of rounds fired with round period and add reload time if you're in the open when reloading.
-    ttks_filename = os.path.join(module_path, 'historic_ttffs.csv')
-    with open(ttks_filename, encoding='utf-8-sig') as fp:
-        dr = TTKCsvReader(fp)
-        ttk_entries = tuple(dr)
-    comparator = LoadoutComparator(ttk_entries)
+    # engagements_filename = os.path.join(module_path, 'historic_ttffs.csv')
+    # with open(engagements_filename, encoding='utf-8-sig') as fp:
+    #     dr = EngagementCsvReader(fp)
+    #     engagements = tuple(dr)
+    log_base = 10
+    # noinspection PyTypeChecker
+    engagements: Tuple[Engagement, ...] = tuple(
+        Engagement(ttff_seconds=ttff, enemy_distance_meters=distance)
+        for ttff in np.linspace(0.1, 6, num=10)
+        for distance in (log_base **
+                         np.linspace(math.log(2, log_base), math.log(300, log_base), num=10))
+    )
+    comparator = LoadoutComparator(engagements)
 
     apex_stats_filename = os.path.join(module_path, 'weapon_stats.csv')
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:

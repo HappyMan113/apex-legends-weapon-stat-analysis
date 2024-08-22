@@ -555,11 +555,13 @@ class Loadout(abc.ABC):
         return self.name
 
     @abc.abstractmethod
-    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self,
+                                         time_seconds: float,
+                                         distance_meters: float) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -620,25 +622,33 @@ class FullLoadout(Loadout):
     def get_ready_to_fire_time_secs(self) -> float:
         return self.main_loadout.get_ready_to_fire_time_secs()
 
-    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self,
+                                         time_seconds: float,
+                                         distance_meters: float) -> float:
         main_total_duration_seconds = self.main_loadout.get_magazine_duration_seconds()
         cum_damage = self.main_loadout.get_single_mag_cumulative_damage(
-            min(time_seconds, main_total_duration_seconds))
+            min(time_seconds, main_total_duration_seconds),
+            distance_meters=distance_meters)
 
         swap_time_seconds = self.main_loadout.get_swap_time_seconds(self.sidearm)
         sidearm_start_time_seconds = main_total_duration_seconds + swap_time_seconds
         if time_seconds >= sidearm_start_time_seconds:
             time_seconds -= sidearm_start_time_seconds
-            cum_damage += self.sidearm.get_single_mag_cumulative_damage(time_seconds)
+            cum_damage += self.sidearm.get_single_mag_cumulative_damage(
+                time_seconds,
+                distance_meters=distance_meters)
 
         return cum_damage
 
     def _get_cumulative_damage(self,
                                reloading_loadout: 'SingleWeaponLoadout',
                                time_seconds: float,
+                               distance_meters: float,
                                swap_time_seconds: float = 0,
                                swapped: bool = False) -> float:
-        single_mag_cumulative_damage = self.get_single_mag_cumulative_damage(time_seconds)
+        single_mag_cumulative_damage = self.get_single_mag_cumulative_damage(
+            time_seconds,
+            distance_meters=distance_meters)
         reload_time_secs = reloading_loadout.get_weapon().get_tactical_reload_time_secs(swapped)
         if reload_time_secs is None:
             raise ValueError('Reloading loadout must be reloadable.')
@@ -651,9 +661,10 @@ class FullLoadout(Loadout):
             return single_mag_cumulative_damage
 
         return (single_mag_cumulative_damage +
-                reloading_loadout.get_cumulative_damage(time_seconds - reload_stop_time_seconds))
+                reloading_loadout.get_cumulative_damage(time_seconds - reload_stop_time_seconds,
+                                                        distance_meters=distance_meters))
 
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
         check_float(min_value=0, time_seconds=time_seconds)
         reloading_loadout_config = self._reloading_loadout_config
         if reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN:
@@ -661,12 +672,15 @@ class FullLoadout(Loadout):
                 reloading_loadout=self.main_loadout,
                 time_seconds=time_seconds,
                 swap_time_seconds=self.sidearm.get_swap_time_seconds(self.main_loadout),
-                swapped=True)
+                swapped=True,
+                distance_meters=distance_meters)
         elif reloading_loadout_config is _ReloadConfiguration.RELOAD_SIDEARM:
             return self._get_cumulative_damage(reloading_loadout=self.sidearm,
-                                               time_seconds=time_seconds)
+                                               time_seconds=time_seconds,
+                                               distance_meters=distance_meters)
         else:
-            return self.get_single_mag_cumulative_damage(time_seconds)
+            return self.get_single_mag_cumulative_damage(time_seconds,
+                                                         distance_meters=distance_meters)
 
     def get_magazine_duration_seconds(self) -> float:
         tactical_main = self._reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN
@@ -750,6 +764,8 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
 
 
 class Weapon(SingleWeaponLoadout):
+    EIGHTY_PERCENT = 0.8
+
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
@@ -822,13 +838,17 @@ class Weapon(SingleWeaponLoadout):
             return None
         return self.tactical_reload_time_secs if not from_swap or not self.heat_based else 0
 
-    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
-        return self.spinup.get_cumulative_damage(self, time_seconds)
+    def get_single_mag_cumulative_damage(self,
+                                         time_seconds: float,
+                                         distance_meters: float) -> float:
+        return (self.spinup.get_cumulative_damage(self, time_seconds) *
+                self._get_accuracy_fraction(distance_meters))
 
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
         reload_time_seconds = self.get_tactical_reload_time_secs()
         if reload_time_seconds is None:
-            return self.get_single_mag_cumulative_damage(time_seconds)
+            return self.get_single_mag_cumulative_damage(time_seconds=time_seconds,
+                                                         distance_meters=distance_meters)
 
         mag_duration_seconds = self.get_magazine_duration_seconds(tactical=True)
         period_seconds = mag_duration_seconds + reload_time_seconds
@@ -837,10 +857,16 @@ class Weapon(SingleWeaponLoadout):
             cum_damage = 0
             num_completed_cycles += 1
         else:
-            cum_damage = self.get_single_mag_cumulative_damage(rel_time_seconds)
+            cum_damage = self.get_single_mag_cumulative_damage(time_seconds=rel_time_seconds,
+                                                               distance_meters=distance_meters)
         cum_damage += (num_completed_cycles *
-                       self.get_single_mag_cumulative_damage(mag_duration_seconds))
+                       self.get_single_mag_cumulative_damage(time_seconds=mag_duration_seconds,
+                                                             distance_meters=distance_meters))
+
         return cum_damage
+
+    def _get_accuracy_fraction(self, distance_meters: float) -> float:
+        return min(self.EIGHTY_PERCENT * self.eighty_percent_accuracy_range / distance_meters, 1)
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
         return self.spinup.get_magazine_duration_seconds(self, tactical=tactical)
@@ -911,11 +937,14 @@ class SingleShotLoadout(SingleWeaponLoadout):
     def get_ready_to_fire_time_secs(self) -> float:
         return self.wrapped_weapon.get_ready_to_fire_time_secs()
 
-    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self,
+                                         time_seconds: float,
+                                         distance_meters: float) -> float:
         return self.wrapped_weapon.get_damage_per_round()
 
-    def get_cumulative_damage(self, time_seconds: float) -> float:
-        return self.wrapped_weapon.get_cumulative_damage(time_seconds)
+    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
+        return self.wrapped_weapon.get_cumulative_damage(time_seconds=time_seconds,
+                                                         distance_meters=distance_meters)
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
         return HUMAN_REACTION_TIME_SECONDS
@@ -946,10 +975,12 @@ class SkippedLoadout(SingleWeaponLoadout):
     def get_ready_to_fire_time_secs(self) -> float:
         return 0
 
-    def get_single_mag_cumulative_damage(self, time_seconds: float) -> float:
+    def get_single_mag_cumulative_damage(self,
+                                         time_seconds: float,
+                                         distance_meters: float) -> float:
         return 0
 
-    def get_cumulative_damage(self, time_seconds: float) -> float:
+    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
         return 0
 
     def get_magazine_duration_seconds(self, tactical: bool = False) -> float:

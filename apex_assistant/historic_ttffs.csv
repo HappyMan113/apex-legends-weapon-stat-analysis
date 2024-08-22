@@ -1,56 +1,56 @@
-﻿Clip,Start Frame,Stop Frame,Pause Frames,FPS,Cause of Finishing,Derived TTFS
-2024.05.16 That was a long fight,9314,9428,,60,lost line of sight,1.9
-2024.05.18 not being paranoid - when 2x feels like 8x... or was this actually an instance of getting third partied...,0,177,,60.22,death,2.93922285
-2024.05.18 not rotating - getting snuck up on,0,215,,60.02,death,3.582139287
-2024.05.21 not having aimbot,0,98,,60.15,death,1.629260183
-2024.05.21 not having aimbot 2,0,88,,60.36,death,1.457919152
-2024.05.21 strange hitboxes,0,310,,60.1,death,5.158069884
-2024.05.22 not having aimbot,0,82,,60.11,death,1.364165696
-2024.05.23 dying instantly to flatline,0,65,,60.18,death,1.080093054
-2024.05.24 knowledge - too late to stop the door from opening,0,80,,60.44,death,1.323626737
-2024.05.25 knolwedge - PK + purple R-99 TKK 0.82 seconds,0,49,,60.04,death,0.816122585
-2024.05.25 knowledge - not knowing how high players can actually jump if they know the secret way to do it,0,291,,60.17,death,4.836297158
-2024.06.09 1950 not being paranoid,0,115,,60.03,death,1.915708812
-2024.06.09 aim,0,324,,60.05,death,5.395503747
-2024.06.09 aim I think,0,58,,60.04,death,0.966022652
-2024.06.09 aim stupidity,0,99,,60.04,death,1.648900733
-2024.06.09 bad PK aim,0,298,,60.04,death,4.963357761
-2024.06.09 inattentiveness - enemy was in plain sight but I guess I assumed there would be no one there,0,190,,60.02,death,3.165611463
-2024.06.19 2 probably just bad aim,0,168,,60.04,death,2.798134577
-"2024.06.19 chalking it up to aim, but I did get third partied",0,174,,60.02,death,2.899033655
-2024.06.19 missed defender's advantage AND not being paranoid,0,141,,60.01,death,2.349608399
-2024.06.20 aim - but really my aim would have to be perfect to be better than his,0,41,,60.02,death,0.683105631
-2024.06.20 aim - missing 4 out of 5 wingman shots and then trying to reload it instead of switching weapons,0,301,,60.03,death,5.014159587
-2024.06.20 good rotation I guess,4356,4678,115,60,kill,3.45
-2024.06.20 not holding the door AND bad aim - missed the first two PK shots but that might be because I had thought I was holding the door and was surprised when I wasn't,0,244,,60.05,death,4.0632806
-2024.06.20 pusher's disadvantage - being obvious,0,71,,60.03,death,1.182741962
-2024.06.22 not holding the door then panicking,0,88,,60.02,death,1.466177941
-2024.06.23 taking out a squad in a custom match,2189,2350,,60,kill,2.683333333
-2024.07.07 'that drone though',3353,3438,,60,lost line of sight,1.416666667
-2024.07.07 'that drone though',4128,4309,67,60,lost line of sight,1.9
-"2024.07.14 1 squadmate left, and stuck in the ring at the end",2002,2059,,60,kill,0.95
-"2024.07.14 1 squadmate left, and stuck in the ring at the end",2424,2617,,60,kill,3.216666667
-"2024.07.14 1 squadmate left, and stuck in the ring at the end",1541,1607,,60,lost line of sight,1.1
-2024.07.14 good teamwork,5882,5997,,60,kill,1.916666667
-2024.07.14 good teamwork,5539,5591,,60,lost line of sight,0.866666667
-2024.07.14 win that was 'too close for comfort',5906,6025,,60,kill,1.983333333
-2024.07.14 win that was 'too close for comfort',1725,2032,213,60,lost line of sight,1.566666667
-2024.08.04 bad push or something,3522,3691,,119.94,death,1.409037852
-2024.08.04 bad push or something,1137,1418,,119.94,kill,2.342838086
-2024.08.04 bad push or something,2599,2732,,119.94,kill,1.108887777
-2024.08.04 bad push or something,455,693,,119.94,lost line of sight,1.984325496
-2024.08.04 bad push or something,1765,2514,,119.94,lost line of sight,6.244789061
-2024.08.04 getting killed before wall went up,145,303,,119.99,death,1.316776398
-2024.08.04 throwing away our advantage,20692,21324,,120,kill,5.266666667
-2024.08.04 throwing away our advantage,22756,22972,,120,lost line of sight,1.8
-2024.08.04 throwing away our advantage,24823,24855,,120,lost line of sight,0.266666667
-2024.08.04 throwing away our advantage,25344,25583,,120,lost line of sight,1.991666667
-2024.08.04 throwing away our advantage,28104,28547,,120,lost line of sight,3.691666667
-2024.08.04 throwing away our advantage,1142,1322,,120,taking cover,1.5
-2024.08.04 win,19600,19683,,120,kill,0.691666667
-2024.08.04 win,23676,23871,,120,kill,1.625
-2024.08.04 win,8045,8225,,120,lost line of sight,1.5
-2024.08.04 win,18733,18980,,120,lost line of sight,2.058333333
-2024.08.04 win,24280,24625,,120,lost line of sight,2.875
-2024.08.05 crazy start,174,281,,120,took cover,0.891666667
-2024.08.05 getting caught outside the ring,1232,1714,,120,kill,4.016666667
+﻿Clip,Enemy Height (pixels),Enemy Legend,Window Height (pixels),FOV,Derived Approximate Distance (e.g. 1/TAN(RADIANS(E2)*B2/D2/2),Start Frame,Stop Frame,Pause Frames,FPS,Cause of Finishing,Derived TTFS
+2024.05.16 That was a long fight,282,Mad Maggie,1080,70,6.216188701,9314,9428,,60,lost line of sight,1.9
+2024.05.18 not being paranoid - when 2x feels like 8x... or was this actually an instance of getting third partied...,1080,Vantage,1080,70,1.428148007,0,177,,60.22,death,2.93922285
+2024.05.18 not rotating - getting snuck up on,111,Octane,1080,70,15.90685097,0,215,,60.02,death,3.582139287
+2024.05.21 not having aimbot,233,Alter,1080,70,7.543933937,0,98,,60.15,death,1.629260183
+2024.05.21 not having aimbot 2,184,Crypto,1080,70,9.573892799,0,88,,60.36,death,1.457919152
+2024.05.21 strange hitboxes,182,Revenant,1080,70,9.679859795,0,310,,60.1,death,5.158069884
+2024.05.22 not having aimbot,300,Alter,1080,70,5.836609712,0,82,,60.11,death,1.364165696
+2024.05.23 dying instantly to flatline,141,Bloodhound,1080,70,12.51229877,0,65,,60.18,death,1.080093054
+2024.05.24 knowledge - too late to stop the door from opening,250,Revenant,1080,70,7.0247386,0,80,,60.44,death,1.323626737
+2024.05.25 knolwedge - PK + purple R-99 TKK 0.82 seconds,479,Alter,1080,70,3.60023461,0,49,,60.04,death,0.816122585
+2024.05.25 knowledge - not knowing how high players can actually jump if they know the secret way to do it,186,Lifeline,1080,70,9.470196518,0,291,,60.17,death,4.836297158
+2024.06.09 1950 not being paranoid,170,Pathfinder,1080,70,10.36783485,0,115,,60.03,death,1.915708812
+2024.06.09 aim,288,Pathfinder,1080,70,6.084438086,0,324,,60.05,death,5.395503747
+2024.06.09 aim I think,446,Horizon,1080,70,3.879642646,0,58,,60.04,death,0.966022652
+2024.06.09 aim stupidity,117,Conduit,1080,70,15.08890935,0,99,,60.04,death,1.648900733
+2024.06.09 bad PK aim,179,Pathfinder,1080,70,9.843234381,0,298,,60.04,death,4.963357761
+2024.06.09 inattentiveness - enemy was in plain sight but I guess I assumed there would be no one there,201,Vantage,1080,70,8.758011601,0,190,,60.02,death,3.165611463
+2024.06.19 2 probably just bad aim,317,Revenant,1080,70,5.517341521,0,168,,60.04,death,2.798134577
+"2024.06.19 chalking it up to aim, but I did get third partied",181,Ash,1080,70,9.733718334,0,174,,60.02,death,2.899033655
+2024.06.19 missed defender's advantage AND not being paranoid,98,Loba,1080,70,18.02217303,0,141,,60.01,death,2.349608399
+2024.06.20 aim - but really my aim would have to be perfect to be better than his,643,Valkyrie,1080,70,2.627273377,0,41,,60.02,death,0.683105631
+2024.06.20 aim - missing 4 out of 5 wingman shots and then trying to reload it instead of switching weapons,344,Mad Maggie,1080,70,5.074466946,0,301,,60.03,death,5.014159587
+2024.06.20 good rotation I guess,142,Octane,1080,70,12.42380792,4356,4678,115,60,kill,3.45
+2024.06.20 not holding the door AND bad aim - missed the first two PK shots but that might be because I had thought I was holding the door and was surprised when I wasn't,390,Horizon,1080,70,4.459522727,0,244,,60.05,death,4.0632806
+2024.06.20 pusher's disadvantage - being obvious,181,Wraith,1080,70,9.733718334,0,71,,60.03,death,1.182741962
+2024.06.22 not holding the door then panicking,550,Horizon,1080,70,3.110144953,0,88,,60.02,death,1.466177941
+2024.06.23 taking out a squad in a custom match,113,Vantage,1080,70,15.62456591,2189,2350,,60,kill,2.683333333
+2024.07.07 'that drone though',113,Ash,1080,70,15.62456591,3353,3438,,60,lost line of sight,1.416666667
+2024.07.07 'that drone though',48,Ash,1080,70,36.82395082,4128,4309,67,60,lost line of sight,1.9
+"2024.07.14 1 squadmate left, and stuck in the ring at the end",355,Octane,1080,70,4.913124952,2002,2059,,60,kill,0.95
+"2024.07.14 1 squadmate left, and stuck in the ring at the end",254,Lifeline,1080,70,6.912612297,2424,2617,,60,kill,3.216666667
+"2024.07.14 1 squadmate left, and stuck in the ring at the end",115,Octane,1080,70,15.35208632,1541,1607,,60,lost line of sight,1.1
+2024.07.14 good teamwork,114,Wattson,1080,70,15.48713268,5882,5997,,60,kill,1.916666667
+2024.07.14 good teamwork,72,Wattson,1080,70,24.54175779,5539,5591,,60,lost line of sight,0.866666667
+2024.07.14 win that was 'too close for comfort',495,Mirage,1080,70,3.477866936,5906,6025,,60,kill,1.983333333
+2024.07.14 win that was 'too close for comfort',121,Caustic,1080,70,14.58861816,1725,2032,213,60,lost line of sight,1.566666667
+2024.08.04 bad push or something,364,Pathfinder,1080,70,4.788276257,3522,3691,,119.94,death,1.409037852
+2024.08.04 bad push or something,134,Octane,1080,70,13.16863699,1137,1418,,119.94,kill,2.342838086
+2024.08.04 bad push or something,153,Mirage,1080,70,11.5265905,2599,2732,,119.94,kill,1.108887777
+2024.08.04 bad push or something,95,Mirage,1080,70,18.59244384,455,693,,119.94,lost line of sight,1.984325496
+2024.08.04 bad push or something,92,Mirage,1080,70,19.19986929,1765,2514,,119.94,lost line of sight,6.244789061
+2024.08.04 getting killed before wall went up,89,Mirage,1080,70,19.84820659,145,303,,119.99,death,1.316776398
+2024.08.04 throwing away our advantage,331,Bangalore,1080,70,5.278788942,20692,21324,,120,kill,5.266666667
+2024.08.04 throwing away our advantage,177,Horizon,1080,70,9.955216811,22756,22972,,120,lost line of sight,1.8
+2024.08.04 throwing away our advantage,192,Horizon,1080,70,9.172022364,24823,24855,,120,lost line of sight,0.266666667
+2024.08.04 throwing away our advantage,197,Horizon,1080,70,8.937365448,25344,25583,,120,lost line of sight,1.991666667
+2024.08.04 throwing away our advantage,180,Horizon,1080,70,9.788173198,28104,28547,,120,lost line of sight,3.691666667
+2024.08.04 throwing away our advantage,44,Revenant,1080,70,40.17315972,1142,1322,,120,taking cover,1.5
+2024.08.04 win,106,Fuse,1080,70,16.65910496,19600,19683,,120,kill,0.691666667
+2024.08.04 win,113,Octane,1080,70,15.62456591,23676,23871,,120,kill,1.625
+2024.08.04 win,100,Conduit,1080,70,17.66098265,8045,8225,,120,lost line of sight,1.5
+2024.08.04 win,106,Fuse,1080,70,16.65910496,18733,18980,,120,lost line of sight,2.058333333
+2024.08.04 win,145,Conduit,1080,70,12.1656431,24280,24625,,120,lost line of sight,2.875
+2024.08.05 crazy start,71,Bloodhound,1080,70,24.88779617,174,281,,120,took cover,0.891666667
+2024.08.05 getting caught outside the ring,373,Wattson,1080,70,4.669369143,1232,1714,,120,kill,4.016666667

@@ -90,8 +90,7 @@ def annotate_frame_and_time(input_filename: str, overwrite: bool = True):
         expansion='normal',
         boxborderw=boxborderw,
         fontsize=36)
-    stream = ffmpeg.drawtext(stream, text='Frame: %{frame_num}', y='h*0.88-lh*2', **common_kwargs)
-    stream = ffmpeg.drawtext(stream, text='Time: %{pts}', y='h*0.88-lh', **common_kwargs)
+    stream = ffmpeg.drawtext(stream, text='Frame: %{frame_num}', y='h*0.88-lh', **common_kwargs)
 
     stream = ffmpeg.output(stream, output_filename)
     ffmpeg.run(stream, overwrite_output=True, quiet=True)

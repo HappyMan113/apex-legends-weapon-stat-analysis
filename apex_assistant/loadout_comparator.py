@@ -1,12 +1,14 @@
 import itertools
 import logging
 import os
+from statistics import correlation
 from types import MappingProxyType
 from typing import Generator, Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 
 from apex_assistant.checker import check_int, check_tuple, check_type
+from apex_assistant.ttk_entry import Engagement
 from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
 
 logger = logging.getLogger()
@@ -79,45 +81,39 @@ class ComparisonResult:
 
 
 class LoadoutComparator:
-    def __init__(self, ttks: Tuple[float, ...]):
-        check_tuple((float, int), ttks=ttks)
+    def __init__(self, engagements: Tuple[Engagement, ...]):
+        check_tuple(Engagement, engagements=engagements)
+        engagements = sorted(engagements, key=lambda e: e.get_ttff_seconds())
 
-        ttks = np.array(ttks)
-        ttks.sort()
-        self.ttks = ttks
+        self._ttffs: np.ndarray[np.floating] = np.array([ttk.get_ttff_seconds()
+                                                         for ttk in engagements])
+        self._enemy_distances_meters: np.ndarray[np.floating] = np.array([
+            ttk.get_enemy_distance_meters()
+            for ttk in engagements])
 
     def compare_loadouts(self, loadouts: Sequence[FullLoadout], show_plots: bool = False) -> \
             ComparisonResult:
         if len(loadouts) == 0:
             raise ValueError('loadouts cannot be empty!')
-        tiebreaker_time = 10
 
-        ts = self.ttks
-        weights = np.ones_like(ts)
-
-        # ts = np.linspace(self.ttks.min(), self.ttks.max(), num=1000)
-        # # power should be non-positive, probably in the range [0, -1]. Lower values means you're
-        # # assuming TTK is going to be lower. Zero probably makes sense if your TTK values are
-        # # good.
-        # power = -1
-        # weights = ts ** power
-
-        if ts.max() < tiebreaker_time:
-            ts = np.append(ts, tiebreaker_time)
-            weights = np.append(weights, weights.sum() * 0.01)
+        ts = self._ttffs
+        ds = self._enemy_distances_meters
 
         num_base_weapons = len(loadouts)
         damage_table: np.ndarray[np.floating] = np.empty((num_base_weapons, len(ts)))
-        for idx, weapon in enumerate(loadouts):
-            check_type(FullLoadout, weapon=weapon)
-            weapon: FullLoadout = weapon
-            damage_table[idx] = np.array([weapon.get_cumulative_damage(t) for t in ts])
+        for idx, loadout in enumerate(loadouts):
+            check_type(FullLoadout, weapon=loadout)
+            loadout: FullLoadout = loadout
+            damage_table[idx] = np.array([
+                loadout.get_cumulative_damage(time_seconds=time_seconds,
+                                              distance_meters=distance_meters)
+                for time_seconds, distance_meters in zip(ts, ds)])
 
         # This is the mean dps up till time t for t in TTKs.
         mean_dps_till_time_t = damage_table * (1 / ts)
 
         # This one actually weights earlier damage more highly.
-        expected_mean_dps = np.average(mean_dps_till_time_t, axis=1, weights=weights)
+        expected_mean_dps = mean_dps_till_time_t.mean(axis=1)
         sorti = expected_mean_dps.argsort()[::-1]
 
         sorted_weapons_dict: dict[FullLoadout, float] = {
@@ -155,19 +151,37 @@ class LoadoutComparator:
 
             from matplotlib import pyplot as plt
 
-            plt.axvline(ts.min())
-            plt.axvline(ts.max())
+            _, (ax1, ax2) = plt.subplots(ncols=2)
+
+            ax1.scatter(ds, ts)
+            ax1.set_xlabel('Distance (meters)')
+            ax1.set_ylabel('Time to Finish Firing (seconds)')
+            ax1.set_xlim((0, None))
+            ax1.set_ylim((0, None))
+            corr = correlation(ds, ts)
+            ax1.set_title(f'Correlation: {corr}')
+
+            ax2.axvline(ts.min())
+            ax2.axvline(ts.max())
             ts_lin = np.linspace(0.4, ts.max() * 1.4, num=4000)
+            mean_distance_meters = ds.mean()
             t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
-            for base_weapon in result.limit_to_best_num(10).get_sorted_loadouts():
-                damages = np.array([base_weapon.get_cumulative_damage(t) for t in ts_lin])
+            for loadout in result.limit_to_best_num(10).get_sorted_loadouts():
+                damages = np.array([
+                    loadout.get_cumulative_damage(time_seconds=time_seconds,
+                                                  distance_meters=mean_distance_meters)
+                    for time_seconds in ts_lin])
                 damages *= 1 / ts_lin
-                plt.plot(ts_lin, damages, label=base_weapon.get_name(),
+                ax2.plot(ts_lin, damages,
+                         label=loadout.get_name(),
                          markevery=t_sample_indices,
                          markeredgecolor='red',
                          marker='x')
 
-            plt.ylim((0, None))
+            ax2.set_xlabel('Time (seconds)')
+            ax2.set_ylabel('Expected Mean DPS')
+            ax2.set_ylim((0, None))
+
             plt.legend()
             plt.show()
 
