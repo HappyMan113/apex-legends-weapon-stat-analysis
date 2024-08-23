@@ -78,8 +78,7 @@ class LoadoutTranslator:
         return self._legend_fits(archetypes.get_associated_legend())
 
     def _legend_fits_loadout(self, loadout: FullLoadout) -> bool:
-        return (self.legend_fits_weapon(loadout.get_main_loadout()) and
-                self.legend_fits_weapon(loadout.get_sidearm()))
+        return all(self.legend_fits_weapon(weapon) for weapon in loadout.get_weapons())
 
     def legend_fits_weapon(self, weapon: SingleWeaponLoadout) -> bool:
         return self._legend_fits(weapon.get_archetype().get_associated_legend())
@@ -111,22 +110,27 @@ class LoadoutTranslator:
 
             overall_level = self.get_overall_level(translated_value.get_untranslated_words())
 
-    def iget_fully_kitted_weapons(self) -> Generator[Weapon, None, None]:
+    def iget_fully_kitted_weapons(self,
+                                  include_care_package_weapons: bool = True,
+                                  include_non_hopped_up_weapons: bool = True) -> \
+            Generator[Weapon, None, None]:
         legend = self.get_legend()
         return (fully_kitted_weapon
                 for weapon_archetypes in self._weapon_archetypes
-                if self._legend_fits_archetypes(weapon_archetypes)
-                for fully_kitted_weapon in weapon_archetypes.get_fully_kitted_weapons(legend))
+                if (self._legend_fits_archetypes(weapon_archetypes) and
+                    (include_care_package_weapons or not weapon_archetypes.is_care_package()))
+                for fully_kitted_weapon in
+                weapon_archetypes.get_fully_kitted_weapons(
+                    legend=legend,
+                    include_non_hopped_up=include_non_hopped_up_weapons))
 
-    def get_fully_kitted_weapons(self) -> Tuple[Weapon, ...]:
-        return tuple(self.iget_fully_kitted_weapons())
-
-    def get_fully_kitted_loadouts(self) -> Tuple[FullLoadout, ...]:
-        weapons = self.get_fully_kitted_weapons()
-        return tuple(main_loadout.add_sidearm(sidearm)
-                     for main_weapon in weapons
-                     for main_loadout in main_weapon.get_main_loadout_variants()
-                     for sidearm in weapons)
+    def get_fully_kitted_weapons(self,
+                                 include_care_package_weapons: bool = True,
+                                 include_non_hopped_up_weapons: bool = True) -> \
+            Tuple[Weapon, ...]:
+        return tuple(self.iget_fully_kitted_weapons(
+            include_care_package_weapons=include_care_package_weapons,
+            include_non_hopped_up_weapons=include_non_hopped_up_weapons))
 
     def translate_full_loadouts(self, words: Words) -> Generator[FullLoadout, None, None]:
         check_type(Words, words=words)
@@ -144,11 +148,6 @@ class LoadoutTranslator:
                                                       explicit_loadouts=explicit_loadouts):
                 yield full_loadout
                 explicit_loadouts.add(full_loadout)
-
-        for full_loadout in explicit_loadouts:
-            for reversed_loadout in self._reverse_loadout(full_loadout):
-                if reversed_loadout not in explicit_loadouts:
-                    yield reversed_loadout
 
         if len(either_slot_weapons) > 1:
             for full_loadout in self._filter_loadouts(FullLoadout.get_loadouts(either_slot_weapons),
@@ -180,13 +179,11 @@ class LoadoutTranslator:
     def get_loadouts_with_other_fully_kitted(self, either_slot_weapon: Weapon) -> \
             Generator[FullLoadout, None, None]:
         fully_kitted_weapons = self.get_fully_kitted_weapons()
-        for main_loadout in either_slot_weapon.get_main_loadout_variants():
-            for sidearm in fully_kitted_weapons:
-                yield FullLoadout(main_loadout, sidearm)
+        for sidearm in fully_kitted_weapons:
+            yield FullLoadout(either_slot_weapon, sidearm)
 
         for main_weapon in fully_kitted_weapons:
-            for main_loadout in main_weapon.get_main_loadout_variants():
-                yield FullLoadout(main_loadout, either_slot_weapon)
+            yield FullLoadout(main_weapon, either_slot_weapon)
 
     def _get_mains_and_sidearms(self, words: Words) -> \
             Generator['MainWeaponsAndSidearms', None, None]:
@@ -286,11 +283,6 @@ class LoadoutTranslator:
                 if len(overall_level_translations) != 0
                 else OverallLevel.PARSE_WORDS)
 
-    @staticmethod
-    def _reverse_loadout(loadout: FullLoadout) -> Generator[FullLoadout, None, None]:
-        return (FullLoadout(main_loadout=main_loadout, sidearm=loadout.get_main_weapon())
-                for main_loadout in loadout.get_sidearm().get_main_loadout_variants())
-
 
 class MainWeaponsAndSidearms:
     def __init__(self,
@@ -316,20 +308,15 @@ class MainWeaponsAndSidearms:
                                       sidearms=sidearms)
 
     def get_full_loadouts(self) -> Generator[FullLoadout, None, None]:
-        for main_loadout in self.get_main_loadouts():
+        for main_weapon in self._main_weapons:
             for sidearm in self._sidearms:
-                yield FullLoadout(main_loadout, sidearm)
+                yield FullLoadout(main_weapon, sidearm)
 
     def get_main_weapons(self) -> Tuple[Weapon, ...]:
         return self._main_weapons
 
     def has_main_weapons(self) -> bool:
         return len(self._main_weapons) > 0
-
-    def get_main_loadouts(self) -> Generator[SingleWeaponLoadout, None, None]:
-        for main_weapon in self._main_weapons:
-            for main_loadout in main_weapon.get_main_loadout_variants():
-                yield main_loadout
 
     def has_sidearms(self) -> bool:
         return len(self._sidearms) > 0
@@ -359,11 +346,6 @@ class ParserResult:
 
     def get_weapons(self) -> Tuple[Weapon, ...]:
         return self._main_weapons
-
-    def get_loadouts(self) -> Generator[SingleWeaponLoadout, None, None]:
-        for main_weapon in self._main_weapons:
-            for main_loadout in main_weapon.get_main_loadout_variants():
-                yield main_loadout
 
 
 class _WeaponParser(abc.ABC):

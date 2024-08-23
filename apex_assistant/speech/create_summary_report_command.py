@@ -7,7 +7,7 @@ from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.term import Words
-from apex_assistant.weapon import FullLoadout, SingleWeaponLoadout
+from apex_assistant.weapon import FullLoadout, SingleWeaponLoadout, Weapon
 
 
 class CreateSummaryReportCommand(ApexCommand):
@@ -25,14 +25,11 @@ class CreateSummaryReportCommand(ApexCommand):
         comparator = self.get_comparator()
 
         weapons = translator.get_fully_kitted_weapons()
-        main_loadouts = tuple(loadout
-                              for weapon in weapons
-                              for loadout in weapon.get_main_loadout_variants())
 
-        comparison_results: dict[SingleWeaponLoadout, ComparisonResult] = {}
-        for main_loadout in main_loadouts:
-            loadouts = tuple(FullLoadout(main_loadout, sidearm) for sidearm in weapons)
-            comparison_results[main_loadout] = comparator.compare_loadouts(loadouts)
+        comparison_results: dict[Weapon, ComparisonResult] = {}
+        for weapon_a in weapons:
+            loadouts = tuple(FullLoadout(weapon_a, weapon_b) for weapon_b in weapons)
+            comparison_results[weapon_a] = comparator.compare_loadouts(loadouts)
 
         max_n = len(weapons)
 
@@ -40,8 +37,8 @@ class CreateSummaryReportCommand(ApexCommand):
         filename = os.path.abspath('weapon_summary.csv')
         with open(filename, 'w', newline='') as csvfile:
             fieldnames = tuple(
-                function(loadout)
-                for loadout in main_loadouts
+                function(weapon)
+                for weapon in weapons
                 for function in (self._get_loadout_score_header, self._get_loadout_sidearm_header))
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
@@ -53,7 +50,7 @@ class CreateSummaryReportCommand(ApexCommand):
                     sidearm_header = self._get_loadout_sidearm_header(loadout)
 
                     nth_best_loadout, score = comparison_result.get_nth_best_loadout(n)
-                    sidearm = nth_best_loadout.get_sidearm()
+                    sidearm = nth_best_loadout.get_weapon_b()
 
                     row_dict[score_header] = f'{score:6.2f}'
                     row_dict[sidearm_header] = self._get_loadout_name(sidearm)
@@ -66,17 +63,14 @@ class CreateSummaryReportCommand(ApexCommand):
 
     @staticmethod
     def _get_loadout_name(loadout: SingleWeaponLoadout) -> str:
-        name = loadout.get_archetype().get_name()
-        if loadout.get_variant_term() is not None:
-            name = f'{name} ({loadout.get_variant_term()})'
-        return name
+        return loadout.get_archetype().get_name()
 
     @staticmethod
-    def _get_loadout_score_header(loadout: SingleWeaponLoadout) -> str:
+    def _get_loadout_score_header(loadout: Weapon) -> str:
         name = CreateSummaryReportCommand._get_loadout_name(loadout)
         return f'Score ({name})'
 
     @staticmethod
-    def _get_loadout_sidearm_header(loadout: SingleWeaponLoadout) -> str:
+    def _get_loadout_sidearm_header(loadout: Weapon) -> str:
         name = CreateSummaryReportCommand._get_loadout_name(loadout)
         return f'{name} Sidearm'

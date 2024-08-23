@@ -8,15 +8,6 @@ from apex_assistant.speech.command import Command
 from apex_assistant.speech.term import RequiredTerm
 
 
-class Uniqueness(IntEnum):
-    SAY_MAIN_ARCHETYPE_NAMES = 0
-    SAY_SIDEARM_ARCHETYPE_NAMES = 1
-    SAY_FULL_LOADOUT_ARCHETYPE_NAMES = 2
-    SAY_MAIN_LOADOUT_NAMES = 3
-    SAY_SIDEARM_WEAPON_NAMES = 4
-    SAY_FULL_LOADOUT_NAMES = 5
-
-
 class ApexCommand(Command, abc.ABC):
     def __init__(self,
                  term: RequiredTerm,

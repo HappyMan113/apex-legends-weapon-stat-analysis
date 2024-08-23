@@ -31,7 +31,7 @@ from apex_assistant.weapon import (MagazineCapacities,
                                    RoundTimingDevotion,
                                    RoundTimingHavoc,
                                    RoundTimingNemesis,
-                                   RoundTimingNone,
+                                   RoundTimingRegular,
                                    RoundTimingType,
                                    RoundsPerMinute,
                                    RoundsPerMinutes,
@@ -195,7 +195,7 @@ class EngagementCsvReader(CsvReader[Engagement]):
         Legend.RAMPART: 1.80,
         Legend.REVENANT: 2.03,
         Legend.SEER: 1.94,
-        Legend.VALKRIE: 1.68,
+        Legend.VALKYRIE: 1.68,
         Legend.VANTAGE: 1.73,
         Legend.WATTSON: 1.63,
         Legend.WRAITH: 1.63
@@ -244,31 +244,32 @@ class EngagementCsvReader(CsvReader[Engagement]):
 
 
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
-    KEY_WEAPON_ARCHETYPE = "Weapon"
-    KEY_WEAPON_CLASS = "Weapon Class"
-    KEY_LEGEND = "Legend"
-    KEY_80_PERCENT_ACCURACY_RANGE = "80% accuracy range"
-    KEY_STOCKS_INCOMPATIBLE = "Stocks Incompatible"
-    KEY_DAMAGE_BODY = "Damage (body)"
-    KEY_RPM_BASE = "RPM (base)"
-    KEY_RPM_SHOTGUN_BOLT_LEVEL_1 = "RPM (shotgun bolt level 1)"
-    KEY_RPM_SHOTGUN_BOLT_LEVEL_2 = "RPM (shotgun bolt level 2)"
-    KEY_RPM_SHOTGUN_BOLT_LEVEL_3 = "RPM (shotgun bolt level 3)"
-    KEY_MAGAZINE_BASE = "Magazine (base)"
-    KEY_MAGAZINE_LEVEL_1 = "Magazine (level 1)"
-    KEY_MAGAZINE_LEVEL_2 = "Magazine (level 2)"
-    KEY_MAGAZINE_LEVEL_3 = "Magazine (level 3)"
-    KEY_ROUND_TIMING_TYPE = "Round Timing"
-    KEY_RPM_INITIAL = "RPM initial"
-    KEY_ROUNDS_PER_BURST = "Rounds Per Burst"
-    KEY_BURST_FIRE_DELAY = "Burst Fire Delay"
-    KEY_BURST_FIRE_DELAY_INITIAL = "Burst Fire Delay Initial"
-    KEY_BURST_CHARGE_FRACTION = "Burst Charge Fraction"
-    KEY_SPINUP_TIME = "Spinup Time"
-    KEY_HOLSTER_TIME = "Holster Time"
-    KEY_DEPLOY_TIME = "Deploy Time"
-    KEY_READY_TO_FIRE_TIME = "Ready to Fire Time"
-    KEY_ACTIVE = "Active"
+    KEY_WEAPON_ARCHETYPE = 'Weapon'
+    KEY_WEAPON_CLASS = 'Weapon Class'
+    KEY_LEGEND = 'Legend'
+    KEY_80_PERCENT_ACCURACY_RANGE = '80% accuracy range'
+    KEY_CARE_PACKAGE = 'Care Package'
+    KEY_STOCKS_INCOMPATIBLE = 'Stocks Incompatible Override'
+    KEY_DAMAGE_BODY = 'Damage (body)'
+    KEY_RPM_BASE = 'RPM (base)'
+    KEY_RPM_SHOTGUN_BOLT_LEVEL_1 = 'RPM (shotgun bolt level 1)'
+    KEY_RPM_SHOTGUN_BOLT_LEVEL_2 = 'RPM (shotgun bolt level 2)'
+    KEY_RPM_SHOTGUN_BOLT_LEVEL_3 = 'RPM (shotgun bolt level 3)'
+    KEY_MAGAZINE_BASE = 'Magazine (base)'
+    KEY_MAGAZINE_LEVEL_1 = 'Magazine (level 1)'
+    KEY_MAGAZINE_LEVEL_2 = 'Magazine (level 2)'
+    KEY_MAGAZINE_LEVEL_3 = 'Magazine (level 3)'
+    KEY_ROUND_TIMING_TYPE = 'Round Timing'
+    KEY_RPM_INITIAL = 'RPM initial'
+    KEY_ROUNDS_PER_BURST = 'Rounds Per Burst'
+    KEY_BURST_FIRE_DELAY = 'Burst Fire Delay'
+    KEY_BURST_FIRE_DELAY_INITIAL = 'Burst Fire Delay Initial'
+    KEY_BURST_CHARGE_FRACTION = 'Burst Charge Fraction'
+    KEY_SPINUP_TIME = 'Spinup Time'
+    KEY_HOLSTER_TIME = 'Holster Time'
+    KEY_DEPLOY_TIME = 'Deploy Time'
+    KEY_READY_TO_FIRE_TIME = 'Ready to Fire Time'
+    KEY_ACTIVE = 'Active'
     KEY_TACTICAL_RELOAD_TIME_BASE = 'Tactical Reload Time (base)'
     KEY_TACTICAL_RELOAD_TIME_LEVEL_1 = 'Tactical Reload Time (level 1)'
     KEY_TACTICAL_RELOAD_TIME_LEVEL_2 = 'Tactical Reload Time (level 2)'
@@ -389,13 +390,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                 csv_row.parse_float(key_level_2_reload_time),
                 csv_row.parse_float(key_level_3_reload_time))
 
-    def _parse_stock_dependant_stats(self, row: CsvRow, weapon_class: WeaponClass) -> \
-            StockStatsBase:
-        stock_incompatible = row.parse_bool(key=self.KEY_STOCKS_INCOMPATIBLE,
-                                            default_value=False)
-        stock_compatible = (weapon_class is not WeaponClass.PISTOL and
-                            not stock_incompatible)
-
+    def _parse_stock_dependant_stats(self, row: CsvRow, stock_compatible: bool) -> StockStatsBase:
         holster_time_secs_base = row.parse_float(self.KEY_HOLSTER_TIME)
         ready_to_fire_time_secs_base = row.parse_float(self.KEY_READY_TO_FIRE_TIME)
 
@@ -461,7 +456,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                      self.KEY_BURST_FIRE_DELAY_INITIAL,
                                      self.KEY_BURST_CHARGE_FRACTION}
         if spinup_type is RoundTimingType.NONE:
-            spinup = RoundTimingNone.get_instance()
+            spinup = RoundTimingRegular.get_instance()
 
         elif spinup_type is RoundTimingType.DEVOTION:
             rpm_initial = csv_row.parse_float(self.KEY_RPM_INITIAL)
@@ -523,7 +518,15 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         rpm = self._parse_rpm(row)
         mag = self._parse_mag(row)
-        stock_dependant_stats = self._parse_stock_dependant_stats(row, weapon_class=weapon_class)
+
+        care_package = row.parse_bool(key=self.KEY_CARE_PACKAGE, default_value=False)
+        stock_incompatible = row.parse_bool(
+            key=self.KEY_STOCKS_INCOMPATIBLE,
+            default_value=care_package or weapon_class is WeaponClass.PISTOL)
+        stock_compatible = not stock_incompatible
+
+        stock_dependant_stats = self._parse_stock_dependant_stats(row,
+                                                                  stock_compatible=stock_compatible)
         spinup = self._parse_spinup(row)
         heat_based = row.parse_bool(self.KEY_HEAT_BASED, default_value=False)
 
@@ -538,4 +541,5 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                stock_dependant_stats=stock_dependant_stats,
                                spinup=spinup,
                                heat_based=heat_based,
-                               associated_legend=legend)
+                               associated_legend=legend,
+                               care_package=care_package)

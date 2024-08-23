@@ -1,12 +1,24 @@
 import abc
 import logging
 import math
+import re
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Dict, Generator, Generic, Iterable, List, Optional, Tuple, TypeVar, \
-    Union, final
+from typing import (Dict,
+                    FrozenSet,
+                    Generator,
+                    Generic,
+                    Iterable,
+                    List,
+                    Mapping,
+                    Optional,
+                    Tuple,
+                    TypeVar,
+                    Union,
+                    final)
 
 import numpy as np
+from numpy.typing import NDArray
 
 from apex_assistant.checker import (check_bool,
                                     check_equal_length,
@@ -22,12 +34,9 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_STOCK_TERMS,
                                               BASE,
                                               LEVEL_TERMS,
-                                              MAIN,
-                                              SIDEARM,
-                                              SINGLE_SHOT,
-                                              SKIPPED, WITH_SIDEARM)
+                                              WITH_SIDEARM)
 from apex_assistant.speech.suffix import Suffix, SuffixedArchetypeType
-from apex_assistant.speech.term import RequiredTerm, TermBase, Words
+from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.speech.translations import TranslatedValue
 from apex_assistant.weapon_class import WeaponClass
@@ -169,12 +178,13 @@ class StockStatValues:
         return self._ready_to_fire_time_secs
 
 
-class StockStatsBase(StatsBase[StockStatValues | None]):
+class StockStatsBase(StatsBase[StockStatValues]):
     pass
 
 
 class StockStat(StockStatsBase):
-    def __init__(self, stats: StockStatValues | None):
+    def __init__(self, stats: StockStatValues):
+        check_type(StockStatValues, stats=stats)
         super().__init__(None, stats)
 
 
@@ -235,31 +245,35 @@ class RoundTimingType(StrEnum):
     NONE = 'none'
 
 
-HUMAN_REACTION_TIME_SECONDS = 0.2
+_HUMAN_REACTION_TIME_SECONDS = 0.2
 
 
 class RoundTiming(abc.ABC):
     @abc.abstractmethod
-    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
+    def get_num_rounds_shot(self,
+                            base_weapon: 'Weapon',
+                            time_seconds: float,
+                            tactical: int) -> int:
         raise NotImplementedError('Must implement.')
 
     @final
-    def get_cumulative_damage(self, base_weapon: 'Weapon', time_seconds: float) -> float:
-        num_rounds = self.get_num_rounds_shot(
-            base_weapon=base_weapon,
-            time_seconds=time_seconds)
+    def get_cumulative_damage(self,
+                              base_weapon: 'Weapon',
+                              time_seconds: float,
+                              tactical: int) -> float:
+        num_rounds = self.get_num_rounds_shot(base_weapon=base_weapon,
+                                              time_seconds=time_seconds,
+                                              tactical=tactical)
         if num_rounds < 0:
             raise RuntimeError(f'get_num_rounds_shot() in {self.__class__.__name__} must not '
                                'return a non-negative number of rounds.')
-        if num_rounds > base_weapon.get_magazine_capacity():
+        if num_rounds > base_weapon.get_magazine_capacity(tactical):
             raise RuntimeError(f'get_num_rounds_shot() in {self.__class__.__name__} must not '
                                'return a number of rounds greater than the magazine capacity.')
         return base_weapon.get_damage_per_round() * num_rounds
 
     @abc.abstractmethod
-    def get_magazine_duration_seconds(self,
-                                      base_weapon: 'Weapon',
-                                      tactical: bool = False) -> float:
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
         raise NotImplementedError('Must implement.')
 
     @abc.abstractmethod
@@ -283,10 +297,11 @@ class RoundTimingDevotion(RoundTiming):
         self._rounds_per_second_initial = rounds_per_second_initial
         self._spinup_time_seconds = spinup_time_seconds
 
-    def _get_shot_times_seconds(self, base_weapon: 'Weapon') -> np.ndarray[np.floating]:
+    def _get_shot_times_seconds(self, base_weapon: 'Weapon', tactical: int) -> \
+            np.ndarray[np.floating]:
         # As a sanity check, magazine duration for Care Package Devotion was measured as ~227-229
         # frames at 60 FPS (~3.783-3.817 seconds).
-        magazine_capacity = base_weapon.get_magazine_capacity()
+        magazine_capacity = base_weapon.get_magazine_capacity(tactical)
         rps_initial = self._rounds_per_second_initial
         rps_final = base_weapon.get_rounds_per_second()
         rps_per_sec = (rps_final - rps_initial) / self._spinup_time_seconds
@@ -301,13 +316,14 @@ class RoundTimingDevotion(RoundTiming):
 
         return times
 
-    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
-        return np.count_nonzero(time_seconds >= self._get_shot_times_seconds(base_weapon))
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float, tactical: int) -> int:
+        shot_times_seconds = self._get_shot_times_seconds(base_weapon=base_weapon,
+                                                          tactical=tactical)
+        return np.count_nonzero(time_seconds >= shot_times_seconds)
 
-    def get_magazine_duration_seconds(self,
-                                      base_weapon: 'Weapon',
-                                      tactical: bool = False) -> float:
-        return self._get_shot_times_seconds(base_weapon)[-1] + HUMAN_REACTION_TIME_SECONDS
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
+        shot_times = self._get_shot_times_seconds(base_weapon=base_weapon, tactical=tactical)
+        return float(shot_times[-1])
 
     def __hash__(self):
         return hash(self.__class__) ^ hash((self._rounds_per_minute_initial,
@@ -319,106 +335,44 @@ class RoundTimingDevotion(RoundTiming):
                 self._spinup_time_seconds == other._spinup_time_seconds)
 
 
-class RoundTimingBurst(RoundTiming):
-    def __init__(self, rounds_per_burst: int, burst_fire_delay: float):
+class _RoundTimingBurstBase(RoundTiming, abc.ABC):
+    def __init__(self, rounds_per_burst: int):
+        super().__init__()
         check_int(min_value=2, rounds_per_burst=rounds_per_burst)
-        check_float(min_value=0,
-                    min_is_exclusive=True,
-                    burst_fire_delay=burst_fire_delay)
-
         self._rounds_per_burst = rounds_per_burst
-        self._burst_fire_delay = burst_fire_delay
 
-    def _get_burst_duration_seconds(self, base_weapon: 'Weapon'):
-        seconds_per_round = 1 / base_weapon.get_rounds_per_second()
-        burst_duration_seconds = seconds_per_round * (self._rounds_per_burst - 1)
-        return burst_duration_seconds
-
-    def _get_burst_period_seconds(self, base_weapon: 'Weapon') -> float:
-        burst_duration_seconds = self._get_burst_duration_seconds(base_weapon)
-        return burst_duration_seconds + self._burst_fire_delay
-
-    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
-        period_seconds = self._get_burst_period_seconds(base_weapon)
-
-        num_full_bursts_shot, remainder_secs = divmod(time_seconds, period_seconds)
-        num_full_bursts_shot = int(num_full_bursts_shot)
-
-        num_rounds_shot_in_partial_period = min(
-            1 + math.floor(remainder_secs * base_weapon.get_rounds_per_second()),
+    def _get_burst_nums_rounds(self, base_weapon: 'Weapon', tactical: int) -> \
+            np.ndarray[np.integer, ...]:
+        num_full_bursts, remainder_rounds = divmod(
+            base_weapon.get_magazine_capacity(tactical),
             self._rounds_per_burst)
+        nums_rounds = [self._rounds_per_burst] * num_full_bursts
+        if remainder_rounds > 0:
+            nums_rounds.append(remainder_rounds)
+        return np.array(nums_rounds, dtype=int)
 
-        return min(
-            num_full_bursts_shot * self._rounds_per_burst + num_rounds_shot_in_partial_period,
-            base_weapon.get_magazine_capacity())
-
-    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: bool = False) -> float:
-        period_seconds = self._get_burst_period_seconds(base_weapon)
-        num_bursts = math.ceil((base_weapon.get_magazine_capacity() - tactical) /
-                               self._rounds_per_burst)
-        num_last_burst_rounds = (base_weapon.get_magazine_capacity() -
-                                 (num_bursts - 1) * self._rounds_per_burst)
-
+    @staticmethod
+    def _get_burst_duration_seconds(base_weapon: 'Weapon',
+                                    num_rounds: NDArray[np.integer]) -> NDArray[np.floating]:
         seconds_per_round = 1 / base_weapon.get_rounds_per_second()
-        last_burst_duration_seconds = seconds_per_round * (num_last_burst_rounds - 1)
-
-        return ((period_seconds * (num_bursts - 1) + last_burst_duration_seconds) +
-                HUMAN_REACTION_TIME_SECONDS)
-
-    def __hash__(self):
-        return hash(self.__class__) ^ hash((self._rounds_per_burst,
-                                            self._burst_fire_delay))
-
-    def __eq__(self, other):
-        return (isinstance(other, RoundTimingBurst) and
-                self._rounds_per_burst == other._rounds_per_burst and
-                self._burst_fire_delay == other._burst_fire_delay)
-
-
-class RoundTimingNemesis(RoundTiming):
-    def __init__(self,
-                 rounds_per_burst: int,
-                 burst_fire_delay_initial: float,
-                 burst_fire_delay_final: float,
-                 burst_charge_fraction: float):
-        check_int(min_value=2, rounds_per_burst=rounds_per_burst)
-        check_float(min_value=0,
-                    min_is_exclusive=True,
-                    burst_fire_delay_final=burst_fire_delay_final)
-        check_float(min_value=burst_fire_delay_final,
-                    min_is_exclusive=True,
-                    burst_fire_delay_initial=burst_fire_delay_initial)
-        check_float(min_value=0,
-                    min_is_exclusive=True,
-                    burst_charge_fraction=burst_charge_fraction)
-
-        self._rounds_per_burst = rounds_per_burst
-        self._burst_fire_delay_initial = burst_fire_delay_initial
-        self._burst_fire_delay_final = burst_fire_delay_final
-        self._burst_charge_fraction = burst_charge_fraction
-
-    def _get_num_bursts(self, base_weapon: 'Weapon') -> int:
-        return math.ceil(base_weapon.get_magazine_capacity() / self._rounds_per_burst)
-
-    def _get_burst_duration_seconds(self, base_weapon: 'Weapon') -> float:
-        seconds_per_round = 1 / base_weapon.get_rounds_per_second()
-        burst_duration_seconds = seconds_per_round * (self._rounds_per_burst - 1)
+        burst_duration_seconds = seconds_per_round * (num_rounds - 1)
         return burst_duration_seconds
 
-    def _get_burst_periods_seconds(self, base_weapon: 'Weapon') -> np.ndarray[np.floating]:
-        burst_duration_seconds = self._get_burst_duration_seconds(base_weapon)
-        num_bursts = self._get_num_bursts(base_weapon)
-        charge_fractions = (np.arange(num_bursts - 1) * self._burst_charge_fraction).clip(max=1)
-        burst_fire_delays = ((1 - charge_fractions) * self._burst_fire_delay_initial +
-                             charge_fractions * self._burst_fire_delay_final)
+    def _get_burst_durations_seconds(self, base_weapon: 'Weapon', tactical: int) -> \
+            np.ndarray[np.floating]:
+        nums_rounds = self._get_burst_nums_rounds(base_weapon, tactical)
+        burst_durations_seconds = self._get_burst_duration_seconds(base_weapon, nums_rounds)
+        return burst_durations_seconds
 
-        # Delay after last burst is an elephant.
-        burst_fire_delays = np.append(burst_fire_delays, 0)
+    @abc.abstractmethod
+    def _get_burst_periods_seconds(self,
+                                   base_weapon: 'Weapon',
+                                   tactical: int) -> np.ndarray[np.floating]:
+        raise NotImplementedError()
 
-        return burst_duration_seconds + burst_fire_delays
-
-    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
-        periods_seconds = self._get_burst_periods_seconds(base_weapon)
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float, tactical: int) -> int:
+        check_float(min_value=0, time_seconds=time_seconds)
+        periods_seconds = self._get_burst_periods_seconds(base_weapon, tactical=tactical)
         period_stop_times_seconds = periods_seconds.cumsum()
 
         num_full_periods_shot = np.count_nonzero(time_seconds >= period_stop_times_seconds)
@@ -436,72 +390,142 @@ class RoundTimingNemesis(RoundTiming):
                 self._rounds_per_burst)
 
         return min(full_periods_shot + num_rounds_shot_in_partial_period,
-                   base_weapon.get_magazine_capacity())
+                   base_weapon.get_magazine_capacity(tactical))
 
-    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: bool = False) -> float:
-        periods_seconds = self._get_burst_periods_seconds(base_weapon)
-        return float(periods_seconds.sum()) + HUMAN_REACTION_TIME_SECONDS
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
+        periods_seconds = self._get_burst_periods_seconds(base_weapon, tactical=tactical)
+        return float(periods_seconds.sum())
 
-    def __hash__(self):
-        return hash(self.__class__) ^ hash((self._rounds_per_burst,
-                                            self._burst_fire_delay_initial,
-                                            self._burst_fire_delay_final,
-                                            self._burst_charge_fraction))
+    def __hash__(self) -> int:
+        return hash(self.__class__) ^ hash(self._rounds_per_burst)
 
     def __eq__(self, other):
-        return (isinstance(other, RoundTimingNemesis) and
-                self._rounds_per_burst == other._rounds_per_burst and
+        return (isinstance(other, _RoundTimingBurstBase) and
+                other._rounds_per_burst == self._rounds_per_burst)
+
+
+class RoundTimingBurst(_RoundTimingBurstBase):
+    def __init__(self, rounds_per_burst: int, burst_fire_delay: float):
+        super().__init__(rounds_per_burst=rounds_per_burst)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    burst_fire_delay=burst_fire_delay)
+
+        self._burst_fire_delay = burst_fire_delay
+
+    def _get_burst_periods_seconds(self,
+                                   base_weapon: 'Weapon',
+                                   tactical: int) -> np.ndarray[np.floating]:
+        burst_periods_periods = self._get_burst_durations_seconds(base_weapon=base_weapon,
+                                                                  tactical=tactical)
+        burst_periods_periods[:-1] += self._burst_fire_delay
+        return burst_periods_periods
+
+    def __hash__(self):
+        return super().__hash__() ^ hash(self._burst_fire_delay)
+
+    def __eq__(self, other):
+        return (super().__eq__(other) and
+                isinstance(other, RoundTimingBurst) and
+                self._burst_fire_delay == other._burst_fire_delay)
+
+
+class RoundTimingNemesis(_RoundTimingBurstBase):
+    def __init__(self,
+                 rounds_per_burst: int,
+                 burst_fire_delay_initial: float,
+                 burst_fire_delay_final: float,
+                 burst_charge_fraction: float):
+        super().__init__(rounds_per_burst=rounds_per_burst)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    burst_fire_delay_final=burst_fire_delay_final)
+        check_float(min_value=burst_fire_delay_final,
+                    min_is_exclusive=True,
+                    burst_fire_delay_initial=burst_fire_delay_initial)
+        check_float(min_value=0,
+                    min_is_exclusive=True,
+                    burst_charge_fraction=burst_charge_fraction)
+
+        self._burst_fire_delay_initial = burst_fire_delay_initial
+        self._burst_fire_delay_final = burst_fire_delay_final
+        self._burst_charge_fraction = burst_charge_fraction
+
+    def _get_burst_periods_seconds(self,
+                                   base_weapon: 'Weapon',
+                                   tactical: int) -> np.ndarray[np.floating]:
+        burst_durations_seconds = self._get_burst_durations_seconds(base_weapon=base_weapon,
+                                                                    tactical=tactical)
+        num_bursts = len(burst_durations_seconds)
+        if num_bursts == 0:
+            return burst_durations_seconds
+
+        charge_fractions = (np.arange(num_bursts - 1) * self._burst_charge_fraction).clip(max=1)
+        burst_fire_delays = ((1 - charge_fractions) * self._burst_fire_delay_initial +
+                             charge_fractions * self._burst_fire_delay_final)
+
+        # Delay after last burst is an elephant.
+        burst_fire_delays = np.append(burst_fire_delays, 0)
+
+        return burst_durations_seconds + burst_fire_delays
+
+    def __hash__(self):
+        return super().__hash__() ^ hash((self._burst_fire_delay_initial,
+                                          self._burst_fire_delay_final,
+                                          self._burst_charge_fraction))
+
+    def __eq__(self, other):
+        return (super().__eq__(other) and
+                isinstance(other, RoundTimingNemesis) and
                 self._burst_fire_delay_initial == other._burst_fire_delay_initial and
                 self._burst_fire_delay_final == other._burst_fire_delay_final and
                 self._burst_charge_fraction == other._burst_charge_fraction)
 
 
-class RoundTimingNone(RoundTiming):
-    _INSTANCE: Optional['RoundTimingNone'] = None
+class RoundTimingRegular(RoundTiming):
+    _INSTANCE: Optional['RoundTimingRegular'] = None
     __create_key = object()
 
     def __init__(self, create_key):
         super().__init__()
-        if create_key != RoundTimingNone.__create_key:
-            raise RuntimeError(f'Cannot instantiate {RoundTimingNone.__name__} except from '
+        if create_key != RoundTimingRegular.__create_key:
+            raise RuntimeError(f'Cannot instantiate {RoundTimingRegular.__name__} except from '
                                'get_instance() method.')
 
     @staticmethod
     def get_instance():
-        if RoundTimingNone._INSTANCE is None:
-            RoundTimingNone._INSTANCE = RoundTimingNone(RoundTimingNone.__create_key)
-        return RoundTimingNone._INSTANCE
+        if RoundTimingRegular._INSTANCE is None:
+            RoundTimingRegular._INSTANCE = RoundTimingRegular(RoundTimingRegular.__create_key)
+        return RoundTimingRegular._INSTANCE
 
-    @staticmethod
-    def _get_magazine_num_rounds(base_weapon: 'Weapon', tactical: bool = False) -> int:
-        return base_weapon.get_magazine_capacity() - tactical
-
-    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: bool = False) -> float:
+    def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
         check_type(Weapon, base_weapon=base_weapon)
-        check_bool(tactical=tactical)
+        check_int(min_value=0, tactical=tactical)
+        num_rounds = base_weapon.get_magazine_capacity(tactical)
+        if num_rounds == 0:
+            return 0
 
-        # We subtract by one to take into account that the first round is shot instantly.
-        num_rounds = self._get_magazine_num_rounds(base_weapon, tactical=tactical) - 1
-        rounds_per_minute = base_weapon.get_rounds_per_minute()
-        rounds_per_second = rounds_per_minute / 60
-        magazine_duration_seconds = num_rounds / rounds_per_second
-        return magazine_duration_seconds + HUMAN_REACTION_TIME_SECONDS
+        num_delays = num_rounds - 1
+        round_delay_seconds = 1 / base_weapon.get_rounds_per_second()
+        magazine_duration_seconds = num_delays * round_delay_seconds
+        return magazine_duration_seconds
 
-    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float, tactical: int) -> int:
+        check_float(min_value=0, time_seconds=time_seconds)
         rounds_per_second = base_weapon.get_rounds_per_second()
         num_rounds = min(1 + math.floor(time_seconds * rounds_per_second),
-                         base_weapon.get_magazine_capacity())
+                         base_weapon.get_magazine_capacity(tactical))
         return num_rounds
 
     def __hash__(self):
         return hash(self.__class__)
 
     def __eq__(self, other):
-        return isinstance(other, RoundTimingNone)
+        return isinstance(other, RoundTimingRegular)
 
 
 class RoundTimingHavoc(RoundTiming):
-    _NO_SPINUP = RoundTimingNone.get_instance()
+    _NO_SPINUP = RoundTimingRegular.get_instance()
 
     def __init__(self, spinup_time_seconds: float):
         check_float(spinup_time_seconds=spinup_time_seconds, min_value=0)
@@ -509,18 +533,21 @@ class RoundTimingHavoc(RoundTiming):
 
     def get_magazine_duration_seconds(self,
                                       base_weapon: 'Weapon',
-                                      tactical: bool = False) -> float:
-        return self._NO_SPINUP.get_magazine_duration_seconds(base_weapon=base_weapon,
-                                                             tactical=tactical)
+                                      tactical: int) -> float:
+        return (self._spinup_time_seconds +
+                self._NO_SPINUP.get_magazine_duration_seconds(base_weapon=base_weapon,
+                                                              tactical=tactical))
 
-    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float) -> int:
+    def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float, tactical: int) -> int:
+        check_float(min_value=0, time_seconds=time_seconds)
         spinup_time_seconds = self._spinup_time_seconds
         if time_seconds < spinup_time_seconds:
             return 0
 
         return self._NO_SPINUP.get_num_rounds_shot(
             base_weapon=base_weapon,
-            time_seconds=time_seconds - spinup_time_seconds)
+            time_seconds=time_seconds - spinup_time_seconds,
+            tactical=tactical)
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self._spinup_time_seconds)
@@ -540,14 +567,6 @@ class Loadout(abc.ABC):
     def get_term(self) -> RequiredTerm:
         return self.term
 
-    @final
-    def get_main_weapon(self) -> 'Weapon':
-        return self.get_main_loadout().get_weapon()
-
-    @abc.abstractmethod
-    def get_main_loadout(self) -> 'SingleWeaponLoadout':
-        raise NotImplementedError()
-
     def get_name(self):
         return self.name
 
@@ -555,16 +574,6 @@ class Loadout(abc.ABC):
         return self.name
 
     @abc.abstractmethod
-    def get_single_mag_cumulative_damage(self,
-                                         time_seconds: float,
-                                         distance_meters: float) -> float:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
     def __hash__(self):
         raise NotImplementedError()
 
@@ -572,144 +581,383 @@ class Loadout(abc.ABC):
     def __eq__(self, other):
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    def get_holster_time_secs(self) -> float:
-        raise NotImplementedError()
 
-    @abc.abstractmethod
-    def get_ready_to_fire_time_secs(self) -> float:
-        raise NotImplementedError()
+class FullLoadoutConfiguration(StrEnum):
+    A = 'A'
+    AB = 'AB'
+    ABA = 'ABA'
+    A1B = 'A1B'
+    A1BA = 'A1BA'
+    B = 'B'
+    BA = 'BA'
+    BAB = 'BAB'
+    B1A = 'B1A'
+    B1AB = 'B1AB'
+
+    __PATT = re.compile(r'^[AB]([AB1]([AB][AB]?)?)?$')
+    __SINGLE_SHOT_CHAR = '1'
+    __INVERT_TABLE = str.maketrans('AB', 'BA')
+
+    def __init__(self, configuration_string: str):
+        check_str(allow_blank=False, configuration_string=configuration_string)
+        if re.match(self.__PATT, configuration_string) is None:
+            raise ValueError(f'configuration_string {configuration_string} must match pattern: '
+                             f'{self.__PATT}.')
+
+    @staticmethod
+    def _get_char_to_weapon_dict(weapon_a: 'Weapon', weapon_b: 'Weapon') -> Mapping[str, 'Weapon']:
+        return MappingProxyType({'A': weapon_a, 'B': weapon_b})
+
+    def is_advisable(self, weapon_a: 'Weapon', weapon_b: 'Weapon') -> bool:
+        configuration_string = self._get_configuration_str()
+        if len(configuration_string) == 1:
+            return True
+
+        char_to_weapon_dict = self._get_char_to_weapon_dict(weapon_a, weapon_b)
+        for cur_char, next_char in zip(configuration_string[:-1], configuration_string[1:]):
+            if next_char != self.__SINGLE_SHOT_CHAR:
+                continue
+
+            cur_weapon = char_to_weapon_dict.get(cur_char, None)
+            if cur_weapon is None:
+                raise ValueError('\'1\' must be specified only after \'A\' or \'B\'')
+
+            if not cur_weapon.is_single_shot_advisable():
+                return False
+
+        return True
+
+    def should_invert(self) -> bool:
+        return self._get_configuration_str()[0] != 'A'
+
+    def invert(self) -> 'FullLoadoutConfiguration':
+        table = FullLoadoutConfiguration.__INVERT_TABLE
+        config = self._get_configuration_str().translate(table)
+        return FullLoadoutConfiguration(config)
+
+    def get_cumulative_damage(self,
+                              weapon_a: 'Weapon',
+                              weapon_b: 'Weapon',
+                              time_seconds: float,
+                              distance_meters: float) -> float:
+        check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
+        prev_weapon_and_char: Optional[Tuple['SingleWeaponLoadout', str]] = None
+
+        damage: float = 0
+        configuration_string = self._get_configuration_str()
+        char_to_weapon_dict = self._get_char_to_weapon_dict(weapon_a, weapon_b)
+
+        for index, cur_char in enumerate(configuration_string):
+            cur_weapon = char_to_weapon_dict.get(cur_char, None)
+            if cur_weapon is None:
+                if index != 1:
+                    raise ValueError('\'1\' can only come at index 1.')
+
+                if cur_char != self.__SINGLE_SHOT_CHAR:
+                    raise ValueError('Must contain only \'A\', \'B\', and \'1\'.')
+
+                if prev_weapon_and_char is None:
+                    raise ValueError('\'1\' can only come after \'A\' or \'B\'')
+
+                prev_weapon, prev_char = prev_weapon_and_char
+                if not isinstance(prev_weapon, Weapon):
+                    raise ValueError('Cannot say single shot multiple times.')
+
+                if not prev_weapon.is_single_shot_advisable():
+                    raise ValueError(f'Single shot configuration {self} is not advisable.')
+
+                cur_weapon = prev_weapon.single_shot()
+                cur_char = prev_char
+
+            elif prev_weapon_and_char is not None:
+                prev_weapon, prev_char = prev_weapon_and_char
+                if cur_char == prev_char:
+                    raise ValueError('Cannot have repeat weapons. Makes no sense.')
+
+                prev_idx = index - 1
+                will_reload = prev_weapon.can_reload() and self._want_to_reload(prev_idx)
+                used_single_shot = self._used_single_shot(prev_idx)
+                tactical = int(will_reload) + int(used_single_shot)
+
+                damage += prev_weapon.get_single_mag_cumulative_damage(
+                    time_seconds=time_seconds,
+                    distance_meters=distance_meters,
+                    tactical=tactical)
+                assert isinstance(damage, (int, float))
+                time_seconds -= (prev_weapon.get_magazine_duration_seconds(tactical) +
+                                 _HUMAN_REACTION_TIME_SECONDS +
+                                 prev_weapon.get_swap_time_seconds(cur_weapon))
+                if time_seconds < 0:
+                    return damage
+
+            prev_weapon_and_char = cur_weapon, cur_char
+
+        if prev_weapon_and_char is not None:
+            prev_weapon, _ = prev_weapon_and_char
+            prev_index = len(configuration_string) - 1
+            reload_time_secs = prev_weapon.get_weapon().get_tactical_reload_time_secs()
+            will_reload = reload_time_secs is not None
+            used_single_shot = self._used_single_shot(prev_index)
+            if used_single_shot:
+                tactical = int(will_reload) + 1
+                damage += prev_weapon.get_single_mag_cumulative_damage(
+                    time_seconds=time_seconds,
+                    distance_meters=distance_meters,
+                    tactical=tactical)
+                assert isinstance(damage, (int, float))
+                if not will_reload:
+                    return damage
+
+                time_seconds -= (prev_weapon.get_magazine_duration_seconds(tactical=tactical) +
+                                 _HUMAN_REACTION_TIME_SECONDS +
+                                 reload_time_secs)
+                if time_seconds < 0:
+                    return damage
+
+            if not will_reload:
+                damage += prev_weapon.get_single_mag_cumulative_damage(
+                    time_seconds=time_seconds,
+                    distance_meters=distance_meters,
+                    tactical=0)
+            else:
+                tactical = 1
+                mag_duration_seconds = prev_weapon.get_magazine_duration_seconds(tactical=tactical)
+                period_seconds = (mag_duration_seconds +
+                                  _HUMAN_REACTION_TIME_SECONDS +
+                                  reload_time_secs)
+                num_completed_cycles, rem_time_seconds = divmod(time_seconds, period_seconds)
+                full_mag_cum_damage = prev_weapon.get_single_mag_cumulative_damage(
+                    time_seconds=mag_duration_seconds,
+                    distance_meters=distance_meters,
+                    tactical=tactical)
+                rem_mag_cum_damage = prev_weapon.get_single_mag_cumulative_damage(
+                    time_seconds=rem_time_seconds,
+                    distance_meters=distance_meters,
+                    tactical=tactical)
+
+                damage += num_completed_cycles * full_mag_cum_damage + rem_mag_cum_damage
+
+            assert isinstance(damage, (int, float))
+
+        return damage
+
+    def _want_to_reload(self, index: int) -> bool:
+        configuration_string = self._get_configuration_str()
+        if index == len(configuration_string) - 1:
+            return True
+        char = configuration_string[index]
+        return char in configuration_string[index + 1:]
+
+    def _used_single_shot(self, index: int) -> bool:
+        configuration_string = self._get_configuration_str()
+        char = configuration_string[index]
+        prev_found_idx = configuration_string[:index].rfind(char)
+        return (prev_found_idx != -1 and
+                configuration_string[prev_found_idx + 1] == self.__SINGLE_SHOT_CHAR)
+
+    def _get_configuration_str(self) -> str:
+        return str(self)
 
 
-class _ReloadConfiguration(StrEnum):
-    RELOAD_MAIN = 'main reload'
-    RELOAD_SIDEARM = 'sidearm reload'
-    RELOAD_NEITHER = 'reload N/A'
+CONFIGURATIONS: Tuple[FullLoadoutConfiguration, ...] = tuple(FullLoadoutConfiguration)
+
+
+def invert_config_idx(config_idx: T) -> T:
+    num_configs = len(CONFIGURATIONS)
+    return (config_idx + num_configs // 2) % num_configs
+
+
+def __validate():
+    """Make sure inverting the config index gets the index of the inverted config."""
+    for idx, config in enumerate(CONFIGURATIONS):
+        inv_idx = invert_config_idx(idx)
+        assert config.invert() == CONFIGURATIONS[inv_idx], (
+            f'{config}.invert() ({config.invert()}) != CONFIGURATIONS[{inv_idx}] '
+            f'({CONFIGURATIONS[inv_idx]})')
+
+
+__validate()
 
 
 class FullLoadout(Loadout):
     NUM_WEAPONS = 2
 
-    def __init__(self, main_loadout: 'SingleWeaponLoadout', sidearm: 'Weapon'):
-        check_type(SingleWeaponLoadout, main_weapon=main_loadout)
-        check_type(Weapon, sidearm=sidearm)
-        self.main_loadout = main_loadout
-        self.sidearm: Weapon = sidearm
+    def __init__(self, weapon_a: 'Weapon', weapon_b: 'Weapon'):
+        check_type(Weapon, weapon_a=weapon_a, weapon_b=weapon_b)
 
-        main_reload_time_secs = main_loadout.get_weapon().get_tactical_reload_time_secs(True)
-        sidearm_reload_time_secs = sidearm.get_tactical_reload_time_secs(False)
-        if main_reload_time_secs is None and sidearm_reload_time_secs is None:
-            reloading_loadout_config = _ReloadConfiguration.RELOAD_NEITHER
-        elif main_reload_time_secs is None:
-            reloading_loadout_config = _ReloadConfiguration.RELOAD_SIDEARM
-        elif (sidearm_reload_time_secs is None or
-              (sidearm.get_swap_time_seconds(main_loadout) + main_reload_time_secs <
-               sidearm_reload_time_secs)):
-            reloading_loadout_config = _ReloadConfiguration.RELOAD_MAIN
-        else:
-            reloading_loadout_config = _ReloadConfiguration.RELOAD_SIDEARM
+        # Arbitrary.
+        time_seconds: float = 5
+        max_distance_meters: int = 300
 
-        reload_str = (f' ({reloading_loadout_config})'
-                      if (reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN) else '')
-        super().__init__(f'{main_loadout.get_name()}, {SIDEARM} {sidearm.get_name()}{reload_str}',
-                         MAIN.append(main_loadout.get_term(), WITH_SIDEARM, sidearm.get_term()))
+        distance_to_config_idx_map: NDArray[np.integer] = np.full(max_distance_meters + 1,
+                                                                  fill_value=-1)
+        lower_idx = 1
+        upper_idx = len(distance_to_config_idx_map) - 1
+        advisable_configurations = tuple((idx, config)
+                                         for idx, config in enumerate(CONFIGURATIONS)
+                                         if config.is_advisable(weapon_a, weapon_b))
+        if len(advisable_configurations) == 0:
+            raise RuntimeError('No configurations were advisable.')
+        FullLoadout._populate_distance_to_config_idx_map(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            time_seconds=time_seconds,
+            ranges=distance_to_config_idx_map,
+            advisable_configurations=advisable_configurations,
+            lower_idx=lower_idx,
+            upper_idx=upper_idx)
+        first_config_idx = distance_to_config_idx_map[1]
+        distance_to_config_idx_map[0] = first_config_idx
+        assert not np.any(distance_to_config_idx_map == -1)
+        first_config: FullLoadoutConfiguration = CONFIGURATIONS[first_config_idx]
+        if first_config.should_invert():
+            distance_to_config_idx_map = invert_config_idx(distance_to_config_idx_map)
+            weapon_a, weapon_b = weapon_b, weapon_a
 
-        self._reloading_loadout_config = reloading_loadout_config
+        config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
 
-    def get_holster_time_secs(self) -> float:
-        return self.sidearm.get_holster_time_secs()
+        self._distance_to_config_idx_map = distance_to_config_idx_map
 
-    def get_ready_to_fire_time_secs(self) -> float:
-        return self.main_loadout.get_ready_to_fire_time_secs()
+        super().__init__(
+            f'{weapon_a.get_name()} {WITH_SIDEARM} {weapon_b.get_name()} ({config_descriptor})',
+            weapon_a.get_term().append(WITH_SIDEARM, weapon_b.get_term()))
 
-    def get_single_mag_cumulative_damage(self,
-                                         time_seconds: float,
-                                         distance_meters: float) -> float:
-        main_total_duration_seconds = self.main_loadout.get_magazine_duration_seconds()
-        cum_damage = self.main_loadout.get_single_mag_cumulative_damage(
-            min(time_seconds, main_total_duration_seconds),
-            distance_meters=distance_meters)
+        self._weapon_a = weapon_a
+        self._weapon_b = weapon_b
 
-        swap_time_seconds = self.main_loadout.get_swap_time_seconds(self.sidearm)
-        sidearm_start_time_seconds = main_total_duration_seconds + swap_time_seconds
-        if time_seconds >= sidearm_start_time_seconds:
-            time_seconds -= sidearm_start_time_seconds
-            cum_damage += self.sidearm.get_single_mag_cumulative_damage(
-                time_seconds,
-                distance_meters=distance_meters)
+    @staticmethod
+    def _get_config_description(distance_to_config_idx_map: NDArray[np.integer]) -> str:
+        diff_indices = np.flatnonzero(np.diff(distance_to_config_idx_map))
+        far_config = CONFIGURATIONS[distance_to_config_idx_map[-1]]
+        if len(diff_indices) == 0:
+            return far_config
 
-        return cum_damage
+        config_indices = distance_to_config_idx_map[diff_indices]
 
-    def _get_cumulative_damage(self,
-                               reloading_loadout: 'SingleWeaponLoadout',
-                               time_seconds: float,
-                               distance_meters: float,
-                               swap_time_seconds: float = 0,
-                               swapped: bool = False) -> float:
-        single_mag_cumulative_damage = self.get_single_mag_cumulative_damage(
-            time_seconds,
-            distance_meters=distance_meters)
-        reload_time_secs = reloading_loadout.get_weapon().get_tactical_reload_time_secs(swapped)
-        if reload_time_secs is None:
-            raise ValueError('Reloading loadout must be reloadable.')
+        configs: List[FullLoadoutConfiguration] = [CONFIGURATIONS[config_idx]
+                                                   for config_idx in config_indices]
+        configs.append(far_config)
 
-        reload_stop_time_seconds = (self.get_magazine_duration_seconds() +
-                                    reload_time_secs +
-                                    swap_time_seconds)
+        diff_indices = np.pad(diff_indices,
+                              (1, 1),
+                              constant_values=(0, len(distance_to_config_idx_map)))
+        assert len(diff_indices) == len(configs) + 1
 
-        if time_seconds < reload_stop_time_seconds:
-            return single_mag_cumulative_damage
+        return ', '.join(f'{start_m}-{stop_m - 1}m: {config}'
+                         for config, start_m, stop_m in
+                         zip(configs, diff_indices[:-1], diff_indices[1:]))
 
-        return (single_mag_cumulative_damage +
-                reloading_loadout.get_cumulative_damage(time_seconds - reload_stop_time_seconds,
-                                                        distance_meters=distance_meters))
+    @staticmethod
+    def _populate_distance_to_config_idx_map(
+            weapon_a: 'Weapon',
+            weapon_b: 'Weapon',
+            time_seconds: float,
+            ranges: NDArray[np.integer],
+            advisable_configurations: Tuple[Tuple[int, FullLoadoutConfiguration], ...],
+            lower_idx: int,
+            upper_idx: int):
+        if lower_idx > upper_idx:
+            # Base case.
+            return
+
+        lower_config_idx = FullLoadout._get_best_configuration_idx(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            time_seconds=time_seconds,
+            distance_meters=lower_idx,
+            advisable_configurations=advisable_configurations)
+        ranges[lower_idx] = lower_config_idx
+
+        if lower_idx == upper_idx:
+            # No need to get the best configuration for the same index again.
+            return
+
+        upper_config_idx = FullLoadout._get_best_configuration_idx(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            time_seconds=time_seconds,
+            distance_meters=upper_idx,
+            advisable_configurations=advisable_configurations)
+        ranges[upper_idx] = upper_config_idx
+
+        if lower_config_idx == upper_config_idx:
+            # If same configuration is best for two distances, we can pretty safely assume that the
+            # same configuration will be best for any distance in between those two distances.
+            ranges[lower_idx + 1:upper_idx] = lower_config_idx
+            return
+
+        # We will have to do a kind of binary search to figure out at what distance the best
+        # configuration changes.
+        mid_idx = round(((math.sqrt(lower_idx) + math.sqrt(upper_idx)) / 2) ** 2)
+        FullLoadout._populate_distance_to_config_idx_map(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            time_seconds=time_seconds,
+            ranges=ranges,
+            advisable_configurations=advisable_configurations,
+            lower_idx=lower_idx + 1,
+            upper_idx=mid_idx)
+        FullLoadout._populate_distance_to_config_idx_map(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            time_seconds=time_seconds,
+            ranges=ranges,
+            advisable_configurations=advisable_configurations,
+            lower_idx=mid_idx + 1,
+            upper_idx=upper_idx - 1)
+
+    @staticmethod
+    def _get_best_configuration_idx(
+            weapon_a: 'Weapon',
+            weapon_b: 'Weapon',
+            time_seconds: float,
+            distance_meters: float,
+            advisable_configurations: Tuple[Tuple[int, FullLoadoutConfiguration], ...]) -> int:
+        check_float(min_value=0,
+                    time_seconds=time_seconds,
+                    distance_meters=distance_meters)
+        check_tuple(tuple,
+                    allow_empty=False,
+                    advisable_configurations=advisable_configurations)
+
+        idx, _ = max(advisable_configurations,
+                     key=lambda _idx_and_config: _idx_and_config[1].get_cumulative_damage(
+                         weapon_a=weapon_a,
+                         weapon_b=weapon_b,
+                         time_seconds=time_seconds,
+                         distance_meters=distance_meters))
+        return idx
+
+    def _get_best_config_for_distance(self, distance_meters: float) -> FullLoadoutConfiguration:
+        distance_int = min(round(distance_meters), len(self._distance_to_config_idx_map) - 1)
+        config_idx: int = self._distance_to_config_idx_map[distance_int]
+        return CONFIGURATIONS[config_idx]
 
     def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
-        check_float(min_value=0, time_seconds=time_seconds)
-        reloading_loadout_config = self._reloading_loadout_config
-        if reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN:
-            return self._get_cumulative_damage(
-                reloading_loadout=self.main_loadout,
-                time_seconds=time_seconds,
-                swap_time_seconds=self.sidearm.get_swap_time_seconds(self.main_loadout),
-                swapped=True,
-                distance_meters=distance_meters)
-        elif reloading_loadout_config is _ReloadConfiguration.RELOAD_SIDEARM:
-            return self._get_cumulative_damage(reloading_loadout=self.sidearm,
-                                               time_seconds=time_seconds,
-                                               distance_meters=distance_meters)
-        else:
-            return self.get_single_mag_cumulative_damage(time_seconds,
-                                                         distance_meters=distance_meters)
-
-    def get_magazine_duration_seconds(self) -> float:
-        tactical_main = self._reloading_loadout_config is _ReloadConfiguration.RELOAD_MAIN
-        tactical_sidearm = self._reloading_loadout_config is _ReloadConfiguration.RELOAD_SIDEARM
-        return (self.main_loadout.get_magazine_duration_seconds(tactical=tactical_main) +
-                self.sidearm.get_ready_to_fire_time_secs() +
-                self.sidearm.get_magazine_duration_seconds(tactical=tactical_sidearm))
+        check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
+        configuration = self._get_best_config_for_distance(distance_meters)
+        return configuration.get_cumulative_damage(weapon_a=self._weapon_a,
+                                                   weapon_b=self._weapon_b,
+                                                   time_seconds=time_seconds,
+                                                   distance_meters=distance_meters)
 
     def __hash__(self):
-        return hash(self.__class__) ^ hash((self.main_loadout, self.sidearm))
+        return hash(self.__class__) ^ hash((self._weapon_a, self._weapon_b))
 
     def __eq__(self, other):
         return (isinstance(other, FullLoadout) and
-                other.main_loadout == self.main_loadout and other.sidearm == self.sidearm)
+                other._weapon_a == self._weapon_a and other._weapon_b == self._weapon_b)
 
-    def get_main_loadout(self) -> 'SingleWeaponLoadout':
-        return self.main_loadout
-
-    def get_sidearm(self) -> 'Weapon':
-        return self.sidearm
+    def get_weapons(self) -> FrozenSet['Weapon']:
+        return frozenset((self._weapon_a, self._weapon_b))
 
     @staticmethod
     def get_loadouts(required_weapons: Iterable['Weapon']) -> Generator['FullLoadout', None, None]:
         duplicated_weapons = FullLoadout._get_duplicates(required_weapons)
-        return (FullLoadout(main_loadout, sidearm)
-                for main_weapon in required_weapons
-                for sidearm in required_weapons
-                if (sidearm != main_weapon or main_weapon in duplicated_weapons)
-                for main_loadout in main_weapon.get_main_loadout_variants())
+        return (FullLoadout(weapon_a, weapon_b)
+                for weapon_a in required_weapons
+                for weapon_b in required_weapons
+                if weapon_b != weapon_a or weapon_a in duplicated_weapons)
 
     @staticmethod
     def _get_duplicates(elements: Iterable['T']) -> set[T]:
@@ -725,42 +973,50 @@ class FullLoadout(Loadout):
             singles.add(element)
         return duplicates
 
+    def get_weapon_a(self) -> 'Weapon':
+        return self._weapon_a
+
+    def get_weapon_b(self):
+        return self._weapon_b
+
 
 class SingleWeaponLoadout(Loadout, abc.ABC):
-    def __init__(self, name: str, term: RequiredTerm, variant_term: Optional[TermBase]):
-        if variant_term is not None:
-            term = term + variant_term
-            name = f'{name} ({variant_term})'
+    def __init__(self, name: str, term: RequiredTerm):
         super().__init__(name=name, term=term)
-        self.variant_term = variant_term
 
     @abc.abstractmethod
     def get_archetype(self) -> 'WeaponArchetype':
         raise NotImplementedError()
 
-    @final
-    def get_main_loadout(self) -> 'SingleWeaponLoadout':
-        return self
-
-    @final
-    def get_variant_term(self) -> Optional[TermBase]:
-        return self.variant_term
-
     @abc.abstractmethod
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
+    def get_magazine_duration_seconds(self, tactical: int) -> float:
         raise NotImplementedError()
-
-    @final
-    def add_sidearm(self, sidearm: 'Weapon') -> 'FullLoadout':
-        return FullLoadout(self, sidearm)
 
     @abc.abstractmethod
     def get_weapon(self) -> 'Weapon':
         raise NotImplementedError()
 
-    def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout'):
+    @abc.abstractmethod
+    def get_single_mag_cumulative_damage(self,
+                                         time_seconds: float,
+                                         distance_meters: float,
+                                         tactical: int) -> float:
+        raise NotImplementedError()
+
+    def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout') -> float:
         check_type(SingleWeaponLoadout, weapon_swap_to=weapon_swap_to)
         return self.get_holster_time_secs() + weapon_swap_to.get_ready_to_fire_time_secs()
+
+    @abc.abstractmethod
+    def get_holster_time_secs(self) -> float:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_ready_to_fire_time_secs(self) -> float:
+        raise NotImplementedError()
+
+    def can_reload(self):
+        return self.get_weapon().get_tactical_reload_time_secs() is not None
 
 
 class Weapon(SingleWeaponLoadout):
@@ -808,7 +1064,7 @@ class Weapon(SingleWeaponLoadout):
             magazine_capacity = round(magazine_capacity * 1.15)
             tactical_reload_time_secs *= 0.75
 
-        super().__init__(name=name, term=term, variant_term=None)
+        super().__init__(name=name, term=term)
         self.archetype = archetype
         self.weapon_class = weapon_class
         self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
@@ -817,7 +1073,7 @@ class Weapon(SingleWeaponLoadout):
         self.ready_to_fire_time_secs = ready_to_fire_time_secs
         self.rounds_per_minute = rounds_per_minute
         self.magazine_capacity = magazine_capacity
-        self.spinup = spinup
+        self.round_timing = spinup
         self.heat_based = heat_based
         self.tactical_reload_time_secs = tactical_reload_time_secs
 
@@ -840,36 +1096,23 @@ class Weapon(SingleWeaponLoadout):
 
     def get_single_mag_cumulative_damage(self,
                                          time_seconds: float,
-                                         distance_meters: float) -> float:
-        return (self.spinup.get_cumulative_damage(self, time_seconds) *
+                                         distance_meters: float,
+                                         tactical: int) -> float:
+        return (self.round_timing.get_cumulative_damage(base_weapon=self,
+                                                        time_seconds=time_seconds,
+                                                        tactical=tactical) *
                 self._get_accuracy_fraction(distance_meters))
 
-    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
-        reload_time_seconds = self.get_tactical_reload_time_secs()
-        if reload_time_seconds is None:
-            return self.get_single_mag_cumulative_damage(time_seconds=time_seconds,
-                                                         distance_meters=distance_meters)
-
-        mag_duration_seconds = self.get_magazine_duration_seconds(tactical=True)
-        period_seconds = mag_duration_seconds + reload_time_seconds
-        num_completed_cycles, rel_time_seconds = divmod(time_seconds, period_seconds)
-        if rel_time_seconds >= mag_duration_seconds:
-            cum_damage = 0
-            num_completed_cycles += 1
-        else:
-            cum_damage = self.get_single_mag_cumulative_damage(time_seconds=rel_time_seconds,
-                                                               distance_meters=distance_meters)
-        cum_damage += (num_completed_cycles *
-                       self.get_single_mag_cumulative_damage(time_seconds=mag_duration_seconds,
-                                                             distance_meters=distance_meters))
-
-        return cum_damage
-
     def _get_accuracy_fraction(self, distance_meters: float) -> float:
+        check_float(min_value=0, distance_meters=distance_meters)
+        if distance_meters == 0:
+            return 1
         return min(self.EIGHTY_PERCENT * self.eighty_percent_accuracy_range / distance_meters, 1)
 
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        return self.spinup.get_magazine_duration_seconds(self, tactical=tactical)
+    def get_magazine_duration_seconds(self, tactical: int) -> float:
+        duration_seconds = self.round_timing.get_magazine_duration_seconds(self, tactical=tactical)
+        assert isinstance(duration_seconds, (int, float))
+        return duration_seconds
 
     def get_damage_per_second_body(self) -> float:
         return self._damage_per_second_body
@@ -880,8 +1123,8 @@ class Weapon(SingleWeaponLoadout):
     def get_damage_per_round(self) -> float:
         return self.damage_body
 
-    def get_magazine_capacity(self):
-        return self.magazine_capacity
+    def get_magazine_capacity(self, tactical: int) -> int:
+        return max(self.magazine_capacity - tactical, 0)
 
     def get_rounds_per_minute(self):
         return self.rounds_per_minute
@@ -901,31 +1144,20 @@ class Weapon(SingleWeaponLoadout):
     def get_weapon(self) -> 'Weapon':
         return self
 
-    def get_main_loadout_variants(self, allow_skipping: bool = False) -> \
-            Generator[SingleWeaponLoadout, None, None]:
-        yield self
-        if self.is_single_shot_advisable():
-            yield self.single_shot()
-        if allow_skipping:
-            yield self.skip()
-
-    def skip(self) -> 'SkippedLoadout':
-        return SkippedLoadout(self)
-
-    def single_shot(self) -> 'SingleShotLoadout':
-        return SingleShotLoadout(self)
+    def single_shot(self) -> '_SingleShotLoadout':
+        return _SingleShotLoadout(self)
 
     def is_single_shot_advisable(self) -> bool:
         seconds_per_round = 1 / self.get_rounds_per_second()
         return seconds_per_round >= self.holster_time_secs
 
 
-class SingleShotLoadout(SingleWeaponLoadout):
+class _SingleShotLoadout(SingleWeaponLoadout):
     def __init__(self, wrapped_weapon: Weapon):
         if not wrapped_weapon.is_single_shot_advisable():
             raise ValueError(f'Weapon {wrapped_weapon} must have single shots being advisable!')
         check_type(Weapon, wrapped_weapon=wrapped_weapon)
-        super().__init__(wrapped_weapon.get_name(), wrapped_weapon.get_term(), SINGLE_SHOT)
+        super().__init__(wrapped_weapon.get_name(), wrapped_weapon.get_term())
         self.wrapped_weapon = wrapped_weapon
 
     def get_archetype(self) -> 'WeaponArchetype':
@@ -939,64 +1171,24 @@ class SingleShotLoadout(SingleWeaponLoadout):
 
     def get_single_mag_cumulative_damage(self,
                                          time_seconds: float,
-                                         distance_meters: float) -> float:
-        return self.wrapped_weapon.get_damage_per_round()
+                                         distance_meters: float,
+                                         tactical: int) -> float:
+        return self.wrapped_weapon.get_single_mag_cumulative_damage(time_seconds=0,
+                                                                    distance_meters=distance_meters,
+                                                                    tactical=tactical)
 
-    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
-        return self.wrapped_weapon.get_cumulative_damage(time_seconds=time_seconds,
-                                                         distance_meters=distance_meters)
-
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        return HUMAN_REACTION_TIME_SECONDS
+    def get_magazine_duration_seconds(self, tactical: int) -> float:
+        return 0
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self.wrapped_weapon)
 
     def __eq__(self, other):
-        return (isinstance(other, SingleShotLoadout) and
+        return (isinstance(other, _SingleShotLoadout) and
                 self.wrapped_weapon == other.wrapped_weapon)
 
     def get_weapon(self) -> 'Weapon':
         return self.wrapped_weapon
-
-
-class SkippedLoadout(SingleWeaponLoadout):
-    def __init__(self, skipped_weapon: Weapon):
-        check_type(Weapon, skipped_weapon=skipped_weapon)
-        super().__init__(skipped_weapon.get_name(), skipped_weapon.get_term(), SKIPPED)
-        self.skipped_weapon = skipped_weapon
-
-    def get_archetype(self) -> 'WeaponArchetype':
-        return self.skipped_weapon.get_archetype()
-
-    def get_holster_time_secs(self) -> float:
-        return 0
-
-    def get_ready_to_fire_time_secs(self) -> float:
-        return 0
-
-    def get_single_mag_cumulative_damage(self,
-                                         time_seconds: float,
-                                         distance_meters: float) -> float:
-        return 0
-
-    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
-        return 0
-
-    def get_magazine_duration_seconds(self, tactical: bool = False) -> float:
-        return 0
-
-    def __hash__(self):
-        return hash(self.__class__) ^ hash(self.skipped_weapon)
-
-    def __eq__(self, other):
-        return isinstance(other, SkippedLoadout) and self.skipped_weapon == other.skipped_weapon
-
-    def get_weapon(self) -> 'Weapon':
-        return self.skipped_weapon
-
-    def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout'):
-        return 0
 
 
 class WeaponArchetype:
@@ -1010,10 +1202,11 @@ class WeaponArchetype:
                  rounds_per_minute: RoundsPerMinuteBase,
                  magazine_capacity: MagazineCapacityBase,
                  stock_dependant_stats: StockStatsBase,
-                 spinup: RoundTiming,
-                 heat_based: bool,
-                 associated_legend: Optional[Legend]):
+                 spinup: RoundTiming, heat_based: bool,
+                 associated_legend: Optional[Legend],
+                 care_package: bool):
         check_type(Suffix, optional=True, suffix=suffix)
+        check_bool(care_package=care_package)
 
         self.name = name
         self.base_term = base_term
@@ -1029,6 +1222,7 @@ class WeaponArchetype:
         self.spinup = spinup
         self.heat_based = heat_based
         self.associated_legend = associated_legend
+        self.care_package = care_package
 
     def get_associated_legend(self) -> Optional[Legend]:
         return self.associated_legend
@@ -1085,6 +1279,10 @@ class WeaponArchetype:
 
     def get_suffix(self) -> Optional[Suffix]:
         return self.suffix
+
+    def is_hopped_up(self) -> bool:
+        return (self.suffix is not None and
+                SuffixedArchetypeType.HOPPED_UP in self.suffix.get_types())
 
     def get_term(self) -> RequiredTerm:
         return self.full_term
@@ -1161,6 +1359,9 @@ class WeaponArchetype:
         check_type(Words, words=words)
         return all(SingleTermFinder(term).find_all(words) for term in suffix.get_terms())
 
+    def is_care_package(self) -> bool:
+        return self.care_package
+
 
 class WeaponArchetypes:
     def __init__(self,
@@ -1175,8 +1376,8 @@ class WeaponArchetypes:
         for suffixed_archetype in suffixed_archetypes:
             if base_term != suffixed_archetype.get_base_term():
                 raise ValueError(
-                    f'Both weapon archetypes must have the same base term ('
-                    f'{repr(base_term)} != {repr(suffixed_archetype.get_base_term())}).')
+                    f'Both weapon archetypes must have the same base term ({repr(base_term)} != '
+                    f'{repr(suffixed_archetype.get_base_term())}).')
 
             if associated_legend != suffixed_archetype.get_associated_legend():
                 raise ValueError(
@@ -1186,35 +1387,27 @@ class WeaponArchetypes:
             if suffixed_archetype.get_suffix() is None:
                 raise ValueError('with_hopup_archetype must have a suffix.')
 
-        suffixes_and_archetypes: Tuple[Tuple[Suffix, WeaponArchetype], ...] = \
+        sort_key = lambda _archetype: _archetype.get_best_weapon().get_damage_per_second_body()
+
+        all_archetypes = (base_archetype,) + suffixed_archetypes
+        suffixes_and_archetypes: Tuple[Tuple[Optional[Suffix], WeaponArchetype], ...] = \
             tuple(sorted(((suffixed_archetype.get_suffix(), suffixed_archetype)
-                          for suffixed_archetype in suffixed_archetypes),
-                         key=lambda suffix_and_archetype: len(suffix_and_archetype[0]),
+                          for suffixed_archetype in all_archetypes),
+                         key=lambda suffix_and_archetype: sort_key(suffix_and_archetype[1]),
                          reverse=True))
 
         self._base_archetype = base_archetype
         self._suffixes_and_archetypes = suffixes_and_archetypes
-
-        all_archetypes = (base_archetype,) + suffixed_archetypes
-        sort_key = lambda a: a.get_best_weapon().get_damage_per_second_body()
-
         self._best_archetype = max(all_archetypes, key=sort_key)
         self._base_term = base_term
         self._associated_legend = associated_legend
+        self._has_hopped_up_archetype = any(archetype.is_hopped_up()
+                                            for archetype in all_archetypes)
 
-        any_suffix_is_hopped_up = any(self.is_hopped_up_suffix(suffix)
-                                      for suffix, _ in suffixes_and_archetypes)
-        fully_kitted_archetypes = [archetype for suffix, archetype in suffixes_and_archetypes]
-        if not any_suffix_is_hopped_up:
-            fully_kitted_archetypes.append(base_archetype)
-        self._fully_kitted_archetypes = tuple(sorted(fully_kitted_archetypes,
-                                                     key=sort_key,
-                                                     reverse=True))
-
-    @staticmethod
-    def is_hopped_up_suffix(suffix: Suffix):
-        check_type(Suffix, suffix=suffix)
-        return SuffixedArchetypeType.HOPPED_UP in suffix.get_types()
+        self._is_care_package = base_archetype.is_care_package()
+        if not all(archetype.is_care_package() == base_archetype.is_care_package()
+                   for archetype in suffixed_archetypes):
+            raise ValueError('Archetypes must all be care package or non-care package.')
 
     def get_associated_legend(self) -> Optional[Legend]:
         return self._associated_legend
@@ -1227,7 +1420,7 @@ class WeaponArchetypes:
             return self._best_archetype
 
         for suffix, suffixed_archetype in self._suffixes_and_archetypes:
-            if WeaponArchetype.find_suffix(suffix, words):
+            if suffix is not None and WeaponArchetype.find_suffix(suffix, words):
                 return suffixed_archetype
 
         return self._base_archetype
@@ -1235,10 +1428,15 @@ class WeaponArchetypes:
     def get_base_term(self) -> RequiredTerm:
         return self._base_term
 
-    def get_fully_kitted_weapons(self, legend: Optional[Legend] = None) -> \
+    def get_fully_kitted_weapons(self,
+                                 legend: Optional[Legend] = None,
+                                 include_non_hopped_up: bool = False) -> \
             Generator[Weapon, None, None]:
-        for archetype in self._fully_kitted_archetypes:
-            yield archetype.get_best_weapon(legend=legend)
+        for _, archetype in self._suffixes_and_archetypes:
+            if (not self._has_hopped_up_archetype or
+                    include_non_hopped_up or
+                    archetype.is_hopped_up()):
+                yield archetype.get_best_weapon(legend=legend)
 
     def get_best_match(self,
                        words: Words,
@@ -1292,3 +1490,6 @@ class WeaponArchetypes:
 
     def __str__(self):
         return str(self._base_term)
+
+    def is_care_package(self) -> bool:
+        return self._is_care_package

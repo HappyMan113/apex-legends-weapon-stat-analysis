@@ -24,7 +24,7 @@ class Legend(StrEnum):
     RAMPART = 'Rampart'
     REVENANT = 'Revenant'
     SEER = 'Seer'
-    VALKRIE = 'Valkyrie'
+    VALKYRIE = 'Valkyrie'
     VANTAGE = 'Vantage'
     WATTSON = 'Wattson'
     WRAITH = 'Wraith'
