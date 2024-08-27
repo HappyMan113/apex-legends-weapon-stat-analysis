@@ -53,12 +53,8 @@ class CompareCommand(ApexCommand):
         show_plots = bool(self._show_plots_finder.find_all(arguments))
         unique_loadouts = set(loadouts)
         if len(unique_loadouts) < len(loadouts):
-            LOGGER.warning('Duplicate loadout found. Only unique weapons will be compared.')
+            LOGGER.debug('Duplicate loadout found. Only unique weapons will be compared.')
             loadouts = tuple(unique_loadouts)
-
-        if len(loadouts) == 1:
-            LOGGER.info(f'All weapons are the same: {loadouts[0]}')
-            return 'Only one unique weapon was specified.'
 
         if len(loadouts) == 0:
             excludes = self._exclude_translator.translate_terms(arguments).values()
@@ -69,6 +65,8 @@ class CompareCommand(ApexCommand):
                 include_care_package_weapons=include_care_package,
                 include_non_hopped_up_weapons=include_non_hopped_up)
             loadouts = tuple(comparator.get_best_loadouts(weapons))
+            uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES
+        elif len(loadouts) == 1:
             uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES
         else:
             uniqueness = self._get_uniqueness(loadouts)
