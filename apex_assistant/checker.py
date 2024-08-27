@@ -1,6 +1,9 @@
 import operator
 from typing import Dict, Iterable, Mapping, Optional, Sized, Tuple, Type, TypeVar, Union
 
+import numpy as np
+from numpy.typing import NDArray
+
 T = TypeVar('T')
 K = TypeVar('K')
 V = TypeVar('V')
@@ -35,6 +38,22 @@ def check_float(optional: bool = False,
                 (operator.le if min_is_exclusive else operator.lt)(value, min_value)):
             must_be = 'greater than' if min_is_exclusive else 'at least'
             raise ValueError(f'{name} ({value}) must be {must_be} {min_value}.')
+
+
+def check_float_vec(min_value: float | None = None, **values: NDArray[np.float64]):
+    required_dtype = np.float64
+    for name, value in values.items():
+        if not isinstance(value, np.ndarray):
+            raise TypeError(f'{name} must be an NDArray.')
+
+        if value.dtype != required_dtype:
+            raise TypeError(f'{name} had a dtype of {value.dtype} instead of {required_dtype}')
+
+        if value.ndim != 1:
+            raise ValueError(f'{name} ({value}) must have one dimension.')
+
+        if min_value is not None and value.min(initial=min_value) < min_value:
+            raise ValueError(f'{name} ({value}) must be at least {min_value}.')
 
 
 def check_int(optional: bool = False, min_value: int | None = None, **values: int):

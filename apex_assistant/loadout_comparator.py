@@ -3,7 +3,7 @@ import logging
 import os
 from statistics import correlation
 from types import MappingProxyType
-from typing import Generator, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Generator, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -102,10 +102,8 @@ class LoadoutComparator:
         for idx, loadout in enumerate(loadouts):
             check_type(FullLoadout, weapon=loadout)
             loadout: FullLoadout = loadout
-            damage_table[idx] = np.array([
-                loadout.get_cumulative_damage(time_seconds=time_seconds,
-                                              distance_meters=distance_meters)
-                for time_seconds, distance_meters in zip(ts, ds)])
+            damage_table[idx] = loadout.get_cumulative_damage_vec(times_seconds=ts,
+                                                                  distances_meters=ds)
 
         # This is the mean dps up till time t for t in TTKs.
         mean_dps_till_time_t = damage_table * (1 / ts)
@@ -148,10 +146,8 @@ class LoadoutComparator:
             ts_lin = np.linspace(0.4, ts.max() * 1.4, num=4000)
             t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
             for loadout in result.limit_to_best_num(10).get_sorted_loadouts():
-                damages = np.array([
-                    loadout.get_cumulative_damage(time_seconds=time_seconds,
-                                                  distance_meters=0)
-                    for time_seconds in ts_lin])
+                damages = loadout.get_cumulative_damage_vec(times_seconds=ts_lin,
+                                                            distances_meters=np.zeros_like(ts_lin))
                 damages *= 1 / ts_lin
                 ax2.plot(ts_lin, damages,
                          label=loadout.get_name(),
@@ -175,22 +171,25 @@ class LoadoutComparator:
         check_tuple(Weapon, allow_empty=False, weapons=weapons)
         check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
 
-        weapons_set = set(weapons)
+        weapons_set = frozenset(weapons)
+        exclude_filter: set[Weapon] = set()
         max_max_num_loadouts = len(weapons_set) - FullLoadout.NUM_WEAPONS + 1
         if max_num_loadouts is None:
             max_num_loadouts = max_max_num_loadouts
         else:
             max_num_loadouts = min(max_max_num_loadouts, max_num_loadouts)
 
+        loadouts = tuple(FullLoadout.get_loadouts(weapons_set))
+
         num_loadouts = 0
         while num_loadouts < max_num_loadouts:
-            best_loadout = self._compare_loadouts_containing_only(weapons_set)
-            weapons_set.remove(best_loadout.get_weapon_a())
+            loadouts = tuple(FullLoadout.filter_loadouts(loadouts, exclude_filter))
+            best_loadout = self._compare_loadouts(loadouts)
+            exclude_filter.add(best_loadout.get_weapon_a())
 
             yield best_loadout
             num_loadouts += 1
 
-    def _compare_loadouts_containing_only(self, weapons: Iterable[Weapon]) -> FullLoadout:
-        loadouts = tuple(FullLoadout.get_loadouts(weapons))
+    def _compare_loadouts(self, loadouts: tuple[FullLoadout, ...]) -> FullLoadout:
         best_loadout, _ = self.compare_loadouts(loadouts).get_best_loadout()
         return best_loadout

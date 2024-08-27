@@ -4,7 +4,8 @@ import math
 import re
 from enum import StrEnum
 from types import MappingProxyType
-from typing import (Dict,
+from typing import (AbstractSet,
+                    Dict,
                     FrozenSet,
                     Generator,
                     Generic,
@@ -23,9 +24,11 @@ from numpy.typing import NDArray
 from apex_assistant.checker import (check_bool,
                                     check_equal_length,
                                     check_float,
+                                    check_float_vec,
                                     check_int,
                                     check_str,
-                                    check_tuple, check_type,
+                                    check_tuple,
+                                    check_type,
                                     to_kwargs)
 from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
@@ -256,6 +259,13 @@ class RoundTiming(abc.ABC):
                             tactical: int) -> int:
         raise NotImplementedError('Must implement.')
 
+    @abc.abstractmethod
+    def get_nums_rounds_shot(self,
+                             base_weapon: 'Weapon',
+                             times_seconds: NDArray[np.float64],
+                             tactical: int) -> NDArray[np.integer]:
+        raise NotImplementedError('Must implement.')
+
     @final
     def get_cumulative_damage(self,
                               base_weapon: 'Weapon',
@@ -271,6 +281,24 @@ class RoundTiming(abc.ABC):
             raise RuntimeError(f'get_num_rounds_shot() in {self.__class__.__name__} must not '
                                'return a number of rounds greater than the magazine capacity.')
         return base_weapon.get_damage_per_round() * num_rounds
+
+    @final
+    def get_cumulative_damage_vec(self,
+                                  base_weapon: 'Weapon',
+                                  times_seconds: NDArray[np.float64],
+                                  tactical: int) -> NDArray[np.float64]:
+        nums_rounds = self.get_nums_rounds_shot(base_weapon=base_weapon,
+                                                times_seconds=times_seconds,
+                                                tactical=tactical)
+        if (nums_rounds < 0).any():
+            raise RuntimeError(
+                f'{self.get_nums_rounds_shot.__name__}() in {self.__class__.__name__} must not '
+                'return a non-negative number of rounds.')
+        if (nums_rounds > base_weapon.get_magazine_capacity(tactical)).any():
+            raise RuntimeError(
+                f'{self.get_nums_rounds_shot.__name__}() in {self.__class__.__name__} must not '
+                'return a number of rounds greater than the magazine capacity.')
+        return base_weapon.get_damage_per_round() * nums_rounds
 
     @abc.abstractmethod
     def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
@@ -298,7 +326,7 @@ class RoundTimingDevotion(RoundTiming):
         self._spinup_time_seconds = spinup_time_seconds
 
     def _get_shot_times_seconds(self, base_weapon: 'Weapon', tactical: int) -> \
-            np.ndarray[np.floating]:
+            np.ndarray[np.float64]:
         # As a sanity check, magazine duration for Care Package Devotion was measured as ~227-229
         # frames at 60 FPS (~3.783-3.817 seconds).
         magazine_capacity = base_weapon.get_magazine_capacity(tactical)
@@ -306,7 +334,7 @@ class RoundTimingDevotion(RoundTiming):
         rps_final = base_weapon.get_rounds_per_second()
         rps_per_sec = (rps_final - rps_initial) / self._spinup_time_seconds
 
-        times: np.ndarray[np.floating] = np.empty(magazine_capacity)
+        times: np.ndarray[np.float64] = np.empty(magazine_capacity)
         times[0] = 0
         for round_num in range(1, magazine_capacity):
             prev_t = times[round_num - 1]
@@ -320,6 +348,17 @@ class RoundTimingDevotion(RoundTiming):
         shot_times_seconds = self._get_shot_times_seconds(base_weapon=base_weapon,
                                                           tactical=tactical)
         return np.count_nonzero(time_seconds >= shot_times_seconds)
+
+    def get_nums_rounds_shot(self,
+                             base_weapon: 'Weapon',
+                             times_seconds: NDArray[np.float64],
+                             tactical: int) -> NDArray[np.integer]:
+        shot_times_seconds = self._get_shot_times_seconds(base_weapon=base_weapon,
+                                                          tactical=tactical)
+        nums_rounds_shot = np.count_nonzero(times_seconds.reshape(-1, 1) >=
+                                            shot_times_seconds.reshape(1, -1), axis=1)
+        assert nums_rounds_shot.shape == times_seconds.shape
+        return nums_rounds_shot
 
     def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
         shot_times = self._get_shot_times_seconds(base_weapon=base_weapon, tactical=tactical)
@@ -353,13 +392,13 @@ class _RoundTimingBurstBase(RoundTiming, abc.ABC):
 
     @staticmethod
     def _get_burst_duration_seconds(base_weapon: 'Weapon',
-                                    num_rounds: NDArray[np.integer]) -> NDArray[np.floating]:
+                                    num_rounds: NDArray[np.integer]) -> NDArray[np.float64]:
         seconds_per_round = 1 / base_weapon.get_rounds_per_second()
         burst_duration_seconds = seconds_per_round * (num_rounds - 1)
         return burst_duration_seconds
 
     def _get_burst_durations_seconds(self, base_weapon: 'Weapon', tactical: int) -> \
-            np.ndarray[np.floating]:
+            np.ndarray[np.float64]:
         nums_rounds = self._get_burst_nums_rounds(base_weapon, tactical)
         burst_durations_seconds = self._get_burst_duration_seconds(base_weapon, nums_rounds)
         return burst_durations_seconds
@@ -367,7 +406,7 @@ class _RoundTimingBurstBase(RoundTiming, abc.ABC):
     @abc.abstractmethod
     def _get_burst_periods_seconds(self,
                                    base_weapon: 'Weapon',
-                                   tactical: int) -> np.ndarray[np.floating]:
+                                   tactical: int) -> np.ndarray[np.float64]:
         raise NotImplementedError()
 
     def get_num_rounds_shot(self, base_weapon: 'Weapon', time_seconds: float, tactical: int) -> int:
@@ -392,6 +431,33 @@ class _RoundTimingBurstBase(RoundTiming, abc.ABC):
         return min(full_periods_shot + num_rounds_shot_in_partial_period,
                    base_weapon.get_magazine_capacity(tactical))
 
+    def get_nums_rounds_shot(self,
+                             base_weapon: 'Weapon',
+                             times_seconds: NDArray[np.float64],
+                             tactical: int) -> NDArray[np.integer]:
+        periods_seconds = self._get_burst_periods_seconds(base_weapon, tactical=tactical)
+        period_stop_times_seconds = periods_seconds.cumsum()
+
+        num_full_periods_shot = np.count_nonzero(times_seconds.reshape(-1, 1) >=
+                                                 period_stop_times_seconds.reshape(1, -1),
+                                                 axis=1)
+        assert num_full_periods_shot.shape == times_seconds.shape
+        full_periods_shot = num_full_periods_shot * self._rounds_per_burst
+
+        partial_period_start_times_secs = np.zeros_like(times_seconds)
+        non_zeros = np.flatnonzero(num_full_periods_shot)
+        partial_period_start_times_secs[non_zeros] = \
+            period_stop_times_seconds[num_full_periods_shot[non_zeros] - 1]
+        rel_burst_times_secs = times_seconds - partial_period_start_times_secs
+        ge_zeros = np.flatnonzero(rel_burst_times_secs >= 0)
+        num_rounds_shot_in_partial_period = np.zeros_like(times_seconds)
+        num_rounds_shot_in_partial_period[ge_zeros] = (
+                1 + np.floor(rel_burst_times_secs[ge_zeros] * base_weapon.get_rounds_per_second())
+        ).clip(max=self._rounds_per_burst).astype(int)
+
+        return (full_periods_shot + num_rounds_shot_in_partial_period).clip(
+            max=base_weapon.get_magazine_capacity(tactical))
+
     def get_magazine_duration_seconds(self, base_weapon: 'Weapon', tactical: int) -> float:
         periods_seconds = self._get_burst_periods_seconds(base_weapon, tactical=tactical)
         return float(periods_seconds.sum())
@@ -415,7 +481,7 @@ class RoundTimingBurst(_RoundTimingBurstBase):
 
     def _get_burst_periods_seconds(self,
                                    base_weapon: 'Weapon',
-                                   tactical: int) -> np.ndarray[np.floating]:
+                                   tactical: int) -> np.ndarray[np.float64]:
         burst_periods_periods = self._get_burst_durations_seconds(base_weapon=base_weapon,
                                                                   tactical=tactical)
         burst_periods_periods[:-1] += self._burst_fire_delay
@@ -453,7 +519,7 @@ class RoundTimingNemesis(_RoundTimingBurstBase):
 
     def _get_burst_periods_seconds(self,
                                    base_weapon: 'Weapon',
-                                   tactical: int) -> np.ndarray[np.floating]:
+                                   tactical: int) -> np.ndarray[np.float64]:
         burst_durations_seconds = self._get_burst_durations_seconds(base_weapon=base_weapon,
                                                                     tactical=tactical)
         num_bursts = len(burst_durations_seconds)
@@ -517,6 +583,15 @@ class RoundTimingRegular(RoundTiming):
                          base_weapon.get_magazine_capacity(tactical))
         return num_rounds
 
+    def get_nums_rounds_shot(self,
+                             base_weapon: 'Weapon',
+                             times_seconds: NDArray[np.float64],
+                             tactical: int) -> NDArray[np.integer]:
+        rounds_per_second = base_weapon.get_rounds_per_second()
+        num_rounds = (1 + np.floor(times_seconds * rounds_per_second)).clip(
+            max=base_weapon.get_magazine_capacity(tactical)).astype(int)
+        return num_rounds
+
     def __hash__(self):
         return hash(self.__class__)
 
@@ -549,6 +624,19 @@ class RoundTimingHavoc(RoundTiming):
             time_seconds=time_seconds - spinup_time_seconds,
             tactical=tactical)
 
+    def get_nums_rounds_shot(self,
+                             base_weapon: 'Weapon',
+                             times_seconds: NDArray[np.float64],
+                             tactical: int) -> NDArray[np.integer]:
+        spinup_time_seconds = self._spinup_time_seconds
+        result = np.zeros_like(times_seconds, dtype=int)
+        non_zeros = np.flatnonzero(times_seconds >= spinup_time_seconds)
+        result[non_zeros] = self._NO_SPINUP.get_nums_rounds_shot(
+            base_weapon=base_weapon,
+            times_seconds=times_seconds[non_zeros] - spinup_time_seconds,
+            tactical=tactical)
+        return result
+
     def __hash__(self):
         return hash(self.__class__) ^ hash(self._spinup_time_seconds)
 
@@ -558,20 +646,16 @@ class RoundTimingHavoc(RoundTiming):
 
 
 class Loadout(abc.ABC):
-    def __init__(self, name: str, term: RequiredTerm):
-        check_str(allow_blank=False, name=name)
-        check_type(RequiredTerm, term=term)
-        self.name = name
-        self.term = term
-
+    @abc.abstractmethod
     def get_term(self) -> RequiredTerm:
-        return self.term
+        raise NotImplementedError()
 
-    def get_name(self):
-        return self.name
+    @abc.abstractmethod
+    def get_name(self) -> str:
+        raise NotImplementedError()
 
     def __repr__(self):
-        return self.name
+        return self.get_name()
 
     @abc.abstractmethod
     def __hash__(self):
@@ -635,6 +719,7 @@ class FullLoadoutConfiguration(StrEnum):
         config = self._get_configuration_str().translate(table)
         return FullLoadoutConfiguration(config)
 
+    # noinspection DuplicatedCode
     def get_cumulative_damage(self,
                               weapon_a: 'Weapon',
                               weapon_b: 'Weapon',
@@ -741,6 +826,119 @@ class FullLoadoutConfiguration(StrEnum):
 
         return damage
 
+    # noinspection DuplicatedCode
+    def get_cumulative_damage_vec(self,
+                                  weapon_a: 'Weapon',
+                                  weapon_b: 'Weapon',
+                                  times_seconds: NDArray[np.float64],
+                                  distances_meters: NDArray[np.float64]) -> NDArray[np.float64]:
+        check_float_vec(min_value=0, times_seconds=times_seconds, distances_meters=distances_meters)
+        times_seconds = times_seconds.copy()
+
+        prev_weapon_and_char: Optional[Tuple['SingleWeaponLoadout', str]] = None
+
+        damages: NDArray[np.float64] = np.zeros_like(times_seconds)
+        valid_indices: NDArray[np.integer] = np.arange(len(times_seconds))
+        configuration_string = self._get_configuration_str()
+        char_to_weapon_dict = self._get_char_to_weapon_dict(weapon_a, weapon_b)
+
+        for index, cur_char in enumerate(configuration_string):
+            cur_weapon = char_to_weapon_dict.get(cur_char, None)
+            if cur_weapon is None:
+                if index != 1:
+                    raise ValueError('\'1\' can only come at index 1.')
+
+                if cur_char != self.__SINGLE_SHOT_CHAR:
+                    raise ValueError('Must contain only \'A\', \'B\', and \'1\'.')
+
+                if prev_weapon_and_char is None:
+                    raise ValueError('\'1\' can only come after \'A\' or \'B\'')
+
+                prev_weapon, prev_char = prev_weapon_and_char
+                if not isinstance(prev_weapon, Weapon):
+                    raise ValueError('Cannot say single shot multiple times.')
+
+                if not prev_weapon.is_single_shot_advisable():
+                    raise ValueError(f'Single shot configuration {self} is not advisable.')
+
+                cur_weapon = prev_weapon.single_shot()
+                cur_char = prev_char
+
+            elif prev_weapon_and_char is not None:
+                prev_weapon, prev_char = prev_weapon_and_char
+                if cur_char == prev_char:
+                    raise ValueError('Cannot have repeat weapons. Makes no sense.')
+
+                prev_idx = index - 1
+                will_reload = prev_weapon.can_reload() and self._want_to_reload(prev_idx)
+                used_single_shot = self._used_single_shot(prev_idx)
+                tactical = int(will_reload) + int(used_single_shot)
+
+                damages[valid_indices] += prev_weapon.get_single_mag_cumulative_damage_vec(
+                    times_seconds=times_seconds[valid_indices],
+                    distances_meters=distances_meters[valid_indices],
+                    tactical=tactical)
+                times_seconds -= (prev_weapon.get_magazine_duration_seconds(tactical) +
+                                  _HUMAN_REACTION_TIME_SECONDS +
+                                  prev_weapon.get_swap_time_seconds(cur_weapon))
+                valid_indices = np.flatnonzero(times_seconds >= 0)
+                if len(valid_indices) == 0:
+                    return damages
+
+            prev_weapon_and_char = cur_weapon, cur_char
+
+        if prev_weapon_and_char is not None:
+            prev_weapon, _ = prev_weapon_and_char
+            prev_index = len(configuration_string) - 1
+            reload_time_secs = prev_weapon.get_weapon().get_tactical_reload_time_secs()
+            will_reload = reload_time_secs is not None
+            used_single_shot = self._used_single_shot(prev_index)
+            if used_single_shot:
+                tactical = int(will_reload) + 1
+                damages[valid_indices] += prev_weapon.get_single_mag_cumulative_damage_vec(
+                    times_seconds=times_seconds[valid_indices],
+                    distances_meters=distances_meters[valid_indices],
+                    tactical=tactical)
+
+                if not will_reload:
+                    return damages
+
+                times_seconds -= (prev_weapon.get_magazine_duration_seconds(tactical=tactical) +
+                                  _HUMAN_REACTION_TIME_SECONDS +
+                                  reload_time_secs)
+                valid_indices = np.flatnonzero(times_seconds >= 0)
+                if len(valid_indices) == 0:
+                    return damages
+
+            if not will_reload:
+                damages[valid_indices] += prev_weapon.get_single_mag_cumulative_damage_vec(
+                    times_seconds=times_seconds[valid_indices],
+                    distances_meters=distances_meters[valid_indices],
+                    tactical=0)
+            else:
+                tactical = 1
+                mag_duration_seconds = prev_weapon.get_magazine_duration_seconds(tactical=tactical)
+                period_seconds = (mag_duration_seconds +
+                                  _HUMAN_REACTION_TIME_SECONDS +
+                                  reload_time_secs)
+                nums_completed_cycles, rem_times_seconds = divmod(times_seconds[valid_indices],
+                                                                  period_seconds)
+                full_mag_cum_damage = prev_weapon.get_single_mag_cumulative_damage_vec(
+                    times_seconds=np.full_like(valid_indices,
+                                               fill_value=mag_duration_seconds,
+                                               dtype=np.float64),
+                    distances_meters=distances_meters[valid_indices],
+                    tactical=tactical)
+                rem_mag_cum_damage = prev_weapon.get_single_mag_cumulative_damage_vec(
+                    times_seconds=rem_times_seconds,
+                    distances_meters=distances_meters[valid_indices],
+                    tactical=tactical)
+
+                damages[valid_indices] += (nums_completed_cycles * full_mag_cum_damage +
+                                           rem_mag_cum_damage)
+
+        return damages
+
     def _want_to_reload(self, index: int) -> bool:
         configuration_string = self._get_configuration_str()
         if index == len(configuration_string) - 1:
@@ -782,48 +980,27 @@ __validate()
 class FullLoadout(Loadout):
     NUM_WEAPONS = 2
 
+    # Arbitrary.
+    _CONFIG_FIGURING_TIME_SECONDS: float = 5
+    _MAX_CONFIG_FIGURING_DISTANCE_METERS: int = 300
+
     def __init__(self, weapon_a: 'Weapon', weapon_b: 'Weapon'):
         check_type(Weapon, weapon_a=weapon_a, weapon_b=weapon_b)
+        self._weapons_set = frozenset((weapon_a, weapon_b))
 
-        # Arbitrary.
-        time_seconds: float = 5
-        max_distance_meters: int = 300
+        self._weapon_a: Weapon | None = None
+        self._weapon_b: Weapon | None = None
+        self._distance_to_config_idx_map: NDArray[np.integer] | None = None
+        self._name: str | None = None
+        self._term: RequiredTerm | None = None
 
-        distance_to_config_idx_map: NDArray[np.integer] = np.full(max_distance_meters + 1,
-                                                                  fill_value=-1)
-        lower_idx = 1
-        upper_idx = len(distance_to_config_idx_map) - 1
-        advisable_configurations = tuple((idx, config)
-                                         for idx, config in enumerate(CONFIGURATIONS)
-                                         if config.is_advisable(weapon_a, weapon_b))
-        if len(advisable_configurations) == 0:
-            raise RuntimeError('No configurations were advisable.')
-        FullLoadout._populate_distance_to_config_idx_map(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            time_seconds=time_seconds,
-            ranges=distance_to_config_idx_map,
-            advisable_configurations=advisable_configurations,
-            lower_idx=lower_idx,
-            upper_idx=upper_idx)
-        first_config_idx = distance_to_config_idx_map[1]
-        distance_to_config_idx_map[0] = first_config_idx
-        assert not np.any(distance_to_config_idx_map == -1)
-        first_config: FullLoadoutConfiguration = CONFIGURATIONS[first_config_idx]
-        if first_config.should_invert():
-            distance_to_config_idx_map = invert_config_idx(distance_to_config_idx_map)
-            weapon_a, weapon_b = weapon_b, weapon_a
+    def get_term(self) -> RequiredTerm:
+        self._lazy_load_internals()
+        return self._term
 
-        config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
-
-        self._distance_to_config_idx_map = distance_to_config_idx_map
-
-        super().__init__(
-            f'{weapon_a.get_name()} {WITH_SIDEARM} {weapon_b.get_name()} ({config_descriptor})',
-            weapon_a.get_term().append(WITH_SIDEARM, weapon_b.get_term()))
-
-        self._weapon_a = weapon_a
-        self._weapon_b = weapon_b
+    def get_name(self) -> str:
+        self._lazy_load_internals()
+        return self._name
 
     @staticmethod
     def _get_config_description(distance_to_config_idx_map: NDArray[np.integer]) -> str:
@@ -846,6 +1023,59 @@ class FullLoadout(Loadout):
         return ', '.join(f'{start_m}-{stop_m - 1}m: {config}'
                          for config, start_m, stop_m in
                          zip(configs, diff_indices[:-1], diff_indices[1:]))
+
+    def _lazy_load_internals(self):
+        if self._distance_to_config_idx_map is not None:
+            return
+
+        weapons_iter = iter(self._weapons_set)
+        weapon_a = next(weapons_iter)
+        weapon_b = next(weapons_iter, weapon_a)
+
+        advisable_configurations: Tuple[Tuple[int, FullLoadoutConfiguration], ...] = tuple(
+            (idx, config)
+            for idx, config in enumerate(CONFIGURATIONS)
+            if config.is_advisable(weapon_a, weapon_b))
+        if len(advisable_configurations) == 0:
+            raise RuntimeError('No configurations were advisable.')
+
+        close_config: FullLoadoutConfiguration = \
+            CONFIGURATIONS[FullLoadout._get_best_configuration_idx(
+                weapon_a=weapon_a,
+                weapon_b=weapon_b,
+                time_seconds=FullLoadout._CONFIG_FIGURING_TIME_SECONDS,
+                distance_meters=0,
+                advisable_configurations=advisable_configurations)]
+        if close_config.should_invert():
+            weapon_a, weapon_b = weapon_b, weapon_a
+            advisable_configurations = tuple((invert_config_idx(idx), config.invert())
+                                             for idx, config in advisable_configurations)
+
+        distance_to_config_idx_map: NDArray[np.integer] = np.full(
+            FullLoadout._MAX_CONFIG_FIGURING_DISTANCE_METERS + 1,
+            fill_value=-1)
+        lower_idx = 1
+        upper_idx = len(distance_to_config_idx_map) - 1
+        FullLoadout._populate_distance_to_config_idx_map(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            time_seconds=FullLoadout._CONFIG_FIGURING_TIME_SECONDS,
+            ranges=distance_to_config_idx_map,
+            advisable_configurations=advisable_configurations,
+            lower_idx=lower_idx,
+            upper_idx=upper_idx)
+        first_config_idx = distance_to_config_idx_map[1]
+        distance_to_config_idx_map[0] = first_config_idx
+        assert not np.any(distance_to_config_idx_map == -1)
+
+        config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
+
+        self._weapon_a = weapon_a
+        self._weapon_b = weapon_b
+        self._distance_to_config_idx_map = distance_to_config_idx_map
+        self._name = (f'{weapon_a.get_name()} {WITH_SIDEARM} {weapon_b.get_name()} '
+                      f'({config_descriptor})')
+        self._term = weapon_a.get_term().append(WITH_SIDEARM, weapon_b.get_term())
 
     @staticmethod
     def _populate_distance_to_config_idx_map(
@@ -933,23 +1163,74 @@ class FullLoadout(Loadout):
         config_idx: int = self._distance_to_config_idx_map[distance_int]
         return CONFIGURATIONS[config_idx]
 
+    def _get_best_config_indices_for_distances_vec(
+            self,
+            distances_meters: NDArray[np.float64]) -> NDArray[np.integer]:
+        self._lazy_load_internals()
+
+        distances_int = distances_meters.round().clip(
+            max=len(self._distance_to_config_idx_map) - 1).astype(int)
+        config_indices: NDArray[np.integer] = self._distance_to_config_idx_map[distances_int]
+        return config_indices
+
     def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
         check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
+        self._lazy_load_internals()
+
         configuration = self._get_best_config_for_distance(distance_meters)
         return configuration.get_cumulative_damage(weapon_a=self._weapon_a,
                                                    weapon_b=self._weapon_b,
                                                    time_seconds=time_seconds,
                                                    distance_meters=distance_meters)
 
+    def get_cumulative_damage_vec(self,
+                                  times_seconds: NDArray[np.float64],
+                                  distances_meters: NDArray[np.float64]) -> NDArray[np.float64]:
+        if (times_seconds < 0).any():
+            raise ValueError('No time values can be negative.')
+        if (distances_meters < 0).any():
+            raise ValueError('No distance values can be negative.')
+
+        self._lazy_load_internals()
+
+        sorti = distances_meters.argsort()
+        sorti_inv = sorti.argsort()
+        times_seconds = times_seconds[sorti]
+        distances_meters = distances_meters[sorti]
+
+        config_indices = self._get_best_config_indices_for_distances_vec(distances_meters)
+
+        diff_indices = np.flatnonzero(np.diff(config_indices, prepend=-1, append=-1))
+        weapon_a = self._weapon_a
+        weapon_b = self._weapon_b
+        result = np.full_like(distances_meters, fill_value=-1)
+
+        for start_idx, stop_idx in zip(diff_indices[:-1], diff_indices[1:]):
+            sl = slice(start_idx, stop_idx)
+
+            times_slice = times_seconds[sl]
+            distances_slice = distances_meters[sl]
+            configs_slice = config_indices[sl]
+
+            assert not np.diff(configs_slice).any()
+            config: FullLoadoutConfiguration = CONFIGURATIONS[configs_slice[0]]
+            result[sl] = config.get_cumulative_damage_vec(weapon_a=weapon_a,
+                                                          weapon_b=weapon_b,
+                                                          times_seconds=times_slice,
+                                                          distances_meters=distances_slice)
+        assert (result >= 0).all()
+
+        result = result[sorti_inv]
+        return result
+
     def __hash__(self):
-        return hash(self.__class__) ^ hash((self._weapon_a, self._weapon_b))
+        return hash(self.__class__) ^ hash(self._weapons_set)
 
     def __eq__(self, other):
-        return (isinstance(other, FullLoadout) and
-                other._weapon_a == self._weapon_a and other._weapon_b == self._weapon_b)
+        return isinstance(other, FullLoadout) and hash(self._weapons_set)
 
     def get_weapons(self) -> FrozenSet['Weapon']:
-        return frozenset((self._weapon_a, self._weapon_b))
+        return self._weapons_set
 
     @staticmethod
     def get_loadouts(required_weapons: Iterable['Weapon']) -> Generator['FullLoadout', None, None]:
@@ -958,6 +1239,14 @@ class FullLoadout(Loadout):
                 for weapon_a in required_weapons
                 for weapon_b in required_weapons
                 if weapon_b != weapon_a or weapon_a in duplicated_weapons)
+
+    @staticmethod
+    def filter_loadouts(loadouts: Iterable['FullLoadout'],
+                        weapons_to_exclude: AbstractSet['Weapon']) -> \
+            Generator['FullLoadout', None, None]:
+        return (loadout
+                for loadout in loadouts
+                if loadout.get_weapons().isdisjoint(weapons_to_exclude))
 
     @staticmethod
     def _get_duplicates(elements: Iterable['T']) -> set[T]:
@@ -974,15 +1263,26 @@ class FullLoadout(Loadout):
         return duplicates
 
     def get_weapon_a(self) -> 'Weapon':
+        self._lazy_load_internals()
         return self._weapon_a
 
     def get_weapon_b(self):
+        self._lazy_load_internals()
         return self._weapon_b
 
 
 class SingleWeaponLoadout(Loadout, abc.ABC):
     def __init__(self, name: str, term: RequiredTerm):
-        super().__init__(name=name, term=term)
+        check_str(allow_blank=False, name=name)
+        check_type(RequiredTerm, term=term)
+        self._name = name
+        self._term = term
+
+    def get_term(self) -> RequiredTerm:
+        return self._term
+
+    def get_name(self) -> str:
+        return self._name
 
     @abc.abstractmethod
     def get_archetype(self) -> 'WeaponArchetype':
@@ -1001,6 +1301,13 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
                                          time_seconds: float,
                                          distance_meters: float,
                                          tactical: int) -> float:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_single_mag_cumulative_damage_vec(self,
+                                             times_seconds: NDArray[np.float64],
+                                             distances_meters: NDArray[np.float64],
+                                             tactical: int) -> NDArray[np.float64]:
         raise NotImplementedError()
 
     def get_swap_time_seconds(self, weapon_swap_to: 'SingleWeaponLoadout') -> float:
@@ -1103,11 +1410,28 @@ class Weapon(SingleWeaponLoadout):
                                                         tactical=tactical) *
                 self._get_accuracy_fraction(distance_meters))
 
+    def get_single_mag_cumulative_damage_vec(self,
+                                             times_seconds: NDArray[np.float64],
+                                             distances_meters: NDArray[np.float64],
+                                             tactical: int) -> NDArray[np.float64]:
+        return (self.round_timing.get_cumulative_damage_vec(base_weapon=self,
+                                                            times_seconds=times_seconds,
+                                                            tactical=tactical) *
+                self._get_accuracy_fraction_vec(distances_meters))
+
     def _get_accuracy_fraction(self, distance_meters: float) -> float:
         check_float(min_value=0, distance_meters=distance_meters)
         if distance_meters == 0:
             return 1
         return min(self.EIGHTY_PERCENT * self.eighty_percent_accuracy_range / distance_meters, 1)
+
+    def _get_accuracy_fraction_vec(self, distances_meters: NDArray[np.float64]) -> \
+            NDArray[np.float64]:
+        result = np.ones_like(distances_meters)
+        non_zeros = np.flatnonzero(distances_meters)
+        result[non_zeros] = ((1 / distances_meters[non_zeros]) *
+                             (self.EIGHTY_PERCENT * self.eighty_percent_accuracy_range)).clip(max=1)
+        return result
 
     def get_magazine_duration_seconds(self, tactical: int) -> float:
         duration_seconds = self.round_timing.get_magazine_duration_seconds(self, tactical=tactical)
@@ -1133,10 +1457,10 @@ class Weapon(SingleWeaponLoadout):
         return self.get_rounds_per_minute() / 60
 
     def __hash__(self):
-        return hash(self.__class__) ^ hash(self.name)
+        return hash(self.__class__) ^ hash(self._name)
 
     def __eq__(self, other: 'Weapon'):
-        return isinstance(other, Weapon) and self.name == other.name
+        return isinstance(other, Weapon) and self._name == other._name
 
     def get_weapon_class(self) -> WeaponClass:
         return self.weapon_class
@@ -1176,6 +1500,15 @@ class _SingleShotLoadout(SingleWeaponLoadout):
         return self.wrapped_weapon.get_single_mag_cumulative_damage(time_seconds=0,
                                                                     distance_meters=distance_meters,
                                                                     tactical=tactical)
+
+    def get_single_mag_cumulative_damage_vec(self,
+                                             times_seconds: NDArray[np.float64],
+                                             distances_meters: NDArray[np.float64],
+                                             tactical: int) -> NDArray[np.float64]:
+        return self.wrapped_weapon.get_single_mag_cumulative_damage_vec(
+            times_seconds=np.zeros_like(times_seconds),
+            distances_meters=distances_meters,
+            tactical=tactical)
 
     def get_magazine_duration_seconds(self, tactical: int) -> float:
         return 0

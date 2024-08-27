@@ -1,5 +1,4 @@
 import abc
-from enum import IntEnum
 
 from apex_assistant.checker import check_type
 from apex_assistant.loadout_comparator import LoadoutComparator

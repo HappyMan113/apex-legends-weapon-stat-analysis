@@ -142,8 +142,9 @@ class CompareCommand(ApexCommand):
         return _Uniqueness.SAY_FULL_LOADOUT_NAMES
 
     @staticmethod
-    def _make_audible(loadout: FullLoadout,
-                      uniqueness: _Uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES) -> str:
+    def _make_audible(
+            loadout: FullLoadout,
+            uniqueness: _Uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES) -> str:
         check_type(FullLoadout, loadout=loadout)
         check_type(_Uniqueness, uniqueness=uniqueness)
 
