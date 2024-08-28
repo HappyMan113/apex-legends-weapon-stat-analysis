@@ -1067,6 +1067,7 @@ class FullLoadout(Loadout):
         first_config_idx = distance_to_config_idx_map[1]
         distance_to_config_idx_map[0] = first_config_idx
         assert not np.any(distance_to_config_idx_map == -1)
+        FullLoadout._remove_in_between_configs(distance_to_config_idx_map)
 
         config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
 
@@ -1157,6 +1158,18 @@ class FullLoadout(Loadout):
                          time_seconds=time_seconds,
                          distance_meters=distance_meters))
         return idx
+
+    @staticmethod
+    def _remove_in_between_configs(distance_to_config_idx_map: NDArray[np.integer]):
+        diff_indices = np.flatnonzero(np.diff(distance_to_config_idx_map, prepend=-1, append=-1))
+
+        for sl_start_idx, sl_stop_idx in zip(diff_indices[:-1], diff_indices[1:]):
+            config_idx = distance_to_config_idx_map[sl_start_idx]
+            where_it_again = np.flatnonzero(distance_to_config_idx_map[sl_stop_idx:] == config_idx)
+            if len(where_it_again) != 0:
+                where_it_again_last = where_it_again[-1]
+                distance_to_config_idx_map[sl_stop_idx:
+                                           sl_stop_idx + where_it_again_last] = config_idx
 
     def _get_best_config_for_distance(self, distance_meters: float) -> FullLoadoutConfiguration:
         distance_int = min(round(distance_meters), len(self._distance_to_config_idx_map) - 1)
