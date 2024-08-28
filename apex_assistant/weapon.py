@@ -991,16 +991,18 @@ class FullLoadout(Loadout):
         self._weapon_a: Weapon | None = None
         self._weapon_b: Weapon | None = None
         self._distance_to_config_idx_map: NDArray[np.integer] | None = None
-        self._name: str | None = None
+        self._base_name: str | None = None
+        self._config_descriptor: str | None = None
         self._term: RequiredTerm | None = None
 
     def get_term(self) -> RequiredTerm:
         self._lazy_load_internals()
         return self._term
 
-    def get_name(self) -> str:
+    def get_name(self, config: FullLoadoutConfiguration | None = None) -> str:
         self._lazy_load_internals()
-        return self._name
+        config_descriptor = config if config is not None else self._config_descriptor
+        return f'{self._base_name} {config_descriptor}'
 
     @staticmethod
     def _get_config_description(distance_to_config_idx_map: NDArray[np.integer]) -> str:
@@ -1069,13 +1071,11 @@ class FullLoadout(Loadout):
         assert not np.any(distance_to_config_idx_map == -1)
         FullLoadout._remove_in_between_configs(distance_to_config_idx_map)
 
-        config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
-
         self._weapon_a = weapon_a
         self._weapon_b = weapon_b
         self._distance_to_config_idx_map = distance_to_config_idx_map
-        self._name = (f'{weapon_a.get_name()} {WITH_SIDEARM} {weapon_b.get_name()} '
-                      f'({config_descriptor})')
+        self._base_name = f'{weapon_a.get_name()} {WITH_SIDEARM} {weapon_b.get_name()}'
+        self._config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
         self._term = weapon_a.get_term().append(WITH_SIDEARM, weapon_b.get_term())
 
     @staticmethod
@@ -1214,8 +1214,6 @@ class FullLoadout(Loadout):
         config_indices = self._get_best_config_indices_for_distances_vec(distances_meters)
 
         diff_indices = np.flatnonzero(np.diff(config_indices, prepend=-1, append=-1))
-        weapon_a = self._weapon_a
-        weapon_b = self._weapon_b
         result = np.full_like(distances_meters, fill_value=-1)
 
         for start_idx, stop_idx in zip(diff_indices[:-1], diff_indices[1:]):
@@ -1227,14 +1225,24 @@ class FullLoadout(Loadout):
 
             assert not np.diff(configs_slice).any()
             config: FullLoadoutConfiguration = CONFIGURATIONS[configs_slice[0]]
-            result[sl] = config.get_cumulative_damage_vec(weapon_a=weapon_a,
-                                                          weapon_b=weapon_b,
-                                                          times_seconds=times_slice,
-                                                          distances_meters=distances_slice)
+            result[sl] = self.get_cumulative_damage_with_config_vec(
+                config=config,
+                times_seconds=times_slice,
+                distances_meters=distances_slice)
         assert (result >= 0).all()
 
         result = result[sorti_inv]
         return result
+
+    def get_cumulative_damage_with_config_vec(self,
+                                              config: FullLoadoutConfiguration,
+                                              times_seconds: NDArray[np.float64],
+                                              distances_meters: NDArray[np.float64]) -> \
+            NDArray[np.float64]:
+        return config.get_cumulative_damage_vec(weapon_a=self._weapon_a,
+                                                weapon_b=self._weapon_b,
+                                                times_seconds=times_seconds,
+                                                distances_meters=distances_meters)
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self._weapons_set)
@@ -1282,6 +1290,13 @@ class FullLoadout(Loadout):
     def get_weapon_b(self):
         self._lazy_load_internals()
         return self._weapon_b
+
+    def get_distances_and_configs(self) -> \
+            Generator[Tuple[int, FullLoadoutConfiguration], None, None]:
+        diff_indices = np.flatnonzero(np.diff(self._distance_to_config_idx_map, prepend=-1))
+        for start_idx in diff_indices:
+            config_idx = self._distance_to_config_idx_map[start_idx]
+            yield int(start_idx), CONFIGURATIONS[config_idx]
 
 
 class SingleWeaponLoadout(Loadout, abc.ABC):

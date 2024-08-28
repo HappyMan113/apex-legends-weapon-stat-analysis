@@ -146,14 +146,17 @@ class LoadoutComparator:
             ts_lin = np.linspace(0.4, ts.max() * 1.4, num=4000)
             t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
             for loadout in result.limit_to_best_num(10).get_sorted_loadouts():
-                damages = loadout.get_cumulative_damage_vec(times_seconds=ts_lin,
-                                                            distances_meters=np.zeros_like(ts_lin))
-                damages *= 1 / ts_lin
-                ax2.plot(ts_lin, damages,
-                         label=loadout.get_name(),
-                         markevery=t_sample_indices,
-                         markeredgecolor='red',
-                         marker='x')
+                for distance_meters, config in loadout.get_distances_and_configs():
+                    damages = loadout.get_cumulative_damage_with_config_vec(
+                        config=config,
+                        times_seconds=ts_lin,
+                        distances_meters=np.full_like(ts_lin, fill_value=distance_meters))
+                    damages *= 1 / ts_lin
+                    ax2.plot(ts_lin, damages,
+                             label=loadout.get_name(config),
+                             markevery=t_sample_indices,
+                             markeredgecolor='red',
+                             marker='x')
 
             ax2.set_xlabel('Time (seconds)')
             ax2.set_ylabel('Expected Mean DPS')
