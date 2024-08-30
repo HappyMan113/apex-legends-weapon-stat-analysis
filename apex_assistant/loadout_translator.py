@@ -18,7 +18,11 @@ from apex_assistant.speech.apex_terms import (BASE,
                                               WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import Translator
-from apex_assistant.weapon import FullLoadout, SingleWeaponLoadout, Weapon, WeaponArchetypes
+from apex_assistant.weapon import (ExcludeFlag,
+                                   FullLoadout,
+                                   SingleWeaponLoadout,
+                                   Weapon,
+                                   WeaponArchetypes)
 from apex_assistant.weapon_class import WeaponClass
 
 
@@ -110,27 +114,19 @@ class LoadoutTranslator:
 
             overall_level = self.get_overall_level(translated_value.get_untranslated_words())
 
-    def iget_fully_kitted_weapons(self,
-                                  include_care_package_weapons: bool = True,
-                                  include_non_hopped_up_weapons: bool = True) -> \
+    def iget_fully_kitted_weapons(self, exclude_flags: int = ExcludeFlag.NONE) -> \
             Generator[Weapon, None, None]:
         legend = self.get_legend()
-        return (fully_kitted_weapon
-                for weapon_archetypes in self._weapon_archetypes
-                if (self._legend_fits_archetypes(weapon_archetypes) and
-                    (include_care_package_weapons or not weapon_archetypes.is_care_package()))
-                for fully_kitted_weapon in
-                weapon_archetypes.get_fully_kitted_weapons(
-                    legend=legend,
-                    include_non_hopped_up=include_non_hopped_up_weapons))
+        return (
+            fully_kitted_weapon
+            for weapon_archetypes in self._weapon_archetypes
+            if self._legend_fits_archetypes(weapon_archetypes)
+            for fully_kitted_weapon in weapon_archetypes.get_fully_kitted_weapons(legend,
+                                                                                  exclude_flags))
 
-    def get_fully_kitted_weapons(self,
-                                 include_care_package_weapons: bool = True,
-                                 include_non_hopped_up_weapons: bool = True) -> \
+    def get_fully_kitted_weapons(self, exclude_flags: int = ExcludeFlag.NONE) -> \
             Tuple[Weapon, ...]:
-        return tuple(self.iget_fully_kitted_weapons(
-            include_care_package_weapons=include_care_package_weapons,
-            include_non_hopped_up_weapons=include_non_hopped_up_weapons))
+        return tuple(self.iget_fully_kitted_weapons(exclude_flags))
 
     def translate_full_loadouts(self, words: Words) -> Generator[FullLoadout, None, None]:
         check_type(Words, words=words)

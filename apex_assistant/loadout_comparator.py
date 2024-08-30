@@ -168,7 +168,7 @@ class LoadoutComparator:
         return result
 
     def get_best_loadouts(self,
-                          weapons: Tuple[Weapon],
+                          weapons: Tuple[Weapon, ...],
                           max_num_loadouts: Optional[int] = None) -> \
             Generator[FullLoadout, None, None]:
         check_tuple(Weapon, allow_empty=False, weapons=weapons)

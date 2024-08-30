@@ -2,7 +2,7 @@ import abc
 import logging
 import math
 import re
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from types import MappingProxyType
 from typing import (AbstractSet,
                     Dict,
@@ -47,6 +47,20 @@ from apex_assistant.weapon_class import WeaponClass
 
 T = TypeVar('T')
 _LOGGER = logging.getLogger()
+
+
+class ExcludeFlag(IntEnum):
+    NONE = 0x0
+    CARE_PACKAGE = 0x1
+    HOPPED_UP = 0x2
+    NON_HOPPED_UP = 0x4
+    REVVED_UP = 0x8
+    NON_REVVED_UP = 0x10
+    AKIMBO = 0x20
+    NON_AKIMBO = 0x40
+
+    def find(self, exclude_flags: int) -> bool:
+        return (exclude_flags & self.value) != 0
 
 
 class StatsBase(abc.ABC, Generic[T]):
@@ -1641,9 +1655,8 @@ class WeaponArchetype:
     def get_suffix(self) -> Optional[Suffix]:
         return self.suffix
 
-    def is_hopped_up(self) -> bool:
-        return (self.suffix is not None and
-                SuffixedArchetypeType.HOPPED_UP in self.suffix.get_types())
+    def has_suffix_type(self, suffix_type: SuffixedArchetypeType) -> bool:
+        return self.suffix is not None and suffix_type in self.suffix.get_types()
 
     def get_term(self) -> RequiredTerm:
         return self.full_term
@@ -1762,8 +1775,10 @@ class WeaponArchetypes:
         self._best_archetype = max(all_archetypes, key=sort_key)
         self._base_term = base_term
         self._associated_legend = associated_legend
-        self._has_hopped_up_archetype = any(archetype.is_hopped_up()
-                                            for archetype in all_archetypes)
+        self._suffix_types = {suffix_type
+                              for suffix, _ in suffixes_and_archetypes
+                              if suffix is not None
+                              for suffix_type in suffix.get_types()}
 
         self._is_care_package = base_archetype.is_care_package()
         if not all(archetype.is_care_package() == base_archetype.is_care_package()
@@ -1791,13 +1806,35 @@ class WeaponArchetypes:
 
     def get_fully_kitted_weapons(self,
                                  legend: Optional[Legend] = None,
-                                 include_non_hopped_up: bool = False) -> \
+                                 exclude_flags: int = ExcludeFlag.NONE) -> \
             Generator[Weapon, None, None]:
         for _, archetype in self._suffixes_and_archetypes:
-            if (not self._has_hopped_up_archetype or
-                    include_non_hopped_up or
-                    archetype.is_hopped_up()):
+            if self._should_include(archetype, exclude_flags):
                 yield archetype.get_best_weapon(legend=legend)
+
+    def _contains_suffix_type(self, suffix_type: SuffixedArchetypeType) -> bool:
+        return suffix_type in self._suffix_types
+
+    def _should_include(self, archetype: WeaponArchetype, exclude_flags: int) -> bool:
+        if archetype.is_care_package() and ExcludeFlag.CARE_PACKAGE.find(exclude_flags):
+            return False
+
+        suffix_type_to_flags: Mapping[SuffixedArchetypeType, Tuple[ExcludeFlag, ExcludeFlag]] = {
+            SuffixedArchetypeType.HOPPED_UP: (ExcludeFlag.HOPPED_UP, ExcludeFlag.NON_HOPPED_UP),
+            SuffixedArchetypeType.REVVED_UP: (ExcludeFlag.REVVED_UP, ExcludeFlag.NON_REVVED_UP),
+            SuffixedArchetypeType.AKIMBO: (ExcludeFlag.AKIMBO, ExcludeFlag.NON_AKIMBO),
+        }
+
+        for suffix_type, (exclude_it, exclude_not_it) in suffix_type_to_flags.items():
+            if not self._contains_suffix_type(suffix_type):
+                continue
+
+            has_suffix_type = archetype.has_suffix_type(suffix_type)
+            if (exclude_it.find(exclude_flags) and has_suffix_type or
+                    exclude_not_it.find(exclude_flags) and not has_suffix_type):
+                return False
+
+        return True
 
     def get_best_match(self,
                        words: Words,

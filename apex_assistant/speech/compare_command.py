@@ -6,10 +6,16 @@ from apex_assistant.checker import check_tuple, check_type
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_command import ApexCommand
-from apex_assistant.speech.apex_terms import BEST, CARE_PACKAGE, COMPARE, LOADOUT, LOADOUTS
+from apex_assistant.speech.apex_terms import (AKIMBO,
+                                              BEST,
+                                              CARE_PACKAGE,
+                                              COMPARE,
+                                              LOADOUT,
+                                              LOADOUTS,
+                                              REVVED)
 from apex_assistant.speech.term import Term, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
-from apex_assistant.weapon import FullLoadout, Weapon, WeaponArchetype
+from apex_assistant.weapon import ExcludeFlag, FullLoadout, Weapon, WeaponArchetype
 
 
 LOGGER = logging.getLogger()
@@ -24,11 +30,6 @@ class _Uniqueness(IntEnum):
     SAY_FULL_LOADOUT_NAMES = 5
 
 
-class _Excludes(IntEnum):
-    CARE_PACKAGE = 0
-    NON_HOPPED_UP = 1
-
-
 class CompareCommand(ApexCommand):
     def __init__(self,
                  loadout_translator: LoadoutTranslator,
@@ -40,11 +41,27 @@ class CompareCommand(ApexCommand):
         plots = Term('plots', 'plot')
         self._show_plots_finder = SingleTermFinder(show + plots)
 
+        non = Term('non')
+        care_package = CARE_PACKAGE
+        hopped_up = Term('hopped up')
+        non_hopped_up = (non + hopped_up) | Term('non-hopped up')
+        revved_up = REVVED
+        non_revved_up = (non + revved_up) | Term('non-revved up')
+        akimbo = AKIMBO
+        non_akimbo = non + akimbo
+
         exclude = Term('exclude')
-        exclude_care_package = exclude + CARE_PACKAGE
-        exclude_non_hopped_up = exclude + Term('non hopped up', 'non-hopped up')
-        self._exclude_translator = Translator({exclude_care_package: _Excludes.CARE_PACKAGE,
-                                               exclude_non_hopped_up: _Excludes.NON_HOPPED_UP})
+        self._exclude_translator = Translator[ExcludeFlag]({
+            exclude + term: flag
+            for term, flag in {
+                care_package: ExcludeFlag.CARE_PACKAGE,
+                hopped_up: ExcludeFlag.HOPPED_UP,
+                non_hopped_up: ExcludeFlag.NON_HOPPED_UP,
+                revved_up: ExcludeFlag.REVVED_UP,
+                non_revved_up: ExcludeFlag.NON_REVVED_UP,
+                akimbo: ExcludeFlag.AKIMBO,
+                non_akimbo: ExcludeFlag.NON_AKIMBO
+            }.items()})
 
     def _execute(self, arguments: Words) -> str:
         translator = self.get_translator()
@@ -57,13 +74,15 @@ class CompareCommand(ApexCommand):
             loadouts = tuple(unique_loadouts)
 
         if len(loadouts) == 0:
-            excludes = self._exclude_translator.translate_terms(arguments).values()
-            include_care_package = _Excludes.CARE_PACKAGE not in excludes
-            include_non_hopped_up = _Excludes.NON_HOPPED_UP not in excludes
+            exclude_flags: int = 0
+            for exclude_flag in self._exclude_translator.translate_terms(arguments).values():
+                exclude_flags |= exclude_flag
 
-            weapons = translator.get_fully_kitted_weapons(
-                include_care_package_weapons=include_care_package,
-                include_non_hopped_up_weapons=include_non_hopped_up)
+            weapons = translator.get_fully_kitted_weapons(exclude_flags=exclude_flags)
+            if len(weapons) == 0:
+                exclude_flags_set = tuple(flag for flag in ExcludeFlag if flag.find(exclude_flags))
+                LOGGER.debug(f'Exclude flags: {exclude_flags_set}')
+                return 'All weapons were filtered out.'
             loadouts = tuple(comparator.get_best_loadouts(weapons))
             uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES
         elif len(loadouts) == 1:
