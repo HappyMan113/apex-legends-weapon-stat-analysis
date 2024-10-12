@@ -50,7 +50,7 @@ class CompareCommand(ApexCommand):
         akimbo = AKIMBO
         non_akimbo = non + akimbo
 
-        exclude = Term('exclude')
+        exclude = Term('exclude', 'no')
         self._exclude_translator = Translator[ExcludeFlag]({
             exclude + term: flag
             for term, flag in {

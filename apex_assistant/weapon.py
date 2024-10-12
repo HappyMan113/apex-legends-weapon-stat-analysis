@@ -1016,7 +1016,7 @@ class FullLoadout(Loadout):
     def get_name(self, config: FullLoadoutConfiguration | None = None) -> str:
         self._lazy_load_internals()
         config_descriptor = config if config is not None else self._config_descriptor
-        return f'{self._base_name} {config_descriptor}'
+        return f'{self._base_name} ({config_descriptor})'
 
     @staticmethod
     def _get_config_description(distance_to_config_idx_map: NDArray[np.integer]) -> str:

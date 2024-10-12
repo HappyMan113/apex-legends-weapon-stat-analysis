@@ -41,13 +41,14 @@ def check_float(optional: bool = False,
 
 
 def check_float_vec(min_value: float | None = None, **values: NDArray[np.float64]):
-    required_dtype = np.float64
     for name, value in values.items():
         if not isinstance(value, np.ndarray):
             raise TypeError(f'{name} must be an NDArray.')
 
-        if value.dtype != required_dtype:
-            raise TypeError(f'{name} had a dtype of {value.dtype} instead of {required_dtype}')
+        if (not np.issubdtype(value.dtype, np.floating) and
+                not np.issubdtype(value.dtype, np.integer)):
+            raise TypeError(f'{name} had a dtype of {value.dtype} instead of np.floating or '
+                            'np.integer')
 
         if value.ndim != 1:
             raise ValueError(f'{name} ({value}) must have one dimension.')

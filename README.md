@@ -21,6 +21,8 @@ highest expected average damage ser second in close quarters combat.
         - [S21 mid-season patch notes](https://www.ea.com/games/apex-legends/news/double-take-collection-event)
         - [S22 patch notes](https://www.ea.com/games/apex-legends/news/shockwave-patch-notes)
         - [Reddit comment with the new G7 Scout fire rate](https://www.reddit.com/r/apexlegends/comments/1dwbf4o/comment/lbtsc84/)
+        - [S22 mid-season patch notes](https://www.ea.com/games/apex-legends/news/space-hunt-event)
+        - [X Post about Mozambique Nerf](https://x.com/Respawn/status/1844427285916680379)
     - Reload times are assumed to be tactical reload times with only 1 bullet left in the magazine.
     - Swap times were calculated as "Holster Time" + "Ready to Fire" time that I calculated from my
       recordings. The values I got were close to the values in the Reddit post
