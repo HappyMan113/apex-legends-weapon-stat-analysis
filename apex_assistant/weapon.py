@@ -26,7 +26,7 @@ from apex_assistant.checker import (check_bool,
                                     check_float,
                                     check_float_vec,
                                     check_int,
-                                    check_str,
+                                    check_mapping, check_str,
                                     check_tuple,
                                     check_type,
                                     to_kwargs)
@@ -36,9 +36,8 @@ from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
                                               ALL_MAG_TERMS,
                                               ALL_STOCK_TERMS,
                                               BASE,
-                                              LEVEL_TERMS,
-                                              WITH_SIDEARM)
-from apex_assistant.speech.suffix import Suffix, SuffixedArchetypeType
+                                              BOOSTED_LOADER, LEVEL_TERMS,
+                                              Suffix, SuffixedArchetypeType, WITH_SIDEARM)
 from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.speech.translations import TranslatedValue
@@ -776,7 +775,8 @@ class FullLoadoutConfiguration(StrEnum):
                 prev_idx = index - 1
                 will_reload = prev_weapon.can_reload() and self._want_to_reload(prev_idx)
                 used_single_shot = self._used_single_shot(prev_idx)
-                tactical = int(will_reload) + int(used_single_shot)
+                tactical = ((prev_weapon.get_tactical() if will_reload else 1) +
+                            int(used_single_shot))
 
                 damage += prev_weapon.get_single_mag_cumulative_damage(
                     time_seconds=time_seconds,
@@ -798,7 +798,7 @@ class FullLoadoutConfiguration(StrEnum):
             will_reload = reload_time_secs is not None
             used_single_shot = self._used_single_shot(prev_index)
             if used_single_shot:
-                tactical = int(will_reload) + 1
+                tactical = (prev_weapon.get_tactical() if will_reload else 1) + 1
                 damage += prev_weapon.get_single_mag_cumulative_damage(
                     time_seconds=time_seconds,
                     distance_meters=distance_meters,
@@ -886,7 +886,8 @@ class FullLoadoutConfiguration(StrEnum):
                 prev_idx = index - 1
                 will_reload = prev_weapon.can_reload() and self._want_to_reload(prev_idx)
                 used_single_shot = self._used_single_shot(prev_idx)
-                tactical = int(will_reload) + int(used_single_shot)
+                tactical = ((prev_weapon.get_tactical() if will_reload else 1) +
+                            int(used_single_shot))
 
                 damages[valid_indices] += prev_weapon.get_single_mag_cumulative_damage_vec(
                     times_seconds=times_seconds[valid_indices],
@@ -908,7 +909,7 @@ class FullLoadoutConfiguration(StrEnum):
             will_reload = reload_time_secs is not None
             used_single_shot = self._used_single_shot(prev_index)
             if used_single_shot:
-                tactical = int(will_reload) + 1
+                tactical = (prev_weapon.get_tactical() if will_reload else 1) + 1
                 damages[valid_indices] += prev_weapon.get_single_mag_cumulative_damage_vec(
                     times_seconds=times_seconds[valid_indices],
                     distances_meters=distances_meters[valid_indices],
@@ -1364,8 +1365,14 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
     def get_ready_to_fire_time_secs(self) -> float:
         raise NotImplementedError()
 
-    def can_reload(self):
+    def can_reload(self) -> bool:
         return self.get_weapon().get_tactical_reload_time_secs() is not None
+
+    def has_boosted_loader(self) -> bool:
+        return self.get_weapon().has_boosted_loader()
+
+    def get_tactical(self) -> int:
+        return 1 if not self.has_boosted_loader() else 0
 
 
 class Weapon(SingleWeaponLoadout):
@@ -1376,7 +1383,7 @@ class Weapon(SingleWeaponLoadout):
                  name: str,
                  term: RequiredTerm,
                  weapon_class: WeaponClass,
-                 eighty_percent_accuracy_range: int,
+                 dist_to_accuracy_mapping: Mapping[int, float],
                  damage_body: float,
                  holster_time_secs: float,
                  ready_to_fire_time_secs: float,
@@ -1385,12 +1392,15 @@ class Weapon(SingleWeaponLoadout):
                  spinup: RoundTiming,
                  heat_based: bool,
                  tactical_reload_time_secs: Optional[float],
-                 legend: Optional[Legend]):
+                 legend: Optional[Legend],
+                 has_boosted_loader: bool):
         check_type(WeaponArchetype, archetype=archetype)
         check_str(name=name)
         check_type(RequiredTerm, term=term)
         check_type(WeaponClass, weapon_class=weapon_class)
-        check_int(min_value=1, eighty_percent_accuracy_range=eighty_percent_accuracy_range)
+        check_mapping(allowed_key_types=int,
+                      allowed_value_types=(int, float),
+                      dist_to_accuracy_mapping=dist_to_accuracy_mapping)
         check_float(min_value=0,
                     min_is_exclusive=True,
                     damage_body=damage_body,
@@ -1403,7 +1413,7 @@ class Weapon(SingleWeaponLoadout):
                     min_value=0,
                     min_is_exclusive=True,
                     tactical_reload_time_secs=tactical_reload_time_secs)
-        check_bool(heat_based=heat_based)
+        check_bool(heat_based=heat_based, has_boosted_loader=has_boosted_loader)
         check_type(Legend, optional=True, legend=legend)
 
         if (legend is Legend.RAMPART and
@@ -1416,7 +1426,14 @@ class Weapon(SingleWeaponLoadout):
         super().__init__(name=name, term=term)
         self.archetype = archetype
         self.weapon_class = weapon_class
-        self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
+        self.dist_to_accuracy_mapping = dist_to_accuracy_mapping
+        xp = np.array(list(self.dist_to_accuracy_mapping.keys()))
+        fp = np.array(list(self.dist_to_accuracy_mapping.values()))
+        sorti = xp.argsort()
+        xp = xp[sorti]
+        fp = fp[sorti]
+        self._distances = xp
+        self._accuracies = fp
         self.damage_body = damage_body
         self.holster_time_secs = holster_time_secs
         self.ready_to_fire_time_secs = ready_to_fire_time_secs
@@ -1425,6 +1442,7 @@ class Weapon(SingleWeaponLoadout):
         self.round_timing = spinup
         self.heat_based = heat_based
         self.tactical_reload_time_secs = tactical_reload_time_secs
+        self._has_boosted_loader = has_boosted_loader
 
         damage_per_minute_body = damage_body * rounds_per_minute
         self._damage_per_second_body = damage_per_minute_body / 60
@@ -1463,17 +1481,12 @@ class Weapon(SingleWeaponLoadout):
 
     def _get_accuracy_fraction(self, distance_meters: float) -> float:
         check_float(min_value=0, distance_meters=distance_meters)
-        if distance_meters == 0:
-            return 1
-        return min(self.EIGHTY_PERCENT * self.eighty_percent_accuracy_range / distance_meters, 1)
+        return float(np.interp(x=distance_meters, xp=self._distances, fp=self._accuracies))
 
     def _get_accuracy_fraction_vec(self, distances_meters: NDArray[np.float64]) -> \
             NDArray[np.float64]:
-        result = np.ones_like(distances_meters)
-        non_zeros = np.flatnonzero(distances_meters)
-        result[non_zeros] = ((1 / distances_meters[non_zeros]) *
-                             (self.EIGHTY_PERCENT * self.eighty_percent_accuracy_range)).clip(max=1)
-        return result
+        check_float_vec(distances_meters=distances_meters)
+        return np.interp(x=distances_meters, xp=self._distances, fp=self._accuracies)
 
     def get_magazine_duration_seconds(self, tactical: int) -> float:
         duration_seconds = self.round_timing.get_magazine_duration_seconds(self, tactical=tactical)
@@ -1482,9 +1495,6 @@ class Weapon(SingleWeaponLoadout):
 
     def get_damage_per_second_body(self) -> float:
         return self._damage_per_second_body
-
-    def get_eighty_percent_accuracy_range(self) -> int:
-        return self.eighty_percent_accuracy_range
 
     def get_damage_per_round(self) -> float:
         return self.damage_body
@@ -1516,6 +1526,9 @@ class Weapon(SingleWeaponLoadout):
     def is_single_shot_advisable(self) -> bool:
         seconds_per_round = 1 / self.get_rounds_per_second()
         return seconds_per_round >= self.holster_time_secs
+
+    def has_boosted_loader(self) -> bool:
+        return self._has_boosted_loader
 
 
 class _SingleShotLoadout(SingleWeaponLoadout):
@@ -1567,12 +1580,15 @@ class _SingleShotLoadout(SingleWeaponLoadout):
 
 
 class WeaponArchetype:
+    BOOSTED_LOADER_FINDER = SingleTermFinder(BOOSTED_LOADER)
+
     def __init__(self,
                  name: str,
                  base_term: RequiredTerm,
                  suffix: Optional[Suffix],
                  weapon_class: WeaponClass,
                  eighty_percent_accuracy_range: int,
+                 dist_to_accuracy_mapping: Mapping[int, float],
                  damage_body: float,
                  rounds_per_minute: RoundsPerMinuteBase,
                  magazine_capacity: MagazineCapacityBase,
@@ -1582,6 +1598,9 @@ class WeaponArchetype:
                  care_package: bool):
         check_type(Suffix, optional=True, suffix=suffix)
         check_bool(care_package=care_package)
+        check_mapping(allowed_key_types=int,
+                      allowed_value_types=(int, float),
+                      dist_to_accuracy_mapping=dist_to_accuracy_mapping)
 
         self.name = name
         self.base_term = base_term
@@ -1590,6 +1609,7 @@ class WeaponArchetype:
                                         else base_term)
         self.weapon_class = weapon_class
         self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
+        self.dist_to_accuracy_mapping = dist_to_accuracy_mapping
         self.damage_body = damage_body
         self.rounds_per_minute = rounds_per_minute
         self.magazine_capacity = magazine_capacity
@@ -1598,6 +1618,7 @@ class WeaponArchetype:
         self.heat_based = heat_based
         self.associated_legend = associated_legend
         self.care_package = care_package
+        self._has_boosted_loader = suffix is not None and suffix.has_term(BOOSTED_LOADER)
 
     def get_associated_legend(self) -> Optional[Legend]:
         return self.associated_legend
@@ -1613,10 +1634,11 @@ class WeaponArchetype:
         name = self.name
         full_term = self.full_term
         weapon_class = self.weapon_class
-        eighty_percent_accuracy_range = self.eighty_percent_accuracy_range
+        dist_to_accuracy_mapping = self.dist_to_accuracy_mapping
         damage_body = self.damage_body
         spinup = self.spinup
         heat_based = self.heat_based
+        has_boosted_loader = self._has_boosted_loader
 
         rpm_name = f' ({rpm_term})' if rpm_term is not None else ''
         mag_name = f' ({mag_term})' if mag_term is not None else ''
@@ -1638,7 +1660,7 @@ class WeaponArchetype:
                       name=full_name,
                       term=full_term,
                       weapon_class=weapon_class,
-                      eighty_percent_accuracy_range=eighty_percent_accuracy_range,
+                      dist_to_accuracy_mapping=dist_to_accuracy_mapping,
                       damage_body=damage_body,
                       holster_time_secs=holster_time_secs,
                       ready_to_fire_time_secs=ready_to_fire_time_secs,
@@ -1647,7 +1669,8 @@ class WeaponArchetype:
                       spinup=spinup,
                       heat_based=heat_based,
                       tactical_reload_time_secs=tactical_reload_time_secs,
-                      legend=legend)
+                      legend=legend,
+                      has_boosted_loader=has_boosted_loader)
 
     def get_base_term(self) -> RequiredTerm:
         return self.base_term
@@ -1781,9 +1804,6 @@ class WeaponArchetypes:
                               for suffix_type in suffix.get_types()}
 
         self._is_care_package = base_archetype.is_care_package()
-        if not all(archetype.is_care_package() == base_archetype.is_care_package()
-                   for archetype in suffixed_archetypes):
-            raise ValueError('Archetypes must all be care package or non-care package.')
 
     def get_associated_legend(self) -> Optional[Legend]:
         return self._associated_legend

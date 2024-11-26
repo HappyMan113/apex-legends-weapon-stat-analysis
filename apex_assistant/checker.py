@@ -123,7 +123,7 @@ def check_tuple(allowed_element_types: Type[T] | Tuple[Type[T], ...],
 
 def check_mapping(allowed_key_types: Optional[Union[Type[K], Tuple[Type[K], ...]]] = None,
                   keys_optional: bool = False,
-                  allowed_value_types: Optional[Union[Type[V], Tuple[Type[V], ...]]] = None,
+                  allowed_value_types: Optional[Union[Type[V], Tuple[Type, ...]]] = None,
                   values_optional: bool = False,
                   allow_empty: bool = True,
                   **dictionaries: Mapping[K, V]):

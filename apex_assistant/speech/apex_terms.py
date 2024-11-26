@@ -1,7 +1,9 @@
+from enum import StrEnum
 from types import MappingProxyType
+from typing import Mapping, Optional, Tuple
 
-from apex_assistant.speech.suffix import Suffix, SuffixedArchetypeType
-from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term
+from apex_assistant.checker import check_tuple, check_type
+from apex_assistant.speech.term import IntTerm, OptTerm, RequiredTerm, Term, TermBase
 
 
 def _create_level_terms(attachment_base_name: RequiredTerm,
@@ -20,6 +22,35 @@ def _create_level_terms(attachment_base_name: RequiredTerm,
     for term in all_levels_term:
         assert isinstance(term, RequiredTerm)
     return all_levels_term
+
+
+class SuffixedArchetypeType(StrEnum):
+    HOPPED_UP = 'hopped-up'
+    REVVED_UP = 'revved'
+    SLOW = 'slow'
+    AKIMBO = 'akimbo'
+    RELIC = 'relic'
+
+
+class Suffix:
+    def __init__(self, *suffixes: TermBase | Tuple[TermBase, ...]):
+        check_tuple(TermBase, suffixes=suffixes, allow_empty=False)
+        self._suffix_types = tuple(_SUFFIX_TO_TYPE_DICT[suffix] for suffix in suffixes)
+        self._suffixes = suffixes
+
+    def __len__(self):
+        return len(self._suffixes)
+
+    def get_types(self) -> Tuple[SuffixedArchetypeType, ...]:
+        return self._suffix_types
+
+    def get_terms(self) -> Tuple[TermBase, ...]:
+        return self._suffixes
+
+    def has_term(self, term: TermBase) -> bool:
+        if term not in _SUFFIX_TO_TYPE_DICT:
+            raise ValueError(f'{term} is not a weapon suffix term.')
+        return term in self._suffixes
 
 
 ZERO = IntTerm(0, 'zero', 'oh', 'you', 'out', 'own', 'we\'re', 'go', 'I go', 'you at')
@@ -247,54 +278,76 @@ VOLT = ((Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'vo
 WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
+RELIC = Term('relic', 'relict', 'relick', 'relik')
+BEAM_SHOT = Term('beam', 'bean') + Term('shot')
 SHEILA = Term('Sheila', 'CELA', 'Sila')
 
-_AKIMBO_SUFFIXES = (Suffix((HAMMERPOINT, AKIMBO),
-                           (SuffixedArchetypeType.AKIMBO, SuffixedArchetypeType.HOPPED_UP)),
-                    Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
-                    Suffix(AKIMBO, SuffixedArchetypeType.AKIMBO))
-ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT = MappingProxyType({
-    THIRTY_THIRTY_REPEATER: Suffix(SLOW, SuffixedArchetypeType.SLOW),
-    # ALTERNATOR: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
-    ALTERNATOR: None,
+
+_SUFFIX_TO_TYPE_DICT: Mapping[TermBase, SuffixedArchetypeType] = MappingProxyType({
+    BOOSTED_LOADER: SuffixedArchetypeType.HOPPED_UP,
+    HAMMERPOINT: SuffixedArchetypeType.HOPPED_UP,
+    DISRUPTOR: SuffixedArchetypeType.HOPPED_UP,
+    SLOW: SuffixedArchetypeType.SLOW,
+    MINIMAL_DRAW: SuffixedArchetypeType.SLOW,
+    BEAM_SHOT: SuffixedArchetypeType.HOPPED_UP,
+    FIRE_MODE_SINGLE: SuffixedArchetypeType.SLOW,
+    CHARGED: SuffixedArchetypeType.REVVED_UP,
+    REVVED: SuffixedArchetypeType.REVVED_UP,
+    AMPED: SuffixedArchetypeType.REVVED_UP,
+    AKIMBO: SuffixedArchetypeType.AKIMBO,
+    RELIC: SuffixedArchetypeType.RELIC
+})
+
+_AKIMBO_SUFFIXES = (Suffix(HAMMERPOINT, AKIMBO),
+                    Suffix(HAMMERPOINT),
+                    Suffix(AKIMBO))
+ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
+    MappingProxyType[Term, Optional[Tuple[Suffix, ...]]]
+) = MappingProxyType({
+    THIRTY_THIRTY_REPEATER: (Suffix(RELIC, SLOW), Suffix(SLOW), Suffix(RELIC)),
+    ALTERNATOR: Suffix(RELIC, DISRUPTOR),
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
-    # BOCEK, (MINIMAL_DRAW.opt(, SuffixedArchetypeType.SLOW,
+    # BOCEK, (MINIMAL_DRAW.opt(), SuffixedArchetypeType.SLOW,
     #         DRAWN,
     #         SHATTER_CAPS + OPT_WITH_INCL + MINIMAL_DRAW,
     #         SHATTER_CAPS + DRAWN),
-    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): Suffix(MINIMAL_DRAW,
-                                                            SuffixedArchetypeType.SLOW),
+    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): Suffix(MINIMAL_DRAW),
     CAR.append(SMG_OPT): None,
     CHARGE_RIFLE: None,
     # Devotion is in the care package right now.
     # DEVOTION, (TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
     DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
     # EVA_8: None,
-    EVA_8: Suffix(BOOSTED_LOADER, SuffixedArchetypeType.HOPPED_UP),
+    EVA_8: Suffix(BOOSTED_LOADER),
     FLATLINE: None,
-    G7_SCOUT: None,
-    HAVOC: Suffix(TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
-    HEMLOCK: Suffix(FIRE_MODE_SINGLE, SuffixedArchetypeType.SLOW),
+    G7_SCOUT: Suffix(RELIC),
+    HAVOC.append_order_agnostic(CARE_PACKAGE_OPT): Suffix(BEAM_SHOT),
+    HEMLOCK: Suffix(FIRE_MODE_SINGLE),
     KRABER: None,
     LONGBOW: None,
-    L_STAR: None,
-    MASTIFF: None,
+    L_STAR: Suffix(RELIC),
+    MASTIFF: Suffix(RELIC),
     MOZAMBIQUE: _AKIMBO_SUFFIXES,
-    NEMESIS: Suffix(CHARGED, SuffixedArchetypeType.REVVED_UP),
+    NEMESIS: Suffix(CHARGED),
     P2020: _AKIMBO_SUFFIXES,
     # PEACEKEEPER: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
     PEACEKEEPER: None,
-    PROWLER: None,
+    PROWLER: Suffix(RELIC),
     R301_CARBINE: None,
     # R99: None,
     R99.append_order_agnostic(CARE_PACKAGE_OPT): None,
-    RAMPAGE: Suffix(REVVED, SuffixedArchetypeType.REVVED_UP),
-    RE_45: Suffix(HAMMERPOINT, SuffixedArchetypeType.HOPPED_UP),
-    SENTINEL: Suffix(AMPED, SuffixedArchetypeType.REVVED_UP),
-    SPITFIRE: None,
-    TRIPLE_TAKE: None,
+    RAMPAGE: Suffix(REVVED),
+    RE_45: Suffix(HAMMERPOINT),
+    SENTINEL: (Suffix(BOOSTED_LOADER, AMPED),
+               Suffix(BOOSTED_LOADER),
+               Suffix(AMPED)),
+    SPITFIRE: Suffix(RELIC),
+    TRIPLE_TAKE: Suffix(BOOSTED_LOADER),
     VOLT.append(SMG_OPT): None,
-    WINGMAN: Suffix(BOOSTED_LOADER, SuffixedArchetypeType.HOPPED_UP),
+    WINGMAN: (Suffix(RELIC, BOOSTED_LOADER), Suffix(RELIC), Suffix(BOOSTED_LOADER)),
     SHEILA: None
 })
+for key, value in ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT.items():
+    check_type(TermBase, key=key)
+    check_type((Suffix, tuple), optional=True, value=value)

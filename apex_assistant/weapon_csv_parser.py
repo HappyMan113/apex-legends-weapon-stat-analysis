@@ -19,8 +19,7 @@ import numpy as np
 
 from apex_assistant.checker import check_type
 from apex_assistant.legend import Legend
-from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT
-from apex_assistant.speech.suffix import Suffix
+from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT, Suffix
 from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import Translator
 from apex_assistant.ttk_entry import Engagement
@@ -248,6 +247,10 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_CLASS = 'Weapon Class'
     KEY_LEGEND = 'Legend'
     KEY_80_PERCENT_ACCURACY_RANGE = '80% accuracy range'
+    KEY_10_METER_ACCURACY = '10-meter accuracy'
+    KEY_20_METER_ACCURACY = '20-meter accuracy'
+    KEY_40_METER_ACCURACY = '40-meter accuracy'
+    KEY_80_METER_ACCURACY = '80-meter accuracy'
     KEY_CARE_PACKAGE = 'Care Package'
     KEY_STOCKS_INCOMPATIBLE = 'Stocks Incompatible Override'
     KEY_DAMAGE_BODY = 'Damage (body)'
@@ -514,6 +517,16 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                   if row.has_value(self.KEY_LEGEND)
                   else None)
         eighty_percent_accuracy_range = row.parse_int(self.KEY_80_PERCENT_ACCURACY_RANGE)
+        ten_meter_accuracy = row.parse_float(self.KEY_10_METER_ACCURACY)
+        twenty_meter_accuracy = row.parse_float(self.KEY_20_METER_ACCURACY)
+        forty_meter_accuracy = row.parse_float(self.KEY_40_METER_ACCURACY)
+        eighty_meter_accuracy = row.parse_float(self.KEY_80_METER_ACCURACY)
+        dist_to_accuracy_mapping: Mapping[int, float] = {
+            10: ten_meter_accuracy,
+            20: twenty_meter_accuracy,
+            40: forty_meter_accuracy,
+            80: eighty_meter_accuracy
+        }
         damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
 
         rpm = self._parse_rpm(row)
@@ -535,6 +548,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                suffix=suffix,
                                weapon_class=weapon_class,
                                eighty_percent_accuracy_range=eighty_percent_accuracy_range,
+                               dist_to_accuracy_mapping=dist_to_accuracy_mapping,
                                damage_body=damage_body,
                                rounds_per_minute=rpm,
                                magazine_capacity=mag,
