@@ -305,7 +305,7 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
     MappingProxyType[Term, Optional[Tuple[Suffix, ...]]]
 ) = MappingProxyType({
     THIRTY_THIRTY_REPEATER: (Suffix(RELIC, SLOW), Suffix(SLOW), Suffix(RELIC)),
-    ALTERNATOR: Suffix(RELIC, DISRUPTOR),
+    ALTERNATOR: Suffix(RELIC),
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
     # BOCEK, (MINIMAL_DRAW.opt(), SuffixedArchetypeType.SLOW,
