@@ -15,7 +15,8 @@ from apex_assistant.speech.apex_terms import (AKIMBO,
                                               REVVED)
 from apex_assistant.speech.term import Term, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
-from apex_assistant.weapon import ExcludeFlag, FullLoadout, Weapon, WeaponArchetype
+from apex_assistant.weapon import ExcludeFlag, FullLoadout, Weapon, WeaponArchetype, \
+    WeaponArchetypes
 
 
 LOGGER = logging.getLogger()
@@ -73,11 +74,11 @@ class CompareCommand(ApexCommand):
             LOGGER.debug('Duplicate loadout found. Only unique weapons will be compared.')
             loadouts = tuple(unique_loadouts)
 
-        if len(loadouts) == 0:
-            exclude_flags: int = 0
-            for exclude_flag in self._exclude_translator.translate_terms(arguments).values():
-                exclude_flags |= exclude_flag
+        exclude_flags: int = 0
+        for exclude_flag in self._exclude_translator.translate_terms(arguments).values():
+            exclude_flags |= exclude_flag
 
+        if len(loadouts) == 0:
             weapons = translator.get_fully_kitted_weapons(exclude_flags=exclude_flags)
             if len(weapons) == 0:
                 exclude_flags_set = tuple(flag for flag in ExcludeFlag if flag.find(exclude_flags))
@@ -86,8 +87,12 @@ class CompareCommand(ApexCommand):
             loadouts = tuple(comparator.get_best_loadouts(weapons))
             uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES
         elif len(loadouts) == 1:
+            loadouts = tuple(WeaponArchetypes.filter_loadouts(loadouts,
+                                                              exclude_flags=exclude_flags))
             uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES
         else:
+            loadouts = tuple(WeaponArchetypes.filter_loadouts(loadouts,
+                                                              exclude_flags=exclude_flags))
             uniqueness = self._get_uniqueness(loadouts)
 
         comparison_result = comparator.compare_loadouts(loadouts, show_plots=show_plots)

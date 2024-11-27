@@ -1831,10 +1831,16 @@ class WeaponArchetypes:
             if self._should_include(archetype, exclude_flags):
                 yield archetype.get_best_weapon(legend=legend)
 
-    def _contains_suffix_type(self, suffix_type: SuffixedArchetypeType) -> bool:
-        return suffix_type in self._suffix_types
+    @staticmethod
+    def filter_loadouts(loadouts: Tuple[FullLoadout, ...], exclude_flags: int) -> \
+            Generator[FullLoadout, None, None]:
+        for loadout in loadouts:
+            if all(WeaponArchetypes._should_include(weapon.get_archetype(), exclude_flags=exclude_flags)
+                   for weapon in loadout.get_weapons()):
+                yield loadout
 
-    def _should_include(self, archetype: WeaponArchetype, exclude_flags: int) -> bool:
+    @staticmethod
+    def _should_include(archetype: WeaponArchetype, exclude_flags: int) -> bool:
         if archetype.is_care_package() and ExcludeFlag.CARE_PACKAGE.find(exclude_flags):
             return False
 
@@ -1845,9 +1851,6 @@ class WeaponArchetypes:
         }
 
         for suffix_type, (exclude_it, exclude_not_it) in suffix_type_to_flags.items():
-            if not self._contains_suffix_type(suffix_type):
-                continue
-
             has_suffix_type = archetype.has_suffix_type(suffix_type)
             if (exclude_it.find(exclude_flags) and has_suffix_type or
                     exclude_not_it.find(exclude_flags) and not has_suffix_type):
