@@ -16,6 +16,10 @@ from apex_assistant.speech.term import Words
 logger = logging.getLogger()
 
 T = TypeVar('T')
+OPENAI_API_KEY_KEY = 'OPENAI_API_KEY'
+ELEVENLABS_API_KEY_KEY = 'ELEVENLABS_API_KEY'
+ELEVENLABS_VOICE_NAME_KEY = 'ELEVENLABS_VOICE_NAME'
+ELEVENLABS_VOICE_ID_KEY = 'ELEVENLABS_VOICE_ID'
 
 
 def _preserve_logging[T](func: Callable[[], 'T']) -> Callable[[], T]:
@@ -91,15 +95,39 @@ def create_audio_to_text_recorder():
 @_preserve_logging
 def create_text_to_audio_stream():
     # Import locally because the import itself takes a long time.
-    from RealtimeTTS import OpenAIEngine, SystemEngine, TextToAudioStream
-    openai_engine = OpenAIEngine(voice='echo')
-    system_engine = SystemEngine()
-    return TextToAudioStream([openai_engine, system_engine], level=logging.WARNING)
+    from RealtimeTTS import (OpenAIEngine, SystemEngine, ElevenlabsEngine, TextToAudioStream,
+                             BaseEngine)
+
+    engines: list[BaseEngine] = []
+
+    elevenlabs_api_key = os.environ.get(ELEVENLABS_API_KEY_KEY)
+    if isinstance(elevenlabs_api_key, str):
+        voice_and_id_args: dict[str, str] = {}
+        voice_name = os.environ.get(ELEVENLABS_VOICE_NAME_KEY)
+        if isinstance(voice_name, str):
+            voice_and_id_args['voice'] = voice_name
+        voice_id = os.environ.get(ELEVENLABS_VOICE_ID_KEY)
+        if isinstance(voice_id, str):
+            voice_and_id_args['id'] = voice_id
+        engines.append(ElevenlabsEngine(api_key=elevenlabs_api_key,
+                                        model='eleven_multilingual_v2',
+                                        **voice_and_id_args))
+
+    if isinstance(os.environ.get(OPENAI_API_KEY_KEY), str):
+        engines.append(OpenAIEngine(voice='echo'))
+
+    engines.append(SystemEngine())
+
+    return TextToAudioStream(engines, level=logging.WARNING)
 
 
 class SpeechClient:
     def __init__(self, command_registry: CommandRegistry):
-        assert isinstance(os.environ.get('OPENAI_API_KEY'), str)
+        if (isinstance(os.environ.get('OPENAI_API_KEY'), str) or
+                isinstance(os.environ.get(ELEVENLABS_API_KEY_KEY), str)):
+            logger.warning(
+                f'Neither {OPENAI_API_KEY_KEY} nor {ELEVENLABS_API_KEY_KEY} environment variables '
+                'were set. The system text-to-speech engine will be used.')
         self._lock = Lock()
         self._sayings: list[str] = []
 
