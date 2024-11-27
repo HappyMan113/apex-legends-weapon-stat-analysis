@@ -1,6 +1,6 @@
 ﻿Weapon,Weapon Class,Legend,Care Package,Stocks Incompatible Override,10-meter accuracy,20-meter accuracy,40-meter accuracy,80-meter accuracy,80% accuracy range,Damage (body),Headshot Multiplier,RPM (base),RPM (shotgun bolt level 1),RPM (shotgun bolt level 2),RPM (shotgun bolt level 3),Magazine (base),Magazine (level 1),Magazine (level 2),Magazine (level 3),Round Timing,RPM initial,Spinup Time,Rounds Per Burst,Burst Fire Delay,Burst Fire Delay Initial,Burst Charge Fraction,Active,Holster Time,Deploy Time,Ready to Fire Time,Tactical Reload Time (base),Tactical Reload Time (level 1),Tactical Reload Time (level 2),Tactical Reload Time (level 3),Full Reload Time (base),Full Reload Time (level 1),Full Reload Time (level 2),Full Reload Time (level 3),Heat Based
 "Alternator (relic, disruptor)",SMG,,TRUE,,0.8,0.69,0.56,0.31,29,17.5,1.25,600,,,,28,,,,,,,,,,,TRUE,0.3,0.35,0.224166667,1.71,,,,2.01,,,,
-Mastiff (relic),Shotgun,,TRUE,,0.75,0.5,0.28,0.12,10,90,1.25,79.2,,,,5,,,,,,,,,,,TRUE,0.4,0.45,0.22,2.86,,,,3.92,,,,
+Mastiff (relic),Shotgun,,TRUE,,0.75,0.5,0.28,0.12,10,144,1.777777778,79.2,,,,4,,,,,,,,,,,TRUE,0.4,0.45,0.22,2.86,,,,3.92,,,,
 L-STAR (relic),LMG,,TRUE,,0.83,0.83,0.6,0.25,40,18,1.5,600,,,,30,,,,,,,,,,,FALSE,0.75,0.8,0.464444444,2.21,,,,2.21,,,,TRUE
 Spitfire (relic),LMG,,TRUE,,0.88,0.86,0.72,0.41,40,19,1.5,540,,,,60,,,,,,,,,,,TRUE,0.75,0.8,0.456605312,3.06,,,,3.78,,,,
 Wingman (relic),Pistol,,TRUE,,0.9,0.9,0.7,0.5,63,45,2.111111111,177.7718519,,,,12,,,,,,,,,,,TRUE,0.36,0.4,0.287777778,1.4,,,,1.4,,,,

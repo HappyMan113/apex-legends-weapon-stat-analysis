@@ -128,7 +128,8 @@ class LoadoutTranslator:
             Tuple[Weapon, ...]:
         return tuple(self.iget_fully_kitted_weapons(exclude_flags))
 
-    def translate_full_loadouts(self, words: Words) -> Generator[FullLoadout, None, None]:
+    def translate_full_loadouts(self, words: Words) -> \
+            Generator[FullLoadout, None, None]:
         check_type(Words, words=words)
 
         explicit_loadouts: set[FullLoadout] = set()

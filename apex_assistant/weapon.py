@@ -1270,11 +1270,10 @@ class FullLoadout(Loadout):
 
     @staticmethod
     def get_loadouts(required_weapons: Iterable['Weapon']) -> Generator['FullLoadout', None, None]:
-        duplicated_weapons = FullLoadout._get_duplicates(required_weapons)
-        return (FullLoadout(weapon_a, weapon_b)
-                for weapon_a in required_weapons
-                for weapon_b in required_weapons
-                if weapon_b != weapon_a or weapon_a in duplicated_weapons)
+        base_generator = (FullLoadout(weapon_a, weapon_b)
+                          for weapon_a in required_weapons
+                          for weapon_b in required_weapons)
+        return base_generator
 
     @staticmethod
     def filter_loadouts(loadouts: Iterable['FullLoadout'],
