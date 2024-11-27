@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "apex-assistant"
 requires-python = ">= 3.11"
-version = "0.8.1"
+version = "0.8.2"
 dynamic = ["dependencies"]
 
 [project.scripts]
