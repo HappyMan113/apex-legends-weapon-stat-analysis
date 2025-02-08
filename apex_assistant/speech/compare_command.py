@@ -12,7 +12,7 @@ from apex_assistant.speech.apex_terms import (AKIMBO,
                                               COMPARE,
                                               LOADOUT,
                                               LOADOUTS,
-                                              REVVED)
+                                              RELIC, REVVED)
 from apex_assistant.speech.term import Term, Words
 from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.weapon import ExcludeFlag, FullLoadout, Weapon, WeaponArchetype, \
@@ -50,6 +50,7 @@ class CompareCommand(ApexCommand):
         non_revved_up = (non + revved_up) | Term('non-revved up')
         akimbo = AKIMBO
         non_akimbo = non + akimbo
+        relic = RELIC
 
         exclude = Term('exclude', 'no')
         self._exclude_translator = Translator[ExcludeFlag]({
@@ -61,7 +62,8 @@ class CompareCommand(ApexCommand):
                 revved_up: ExcludeFlag.REVVED_UP,
                 non_revved_up: ExcludeFlag.NON_REVVED_UP,
                 akimbo: ExcludeFlag.AKIMBO,
-                non_akimbo: ExcludeFlag.NON_AKIMBO
+                non_akimbo: ExcludeFlag.NON_AKIMBO,
+                relic: ExcludeFlag.RELIC
             }.items()})
 
     def _execute(self, arguments: Words) -> str:

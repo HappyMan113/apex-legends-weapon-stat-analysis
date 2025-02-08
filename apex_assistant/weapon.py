@@ -57,6 +57,7 @@ class ExcludeFlag(IntEnum):
     NON_REVVED_UP = 0x10
     AKIMBO = 0x20
     NON_AKIMBO = 0x40
+    RELIC = 0x80
 
     def find(self, exclude_flags: int) -> bool:
         return (exclude_flags & self.value) != 0
@@ -1586,7 +1587,6 @@ class WeaponArchetype:
                  base_term: RequiredTerm,
                  suffix: Optional[Suffix],
                  weapon_class: WeaponClass,
-                 eighty_percent_accuracy_range: int,
                  dist_to_accuracy_mapping: Mapping[int, float],
                  damage_body: float,
                  rounds_per_minute: RoundsPerMinuteBase,
@@ -1607,7 +1607,6 @@ class WeaponArchetype:
         self.full_term: RequiredTerm = (base_term.append(*suffix.get_terms()) if suffix is not None
                                         else base_term)
         self.weapon_class = weapon_class
-        self.eighty_percent_accuracy_range = eighty_percent_accuracy_range
         self.dist_to_accuracy_mapping = dist_to_accuracy_mapping
         self.damage_body = damage_body
         self.rounds_per_minute = rounds_per_minute
@@ -1835,7 +1834,8 @@ class WeaponArchetypes:
     def filter_loadouts(loadouts: Tuple[FullLoadout, ...], exclude_flags: int) -> \
             Generator[FullLoadout, None, None]:
         for loadout in loadouts:
-            if all(WeaponArchetypes._should_include(weapon.get_archetype(), exclude_flags=exclude_flags)
+            if all(WeaponArchetypes._should_include(weapon.get_archetype(),
+                                                    exclude_flags=exclude_flags)
                    for weapon in loadout.get_weapons()):
                 yield loadout
 
@@ -1848,6 +1848,7 @@ class WeaponArchetypes:
             SuffixedArchetypeType.HOPPED_UP: (ExcludeFlag.HOPPED_UP, ExcludeFlag.NON_HOPPED_UP),
             SuffixedArchetypeType.REVVED_UP: (ExcludeFlag.REVVED_UP, ExcludeFlag.NON_REVVED_UP),
             SuffixedArchetypeType.AKIMBO: (ExcludeFlag.AKIMBO, ExcludeFlag.NON_AKIMBO),
+            SuffixedArchetypeType.RELIC: (ExcludeFlag.RELIC, ExcludeFlag.NONE),
         }
 
         for suffix_type, (exclude_it, exclude_not_it) in suffix_type_to_flags.items():

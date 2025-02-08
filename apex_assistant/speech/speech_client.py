@@ -123,7 +123,7 @@ def create_text_to_audio_stream():
 
 class SpeechClient:
     def __init__(self, command_registry: CommandRegistry):
-        if (isinstance(os.environ.get('OPENAI_API_KEY'), str) or
+        if not (isinstance(os.environ.get('OPENAI_API_KEY'), str) or
                 isinstance(os.environ.get(ELEVENLABS_API_KEY_KEY), str)):
             logger.warning(
                 f'Neither {OPENAI_API_KEY_KEY} nor {ELEVENLABS_API_KEY_KEY} environment variables '

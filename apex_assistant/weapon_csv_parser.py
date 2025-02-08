@@ -92,7 +92,7 @@ class CsvRow:
             return default_value
 
     def has_value(self, key: str) -> bool:
-        return self.row_dict[key] != self.VALUE_EMPTY
+        return self.row_dict.get(key, self.VALUE_EMPTY) != self.VALUE_EMPTY
 
     def parse_str(self,
                   key: str,
@@ -170,6 +170,8 @@ class EngagementCsvReader(CsvReader[Engagement]):
     KEY_ENEMY_LEGEND = 'Enemy Legend'
     KEY_WINDOW_HEIGHT = 'Window Height (pixels)'
     KEY_FOV = 'FOV'
+    KEY_DISTANCE_METERS = 'Distance'
+    KEY_TIME_TO_FINISH_SHOOTING_SECONDS = 'TTFS'
 
     # Source: https://www.youtube.com/shorts/KU0dROzSx1I
     _LEGEND_HEIGHTS_METERS: Mapping[Legend, float] = MappingProxyType({
@@ -220,23 +222,29 @@ class EngagementCsvReader(CsvReader[Engagement]):
         return enemy_distance_meters
 
     def _parse_item(self, item: CsvRow) -> Engagement:
-        start_frame = item.parse_int(self.KEY_START_FRAME)
-        stop_frame = item.parse_int(self.KEY_STOP_FRAME)
-        pause_frames = item.parse_int(self.KEY_PAUSE_FRAMES, default_value=0)
-        frames_to_kill = stop_frame - start_frame - pause_frames
+        if item.has_value(self.KEY_TIME_TO_FINISH_SHOOTING_SECONDS):
+            ttff_seconds = item.parse_float(self.KEY_TIME_TO_FINISH_SHOOTING_SECONDS)
+        else:
+            start_frame = item.parse_int(self.KEY_START_FRAME)
+            stop_frame = item.parse_int(self.KEY_STOP_FRAME)
+            pause_frames = item.parse_int(self.KEY_PAUSE_FRAMES, default_value=0)
+            frames_to_kill = stop_frame - start_frame - pause_frames
 
-        fps = item.parse_float(self.KEY_FRAMES_PER_SECOND)
-        ttff_seconds = frames_to_kill / fps
+            fps = item.parse_float(self.KEY_FRAMES_PER_SECOND)
+            ttff_seconds = frames_to_kill / fps
 
-        enemy_height_pixels = item.parse_int(self.KEY_ENEMY_HEIGHT)
-        enemy_legend = item.parse_str_enum(self.KEY_ENEMY_LEGEND, Legend)
-        fov = item.parse_int(self.KEY_FOV)
-        window_height_pixels = item.parse_int(self.KEY_WINDOW_HEIGHT)
-        enemy_distance_meters = self._get_enemy_distance_meters(
-            enemy_height_pixels=enemy_height_pixels,
-            enemy_legend=enemy_legend,
-            window_height_pixels=window_height_pixels,
-            fov_degrees=fov)
+        if item.has_value(self.KEY_DISTANCE_METERS):
+            enemy_distance_meters = item.parse_float(self.KEY_DISTANCE_METERS)
+        else:
+            enemy_height_pixels = item.parse_int(self.KEY_ENEMY_HEIGHT)
+            enemy_legend = item.parse_str_enum(self.KEY_ENEMY_LEGEND, Legend)
+            fov = item.parse_int(self.KEY_FOV)
+            window_height_pixels = item.parse_int(self.KEY_WINDOW_HEIGHT)
+            enemy_distance_meters = self._get_enemy_distance_meters(
+                enemy_height_pixels=enemy_height_pixels,
+                enemy_legend=enemy_legend,
+                window_height_pixels=window_height_pixels,
+                fov_degrees=fov)
 
         return Engagement(ttff_seconds=ttff_seconds,
                           enemy_distance_meters=enemy_distance_meters)
@@ -246,7 +254,6 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = 'Weapon'
     KEY_WEAPON_CLASS = 'Weapon Class'
     KEY_LEGEND = 'Legend'
-    KEY_80_PERCENT_ACCURACY_RANGE = '80% accuracy range'
     KEY_10_METER_ACCURACY = '10-meter accuracy'
     KEY_20_METER_ACCURACY = '20-meter accuracy'
     KEY_40_METER_ACCURACY = '40-meter accuracy'
@@ -516,7 +523,6 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         legend = (row.parse_str_enum(self.KEY_LEGEND, Legend)
                   if row.has_value(self.KEY_LEGEND)
                   else None)
-        eighty_percent_accuracy_range = row.parse_int(self.KEY_80_PERCENT_ACCURACY_RANGE)
         ten_meter_accuracy = row.parse_float(self.KEY_10_METER_ACCURACY)
         twenty_meter_accuracy = row.parse_float(self.KEY_20_METER_ACCURACY)
         forty_meter_accuracy = row.parse_float(self.KEY_40_METER_ACCURACY)
@@ -547,7 +553,6 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                                base_term=term,
                                suffix=suffix,
                                weapon_class=weapon_class,
-                               eighty_percent_accuracy_range=eighty_percent_accuracy_range,
                                dist_to_accuracy_mapping=dist_to_accuracy_mapping,
                                damage_body=damage_body,
                                rounds_per_minute=rpm,

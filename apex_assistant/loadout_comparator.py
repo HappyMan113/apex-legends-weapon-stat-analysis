@@ -1,6 +1,7 @@
 import itertools
 import logging
 import os
+from functools import cmp_to_key
 from statistics import correlation
 from types import MappingProxyType
 from typing import Generator, Mapping, Optional, Sequence, Tuple
@@ -84,7 +85,9 @@ class LoadoutComparator:
             ttk.get_enemy_distance_meters()
             for ttk in engagements])
 
-    def compare_loadouts(self, loadouts: Sequence[FullLoadout], show_plots: bool = False) -> \
+    def compare_loadouts(self,
+                         loadouts: Sequence[FullLoadout],
+                         show_plots: bool = False) -> \
             ComparisonResult:
         if len(loadouts) == 0:
             raise ValueError('loadouts cannot be empty!')
@@ -98,24 +101,84 @@ class LoadoutComparator:
         ds = self._enemy_distances_meters
 
         num_loadouts = len(loadouts)
-        damage_table: np.ndarray[np.floating] = np.empty((num_loadouts, len(ts)))
-        for idx, loadout in enumerate(loadouts):
+        cumulative_dmg_till_time_t: np.ndarray[np.floating] = np.empty((num_loadouts, len(ts)))
+        for loadout_idx, loadout in enumerate(loadouts):
             check_type(FullLoadout, weapon=loadout)
             loadout: FullLoadout = loadout
-            damage_table[idx] = loadout.get_cumulative_damage_vec(times_seconds=ts,
-                                                                  distances_meters=ds)
+            cumulative_dmg_till_time_t[loadout_idx] = loadout.get_cumulative_damage_vec(
+                times_seconds=ts,
+                distances_meters=ds)
 
-        # This is the mean dps up till time t for t in TTKs.
-        mean_dps_till_time_t = damage_table * (1 / ts)
-
-        # This one actually weights earlier damage more highly.
-        expected_mean_dps = mean_dps_till_time_t.mean(axis=1)
+        # You might think that earlier mean DPS values should be weighted more highly so that they
+        # don't seem insignificant, but I think that if little damage is done, then they are in fact
+        # insignificant. You might also think that longer encounters shouldn't be weighted highly,
+        # but the weighting should already be taken into account for those via the lack of longer
+        # encounters in the input data. Therefore, we should be simply looking at cumulative damage.
+        expected_mean_dps = cumulative_dmg_till_time_t.mean(axis=1)
         sorti = expected_mean_dps.argsort()[::-1]
 
         sorted_loadouts_dict: dict[FullLoadout, float] = {
             loadouts[idx]: weighted_avg_damage
             for idx, weighted_avg_damage in zip(sorti, expected_mean_dps[sorti])
         }
+
+        # sorti = np.empty(num_loadouts, dtype=int)
+        # approximate_relative_scores = np.empty(num_loadouts, dtype=float)
+        # approximate_relative_scores[0] = 1
+        #
+        # # We want earlier damage mean DPS values to be weighted more highly because otherwise short
+        # # encounters will seem insignificant. However, we also want to avoid weighting them so
+        # # highly that super short encounters approach infinite importance. To avoid the former
+        # # pitfall, we need to scale everything by the max damage for any weapon for each time,
+        # # and to avoid the latter pitfall, we need to scale the cumulative damage as opposed to the
+        # # mean DPS. This normalization introduces another pitfall, which is that only the top
+        # # result will be correct, as everything else is interfered with by the top result for each
+        # # time. Therefore, the only meaningful result from a single comparison that can be gleaned
+        # # is which loadout is best, and comparison of loadouts must be done iteratively.
+        # #
+        # # TODO: This still doesn't address the pitfall of loadouts lower down the rank interfering
+        # #  with comparisons between loadouts higher in the rank due to the lower down one being
+        # #  higher up at certain times. Maybe what I really need to do is sort using a comparator
+        # #  that calculates the ratio between two weapons of cumulative damage at each time T and
+        # #  then takes the mean of that and determines if that is greater than 1.
+        # def comparator(cumulative_damage_till_time_t_for_loadout_a,
+        #                cumulative_damage_till_time_t_for_loadout_b) -> int:
+        #     cmp_result_vec = (cumulative_damage_till_time_t_for_loadout_a /
+        #                       cumulative_damage_till_time_t_for_loadout_b)
+        #
+        #
+        # sorted([], key=cmp_to_key(comparator))
+        # cumulative_dmg_till_time_t_copy = cumulative_dmg_till_time_t.copy()
+        # for loadout_idx in range(num_loadouts):
+        #     max_damage_till_time_t = cumulative_dmg_till_time_t_copy.max(axis=0)
+        #     if max_damage_till_time_t.all():
+        #         normalized_cumulative_dmg_till_time_t = (cumulative_dmg_till_time_t_copy /
+        #                                                  max_damage_till_time_t[np.newaxis, :])
+        #     else:
+        #         normalized_cumulative_dmg_till_time_t = cumulative_dmg_till_time_t_copy
+        #     expected_mean_dps = normalized_cumulative_dmg_till_time_t.mean(axis=1)
+        #
+        #     best_loadout_indices = expected_mean_dps.argsort()
+        #     best_loadout_index = best_loadout_indices[-1]
+        #     next_loadout_idx = loadout_idx + 1
+        #     if next_loadout_idx < num_loadouts:
+        #         second_best_loadout_index = best_loadout_indices[-2]
+        #         approximate_relative_score = min(
+        #             expected_mean_dps[second_best_loadout_index] /
+        #             expected_mean_dps[best_loadout_index],
+        #             1)
+        #         approximate_relative_scores[next_loadout_idx] = (
+        #                 approximate_relative_score *
+        #                 approximate_relative_scores[loadout_idx])
+        #     sorti[loadout_idx] = best_loadout_index
+        #
+        #     # Zero out this one so that it is effectively not considered next iteration.
+        #     cumulative_dmg_till_time_t_copy[best_loadout_index] = 0
+        #
+        # sorted_loadouts_dict: dict[FullLoadout, float] = {
+        #     loadouts[idx]: weighted_avg_damage
+        #     for idx, weighted_avg_damage in zip(sorti, approximate_relative_scores)
+        # }
 
         result = ComparisonResult(sorted_loadouts_dict)
 
@@ -143,7 +206,7 @@ class LoadoutComparator:
 
             ax2.axvline(ts.min())
             ax2.axvline(ts.max())
-            ts_lin = np.linspace(0.4, ts.max() * 1.4, num=4000)
+            ts_lin = np.linspace(ts.min(), ts.max() * 1.4, num=4000)
             t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
             for loadout in result.limit_to_best_num(10).get_sorted_loadouts():
                 for distance_meters, config in loadout.get_distances_and_configs():
@@ -183,16 +246,16 @@ class LoadoutComparator:
             max_num_loadouts = min(max_max_num_loadouts, max_num_loadouts)
 
         loadouts = tuple(FullLoadout.get_loadouts(weapons_set))
+        comparison_result = self.compare_loadouts(loadouts)
 
         num_loadouts = 0
-        while num_loadouts < max_num_loadouts:
-            loadouts = tuple(FullLoadout.filter_loadouts(loadouts, exclude_filter))
-            best_loadout = self._compare_loadouts(loadouts)
+        for best_loadout in comparison_result.get_sorted_loadouts():
+            if not best_loadout.get_weapons().isdisjoint(exclude_filter):
+                continue
+
             exclude_filter.add(best_loadout.get_weapon_a())
 
             yield best_loadout
             num_loadouts += 1
-
-    def _compare_loadouts(self, loadouts: tuple[FullLoadout, ...]) -> FullLoadout:
-        best_loadout, _ = self.compare_loadouts(loadouts).get_best_loadout()
-        return best_loadout
+            if num_loadouts >= max_num_loadouts:
+                break

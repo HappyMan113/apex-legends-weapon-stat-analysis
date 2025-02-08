@@ -261,7 +261,7 @@ R99 = \
           'arlington nine', 'Ardena 9') |
      (_R.opt() + Term('99', '89')))
 REVVED = Term('revved up', 'wrapped up', 'rev it up', 'ribbed up', 'revved it', 'rev\'d', 'revved',
-              'R.I.P.', 'round', 'overclocked')
+              'R.I.P.', 'round', 'overclocked', 'revd', 'rev')
 RE_45 = Term('are e forty five', 'RE-45', 'RA-45', 'R45', 'RD-45', 'are we 45', 'RU45',
              'are you 45', 'R8-45', 'R445', 'RE 45', 'RE45', 'R. 45', 'R.A.45', 'R.E.45',
              'R.A. 45', 'R.E. 45', 'R.E.45', 'RIA-45', 'r a forty five', 'R435')
@@ -278,6 +278,9 @@ VOLT = ((Term('Volt', 'oh', 'bull', 'boop', 'what', 'well', 'vote', 'voltz', 'vo
 WINGMAN = Term('Wingman', 'we\'ll be back', 'wing then', 'wing men', 'wingmen')
 BOOSTED_LOADER = (Term('boosted', 'who\'s dead', 'that\'s it') +
                   Term('loader', 'loaded', 'love you', 'odor'))
+SELECTFIRE_RECEIVER = (
+        (Term('selectfire') | (Term('select') + Term('fire'))) +
+        (Term('receiver') | (Term('recieve') + Term('her'))).opt(include_in_speech=False))
 RELIC = Term('relic', 'relict', 'relick', 'relik')
 BEAM_SHOT = Term('beam', 'bean') + Term('shot')
 SHEILA = Term('Sheila', 'CELA', 'Sila')
@@ -295,7 +298,8 @@ _SUFFIX_TO_TYPE_DICT: Mapping[TermBase, SuffixedArchetypeType] = MappingProxyTyp
     REVVED: SuffixedArchetypeType.REVVED_UP,
     AMPED: SuffixedArchetypeType.REVVED_UP,
     AKIMBO: SuffixedArchetypeType.AKIMBO,
-    RELIC: SuffixedArchetypeType.RELIC
+    RELIC: SuffixedArchetypeType.RELIC,
+    SELECTFIRE_RECEIVER: SuffixedArchetypeType.HOPPED_UP
 })
 
 _AKIMBO_SUFFIXES = (Suffix(HAMMERPOINT, AKIMBO),
@@ -314,7 +318,7 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
     #         SHATTER_CAPS + DRAWN),
     BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): Suffix(MINIMAL_DRAW),
     CAR.append(SMG_OPT): None,
-    CHARGE_RIFLE: None,
+    CHARGE_RIFLE: Suffix(SELECTFIRE_RECEIVER),
     # Devotion is in the care package right now.
     # DEVOTION, (TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
     DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
