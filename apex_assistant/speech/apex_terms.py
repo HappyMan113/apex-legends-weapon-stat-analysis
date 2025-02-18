@@ -303,54 +303,42 @@ _SUFFIX_TO_TYPE_DICT: Mapping[TermBase, SuffixedArchetypeType] = MappingProxyTyp
     SELECTFIRE_RECEIVER: SuffixedArchetypeType.HOPPED_UP
 })
 
-_AKIMBO_SUFFIXES = (Suffix(HAMMERPOINT, AKIMBO),
-                    Suffix(HAMMERPOINT),
-                    Suffix(AKIMBO))
 ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
     MappingProxyType[Term, Optional[Tuple[Suffix, ...]]]
 ) = MappingProxyType({
     THIRTY_THIRTY_REPEATER: (Suffix(RELIC, SLOW), Suffix(SLOW), Suffix(RELIC)),
-    ALTERNATOR: Suffix(RELIC),
+    ALTERNATOR: None,
     # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
     # back to not having shatter caps.
-    # BOCEK, (MINIMAL_DRAW.opt(), SuffixedArchetypeType.SLOW,
-    #         DRAWN,
-    #         SHATTER_CAPS + OPT_WITH_INCL + MINIMAL_DRAW,
-    #         SHATTER_CAPS + DRAWN),
     BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): Suffix(MINIMAL_DRAW),
     CAR.append(SMG_OPT): None,
     CHARGE_RIFLE: Suffix(SELECTFIRE_RECEIVER),
-    # Devotion is in the care package right now.
-    # DEVOTION, (TURBOCHARGER, SuffixedArchetypeType.HOPPED_UP),
-    DEVOTION.append_order_agnostic(CARE_PACKAGE_OPT): None,
-    # EVA_8: None,
+    DEVOTION: None,
     EVA_8: Suffix(BOOSTED_LOADER),
     FLATLINE: None,
-    G7_SCOUT: Suffix(RELIC),
+    G7_SCOUT: None,
     HAVOC.append_order_agnostic(CARE_PACKAGE_OPT): Suffix(BEAM_SHOT),
     HEMLOCK: Suffix(FIRE_MODE_SINGLE),
     KRABER: None,
     LONGBOW: None,
-    L_STAR: Suffix(RELIC),
-    MASTIFF: Suffix(RELIC),
-    MOZAMBIQUE: _AKIMBO_SUFFIXES,
+    L_STAR: None,
+    MASTIFF: None,
+    MOZAMBIQUE: Suffix(AKIMBO),
     NEMESIS: Suffix(CHARGED),
-    P2020: _AKIMBO_SUFFIXES,
-    # PEACEKEEPER: Suffix(DISRUPTOR, SuffixedArchetypeType.HOPPED_UP),
-    PEACEKEEPER: None,
-    PROWLER: Suffix(RELIC),
+    P2020: Suffix(AKIMBO),
+    PEACEKEEPER.append(CARE_PACKAGE_OPT): None,
+    PROWLER: Suffix(SELECTFIRE_RECEIVER),
     R301_CARBINE: None,
-    # R99: None,
-    R99.append_order_agnostic(CARE_PACKAGE_OPT): None,
+    R99: None,
     RAMPAGE: Suffix(REVVED),
-    RE_45: Suffix(HAMMERPOINT),
+    RE_45: None,
     SENTINEL: (Suffix(BOOSTED_LOADER, AMPED),
                Suffix(BOOSTED_LOADER),
                Suffix(AMPED)),
-    SPITFIRE: Suffix(RELIC),
+    SPITFIRE: None,
     TRIPLE_TAKE: Suffix(BOOSTED_LOADER),
     VOLT.append(SMG_OPT): None,
-    WINGMAN: (Suffix(RELIC, BOOSTED_LOADER), Suffix(RELIC), Suffix(BOOSTED_LOADER)),
+    WINGMAN: Suffix(BOOSTED_LOADER),
     SHEILA: None
 })
 for key, value in ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT.items():

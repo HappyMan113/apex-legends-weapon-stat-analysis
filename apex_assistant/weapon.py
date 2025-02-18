@@ -630,42 +630,6 @@ class FullLoadoutConfiguration(StrEnum):
                 damage_to_kill: float,
                 distance_meters: float,
                 player_accuracy: float) -> float:
-        check_float(damage=damage_to_kill, distance_meters=distance_meters)
-
-        mean_time_to_kill = self._get_mean_time_to_kill2(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            damage_to_kill=damage_to_kill,
-            distance_meters=distance_meters,
-            player_accuracy=player_accuracy)
-        if mean_time_to_kill is None:
-            # A kill would not be "expected" given this configuration, the amount of damage that
-            # needs to be dealt, and the distance.
-            mean_time_to_kill = np.inf
-
-        return mean_time_to_kill
-
-    def get_ttk_vec(self,
-                    weapon_a: 'Weapon',
-                    weapon_b: 'Weapon',
-                    damage_to_kill: float,
-                    distances_meters: NDArray[np.float64],
-                    player_accuracy: float) -> NDArray[np.float64]:
-        check_float(damage_to_kill=damage_to_kill)
-        check_float_vec(distances_meters=distances_meters)
-        return np.array([self.get_ttk(weapon_a=weapon_a,
-                                      weapon_b=weapon_b,
-                                      damage_to_kill=damage_to_kill,
-                                      distance_meters=distance_meters,
-                                      player_accuracy=player_accuracy)
-                         for distance_meters in distances_meters])
-
-    def _get_mean_time_to_kill2(self,
-                                weapon_a: 'Weapon',
-                                weapon_b: 'Weapon',
-                                damage_to_kill: float,
-                                distance_meters: float,
-                                player_accuracy: float) -> Optional[float]:
         check_float(min_value=0, min_is_exclusive=True, damage_to_kill=damage_to_kill)
 
         permuted_damages: List[NDArray[np.floating[Any]]] = []
@@ -759,7 +723,7 @@ class FullLoadoutConfiguration(StrEnum):
             # meters away.
             _LOGGER.info(f'The configuration {self} was invalid for loadouts containing {weapon_a} '
                          f'and {weapon_b}.')
-            return None
+            return np.inf
 
         if (damage_sums < damage_to_kill - tol * 2).any():
             raise RuntimeError(
@@ -771,6 +735,21 @@ class FullLoadoutConfiguration(StrEnum):
         mean_time_to_kill = (times_to_kill * permutation_probabilities).sum()
 
         return mean_time_to_kill
+
+    def get_ttk_vec(self,
+                    weapon_a: 'Weapon',
+                    weapon_b: 'Weapon',
+                    damage_to_kill: float,
+                    distances_meters: NDArray[np.float64],
+                    player_accuracy: float) -> NDArray[np.float64]:
+        check_float(damage_to_kill=damage_to_kill)
+        check_float_vec(distances_meters=distances_meters)
+        return np.array([self.get_ttk(weapon_a=weapon_a,
+                                      weapon_b=weapon_b,
+                                      damage_to_kill=damage_to_kill,
+                                      distance_meters=distance_meters,
+                                      player_accuracy=player_accuracy)
+                         for distance_meters in distances_meters])
 
     @staticmethod
     def _get_damage_permutations_for_rounds(damages: NDArray[np.float64],

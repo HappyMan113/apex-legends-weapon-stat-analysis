@@ -1,8 +1,9 @@
 import itertools
 import logging
+import math
 import os
 from types import MappingProxyType
-from typing import Dict, Generator, List, Mapping, Optional, Sequence, Tuple
+from typing import Collection, Dict, Generator, List, Mapping, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -87,6 +88,10 @@ class LoadoutComparator:
                     min_value=0,
                     min_is_exclusive=True,
                     max_value=1)
+        if len(damages_to_kill) != len(damages_to_kill_weights):
+            raise ValueError('len(damage_to_kill) != len(damages_to_kill_weights)')
+        if len(distances_meters) != len(distances_meters_weights):
+            raise ValueError('len(damage_to_kill) != len(damages_to_kill_weights)')
 
         sorti = damages_to_kill.argsort()
         damages_to_kill = damages_to_kill[sorti]
@@ -101,6 +106,9 @@ class LoadoutComparator:
         self._distances_meters = distances_meters
         self._distances_meters_weights = distances_meters_weights
         self._player_accuracy = player_accuracy
+
+        assert math.isclose(damages_to_kill_weights.sum(), 1)
+        assert math.isclose(distances_meters_weights.sum(), 1)
 
     def _get_mean_dps_for_distances(self, dps_array: NDArray[np.float64]) -> NDArray[np.float64]:
         if dps_array.ndim != 2:
@@ -117,7 +125,7 @@ class LoadoutComparator:
             raise ValueError('DPS array must have TWO dimensions!')
         return self._get_mean_dps_for_damages(self._get_mean_dps_for_distances(dps_array))
 
-    def compare_loadouts(self, loadouts: Sequence[FullLoadout], show_plots: bool = False) -> \
+    def compare_loadouts(self, loadouts: Collection[FullLoadout], show_plots: bool = False) -> \
             ComparisonResult:
         if len(loadouts) == 0:
             raise ValueError('loadouts cannot be empty!')
@@ -157,10 +165,14 @@ class LoadoutComparator:
             ts_min = 0
             ts_max = 2
             ts_lin = np.linspace(ts_min, ts_max, num=4000)
+            ds_lin = np.linspace(distances_meters.min(), distances_meters.max(), num=100)
 
-            for loadout, dpss in loadouts_and_dpss[:10]:
+            for loadout, _ in loadouts_and_dpss[:15]:
+                dpss = loadout.get_dps_vec(damages_to_kill=damages_to_kill,
+                                           distances_meters=ds_lin,
+                                           player_accuracy=player_accuracy)
                 mean_dps_for_distances = self._get_mean_dps_for_distances(dpss)
-                ax1.plot(distances_meters, mean_dps_for_distances, label=loadout.get_name())
+                ax1.plot(ds_lin, mean_dps_for_distances, label=loadout.get_name())
 
                 damages = loadout.get_cumulative_damage_vec(
                     times_seconds=ts_lin,
