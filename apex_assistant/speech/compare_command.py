@@ -44,7 +44,7 @@ class CompareCommand(ApexCommand):
 
         non = Term('non')
         care_package = CARE_PACKAGE
-        hopped_up = Term('hopped up')
+        hopped_up = Term('hopped up', 'hopped-up')
         non_hopped_up = (non + hopped_up) | Term('non-hopped up')
         revved_up = REVVED
         non_revved_up = (non + revved_up) | Term('non-revved up')

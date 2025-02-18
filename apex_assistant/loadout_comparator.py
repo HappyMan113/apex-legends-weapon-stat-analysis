@@ -1,15 +1,13 @@
 import itertools
 import logging
 import os
-from functools import cmp_to_key
-from statistics import correlation
 from types import MappingProxyType
-from typing import Generator, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Generator, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+from numpy.typing import NDArray
 
-from apex_assistant.checker import check_int, check_tuple, check_type
-from apex_assistant.ttk_entry import Engagement
+from apex_assistant.checker import check_float, check_float_vec, check_int, check_tuple
 from apex_assistant.weapon import FullLoadout, Weapon
 
 logger = logging.getLogger()
@@ -75,110 +73,70 @@ class ComparisonResult:
 
 
 class LoadoutComparator:
-    def __init__(self, engagements: Tuple[Engagement, ...]):
-        check_tuple(Engagement, engagements=engagements)
-        engagements = sorted(engagements, key=lambda e: e.get_ttff_seconds())
+    def __init__(self,
+                 damages_to_kill: NDArray[np.float64],
+                 damages_to_kill_weights: NDArray[np.float64],
+                 distances_meters: NDArray[np.float64],
+                 distances_meters_weights: NDArray[np.float64],
+                 player_accuracy: float):
+        check_float_vec(damages_to_kill=damages_to_kill,
+                        damages_to_kill_weights=damages_to_kill_weights,
+                        distances_meters=distances_meters,
+                        distances_meters_weights=distances_meters_weights)
+        check_float(player_accuracy=player_accuracy,
+                    min_value=0,
+                    min_is_exclusive=True,
+                    max_value=1)
 
-        self._ttffs: np.ndarray[np.floating] = np.array([ttk.get_ttff_seconds()
-                                                         for ttk in engagements])
-        self._enemy_distances_meters: np.ndarray[np.floating] = np.array([
-            ttk.get_enemy_distance_meters()
-            for ttk in engagements])
+        sorti = damages_to_kill.argsort()
+        damages_to_kill = damages_to_kill[sorti]
+        damages_to_kill_weights = damages_to_kill_weights[sorti] / damages_to_kill_weights.sum()
 
-    def compare_loadouts(self,
-                         loadouts: Sequence[FullLoadout],
-                         show_plots: bool = False) -> \
+        sorti = distances_meters.argsort()
+        distances_meters = distances_meters[sorti]
+        distances_meters_weights = distances_meters_weights[sorti] / distances_meters_weights.sum()
+
+        self._damages_to_kill = damages_to_kill
+        self._damages_to_kill_weights = damages_to_kill_weights
+        self._distances_meters = distances_meters
+        self._distances_meters_weights = distances_meters_weights
+        self._player_accuracy = player_accuracy
+
+    def _get_mean_dps_for_distances(self, dps_array: NDArray[np.float64]) -> NDArray[np.float64]:
+        if dps_array.ndim != 2:
+            raise ValueError('DPS array must have TWO dimensions!')
+        return (dps_array * self._damages_to_kill_weights[:, np.newaxis]).sum(axis=0)
+
+    def _get_mean_dps_for_damages(self, mean_dps_for_distances: NDArray[np.float64]) -> float:
+        if mean_dps_for_distances.ndim != 1:
+            raise ValueError('mean_dps_for_distances must have ONE dimension!')
+        return (mean_dps_for_distances * self._distances_meters_weights).sum()
+
+    def _get_mean_dps(self, dps_array: NDArray[np.float64]) -> float:
+        if dps_array.ndim != 2:
+            raise ValueError('DPS array must have TWO dimensions!')
+        return self._get_mean_dps_for_damages(self._get_mean_dps_for_distances(dps_array))
+
+    def compare_loadouts(self, loadouts: Sequence[FullLoadout], show_plots: bool = False) -> \
             ComparisonResult:
         if len(loadouts) == 0:
             raise ValueError('loadouts cannot be empty!')
 
-        loadout_set = frozenset(loadouts)
-        if len(loadout_set) < len(loadouts):
-            logger.debug('Duplicate loadouts found. Only unique loadouts will be compared.')
-            loadouts = tuple(loadout_set)
+        damages_to_kill = self._damages_to_kill
+        distances_meters = self._distances_meters
+        player_accuracy = self._player_accuracy
 
-        ts = self._ttffs
-        ds = self._enemy_distances_meters
+        # Loadouts in descending order
+        loadouts_and_dpss: List[Tuple[FullLoadout, NDArray[np.float64]]] = sorted(
+            ((loadout, loadout.get_dps_vec(damages_to_kill=damages_to_kill,
+                                           distances_meters=distances_meters,
+                                           player_accuracy=player_accuracy))
+             for loadout in frozenset(loadouts)),
+            key=lambda loadout_and_dps_vec: self._get_mean_dps(loadout_and_dps_vec[1]),
+            reverse=True)
 
-        num_loadouts = len(loadouts)
-        cumulative_dmg_till_time_t: np.ndarray[np.floating] = np.empty((num_loadouts, len(ts)))
-        for loadout_idx, loadout in enumerate(loadouts):
-            check_type(FullLoadout, weapon=loadout)
-            loadout: FullLoadout = loadout
-            cumulative_dmg_till_time_t[loadout_idx] = loadout.get_cumulative_damage_vec(
-                times_seconds=ts,
-                distances_meters=ds)
-
-        # You might think that earlier mean DPS values should be weighted more highly so that they
-        # don't seem insignificant, but I think that if little damage is done, then they are in fact
-        # insignificant. You might also think that longer encounters shouldn't be weighted highly,
-        # but the weighting should already be taken into account for those via the lack of longer
-        # encounters in the input data. Therefore, we should be simply looking at cumulative damage.
-        expected_mean_dps = cumulative_dmg_till_time_t.mean(axis=1)
-        sorti = expected_mean_dps.argsort()[::-1]
-
-        sorted_loadouts_dict: dict[FullLoadout, float] = {
-            loadouts[idx]: weighted_avg_damage
-            for idx, weighted_avg_damage in zip(sorti, expected_mean_dps[sorti])
-        }
-
-        # sorti = np.empty(num_loadouts, dtype=int)
-        # approximate_relative_scores = np.empty(num_loadouts, dtype=float)
-        # approximate_relative_scores[0] = 1
-        #
-        # # We want earlier damage mean DPS values to be weighted more highly because otherwise short
-        # # encounters will seem insignificant. However, we also want to avoid weighting them so
-        # # highly that super short encounters approach infinite importance. To avoid the former
-        # # pitfall, we need to scale everything by the max damage for any weapon for each time,
-        # # and to avoid the latter pitfall, we need to scale the cumulative damage as opposed to the
-        # # mean DPS. This normalization introduces another pitfall, which is that only the top
-        # # result will be correct, as everything else is interfered with by the top result for each
-        # # time. Therefore, the only meaningful result from a single comparison that can be gleaned
-        # # is which loadout is best, and comparison of loadouts must be done iteratively.
-        # #
-        # # TODO: This still doesn't address the pitfall of loadouts lower down the rank interfering
-        # #  with comparisons between loadouts higher in the rank due to the lower down one being
-        # #  higher up at certain times. Maybe what I really need to do is sort using a comparator
-        # #  that calculates the ratio between two weapons of cumulative damage at each time T and
-        # #  then takes the mean of that and determines if that is greater than 1.
-        # def comparator(cumulative_damage_till_time_t_for_loadout_a,
-        #                cumulative_damage_till_time_t_for_loadout_b) -> int:
-        #     cmp_result_vec = (cumulative_damage_till_time_t_for_loadout_a /
-        #                       cumulative_damage_till_time_t_for_loadout_b)
-        #
-        #
-        # sorted([], key=cmp_to_key(comparator))
-        # cumulative_dmg_till_time_t_copy = cumulative_dmg_till_time_t.copy()
-        # for loadout_idx in range(num_loadouts):
-        #     max_damage_till_time_t = cumulative_dmg_till_time_t_copy.max(axis=0)
-        #     if max_damage_till_time_t.all():
-        #         normalized_cumulative_dmg_till_time_t = (cumulative_dmg_till_time_t_copy /
-        #                                                  max_damage_till_time_t[np.newaxis, :])
-        #     else:
-        #         normalized_cumulative_dmg_till_time_t = cumulative_dmg_till_time_t_copy
-        #     expected_mean_dps = normalized_cumulative_dmg_till_time_t.mean(axis=1)
-        #
-        #     best_loadout_indices = expected_mean_dps.argsort()
-        #     best_loadout_index = best_loadout_indices[-1]
-        #     next_loadout_idx = loadout_idx + 1
-        #     if next_loadout_idx < num_loadouts:
-        #         second_best_loadout_index = best_loadout_indices[-2]
-        #         approximate_relative_score = min(
-        #             expected_mean_dps[second_best_loadout_index] /
-        #             expected_mean_dps[best_loadout_index],
-        #             1)
-        #         approximate_relative_scores[next_loadout_idx] = (
-        #                 approximate_relative_score *
-        #                 approximate_relative_scores[loadout_idx])
-        #     sorti[loadout_idx] = best_loadout_index
-        #
-        #     # Zero out this one so that it is effectively not considered next iteration.
-        #     cumulative_dmg_till_time_t_copy[best_loadout_index] = 0
-        #
-        # sorted_loadouts_dict: dict[FullLoadout, float] = {
-        #     loadouts[idx]: weighted_avg_damage
-        #     for idx, weighted_avg_damage in zip(sorti, approximate_relative_scores)
-        # }
+        sorted_loadouts_dict: Dict[FullLoadout, float] = {loadout: self._get_mean_dps(dpss)
+                                                          for loadout, dpss in loadouts_and_dpss}
 
         result = ComparisonResult(sorted_loadouts_dict)
 
@@ -196,36 +154,29 @@ class LoadoutComparator:
 
             _, (ax1, ax2) = plt.subplots(ncols=2)
 
-            ax1.scatter(ds, ts)
-            ax1.set_xlabel('Distance (meters)')
-            ax1.set_ylabel('Time to Finish Firing (seconds)')
-            ax1.set_xlim((0, None))
-            ax1.set_ylim((0, None))
-            corr = correlation(ds, ts)
-            ax1.set_title(f'Correlation: {corr}')
+            ts_min = 0
+            ts_max = 2
+            ts_lin = np.linspace(ts_min, ts_max, num=4000)
 
-            ax2.axvline(ts.min())
-            ax2.axvline(ts.max())
-            ts_lin = np.linspace(ts.min(), ts.max() * 1.4, num=4000)
-            t_sample_indices = np.abs(ts.reshape(-1, 1) - ts_lin.reshape(1, -1)).argmin(axis=1)
-            for loadout in result.limit_to_best_num(10).get_sorted_loadouts():
-                for distance_meters, config in loadout.get_distances_and_configs():
-                    damages = loadout.get_cumulative_damage_with_config_vec(
-                        config=config,
-                        times_seconds=ts_lin,
-                        distances_meters=np.full_like(ts_lin, fill_value=distance_meters))
-                    damages *= 1 / ts_lin
-                    ax2.plot(ts_lin, damages,
-                             label=loadout.get_name(config),
-                             markevery=t_sample_indices,
-                             markeredgecolor='red',
-                             marker='x')
+            for loadout, dpss in loadouts_and_dpss[:10]:
+                mean_dps_for_distances = self._get_mean_dps_for_distances(dpss)
+                ax1.plot(distances_meters, mean_dps_for_distances, label=loadout.get_name())
+
+                damages = loadout.get_cumulative_damage_vec(
+                    times_seconds=ts_lin,
+                    distances_meters=np.zeros_like(ts_lin),
+                    player_accuracy=player_accuracy)
+                ax2.plot(ts_lin, damages, label=loadout.get_name())
+
+            ax1.set_xlabel('Distance (meters)')
+            ax1.set_ylabel('Expected Mean DPS')
+            ax1.legend()
 
             ax2.set_xlabel('Time (seconds)')
-            ax2.set_ylabel('Expected Mean DPS')
+            ax2.set_ylabel('DPS (assuming perfect accuracy)')
             ax2.set_ylim((0, None))
+            ax2.legend()
 
-            plt.legend()
             plt.show()
 
         return result

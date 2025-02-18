@@ -28,6 +28,8 @@ def check_type(allowed_types: Type[T] | Tuple[Type, ...], optional: bool = False
 def check_float(optional: bool = False,
                 min_value: float | None = None,
                 min_is_exclusive: bool = False,
+                max_value: float | None = None,
+                max_is_exclusive: bool = False,
                 **values: float):
     check_type((float, int), optional=optional, **values)
     for name, value in values.items():
@@ -39,8 +41,18 @@ def check_float(optional: bool = False,
             must_be = 'greater than' if min_is_exclusive else 'at least'
             raise ValueError(f'{name} ({value}) must be {must_be} {min_value}.')
 
+        if (max_value is not None and
+                (operator.ge if max_is_exclusive else operator.gt)(value, max_value)):
+            must_be = 'less than' if max_is_exclusive else 'at most'
+            raise ValueError(f'{name} ({value}) must be {must_be} {max_value}.')
 
-def check_float_vec(min_value: float | None = None, **values: NDArray[np.float64]):
+        if not np.isfinite(value).all():
+            raise ValueError(f'{name} ({value}) is not finite.')
+
+
+def check_float_vec(min_value: float | None = None,
+                    max_value: float | None = None,
+                    **values: NDArray[np.float64]):
     for name, value in values.items():
         if not isinstance(value, np.ndarray):
             raise TypeError(f'{name} must be an NDArray.')
@@ -55,6 +67,12 @@ def check_float_vec(min_value: float | None = None, **values: NDArray[np.float64
 
         if min_value is not None and value.min(initial=min_value) < min_value:
             raise ValueError(f'{name} ({value}) must be at least {min_value}.')
+
+        if max_value is not None and value.max(initial=max_value) < max_value:
+            raise ValueError(f'{name} ({value}) cannot be greater than {max_value}.')
+
+        if not np.isfinite(value).all():
+            raise ValueError(f'{name} ({value}) contains non-finite values.')
 
 
 def check_int(optional: bool = False, min_value: int | None = None, **values: int):

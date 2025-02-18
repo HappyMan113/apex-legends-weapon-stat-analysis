@@ -201,7 +201,8 @@ KRABER = Term(
     'Graberr\'s', 'Kraber\'s'
     # Sounds like 30-30: 'thank you'
 )
-LONGBOW = Term('Longbow', 'Wombo', 'I\'m well', 'Buh-bye', 'Bumbo', 'Number', 'Lambo', 'Lombo')
+LONGBOW = Term('Longbow', 'Wombo', 'I\'m well', 'Buh-bye', 'Bumbo', 'Number', 'Lambo', 'Lombo',
+               'longboat')
 L_STAR = Term('L-STAR', 'It is done', 'I\'ll star', 'L star', 'that\'ll start', 'I\'ll start')
 MASTIFF = Term('Mastiff', 'Matthew', 'massive', 'bastard', 'next'
                # Also sounds like "Nemesis": 'that\'s it',

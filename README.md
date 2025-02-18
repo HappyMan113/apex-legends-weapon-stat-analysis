@@ -16,14 +16,16 @@ highest expected average damage ser second in close quarters combat.
     - Weapon stats were compiled from various sources and used to calculate cumulative damage up
       till time "t". Sources were as follows:
         - [Apex Legends Wiki](https://apexlegends.fandom.com/wiki/Weapon#General)
-        - [S20 patch notes](https://www.ea.com/games/apex-legends/news/breakout-patch-notes)
-        - [S21 patch notes](https://www.ea.com/games/apex-legends/news/upheaval-patch-notes)
-        - [S21 mid-season patch notes](https://www.ea.com/games/apex-legends/news/double-take-collection-event)
-        - [S22 patch notes](https://www.ea.com/games/apex-legends/news/shockwave-patch-notes)
+        - [S20 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/breakout-patch-notes)
+        - [S21 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/upheaval-patch-notes)
+        - [S21 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/double-take-collection-event)
+        - [S22 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/shockwave-patch-notes)
         - [Reddit comment with the new G7 Scout fire rate](https://www.reddit.com/r/apexlegends/comments/1dwbf4o/comment/lbtsc84/)
-        - [S22 mid-season patch notes](https://www.ea.com/games/apex-legends/news/space-hunt-event)
+        - [S22 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/space-hunt-event)
         - [X Post about Mozambique Nerf](https://x.com/Respawn/status/1844427285916680379)
-        - [S23 patch notes](https://www.ea.com/games/apex-legends/news/from-the-rift-season-updates)
+        - [S23 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/from-the-rift-season-updates)
+        - [S23 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/astral-anomaly-event)
+        - [S24 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/from-the-rift-season-updates)
     - Reload times are assumed to be tactical reload times with only 1 bullet left in the magazine.
     - Swap times were calculated as "Holster Time" + "Ready to Fire" time that I calculated from my
       recordings. The values I got were close to the values in the Reddit post
@@ -36,6 +38,9 @@ highest expected average damage ser second in close quarters combat.
       were standing still, and I (the player) was strafing back and forth to try to take into
       account fire spread. Accuracy was calculated simply as the interpolated value between the two
       nearest accuracy data points.
+      - For 160m measurements, for most weapons I figured the fire spread would still be taken into
+        account with me standing still, so I stood still and crouched in most cases (probably should
+        redo this for closer distances in the future).
 2) The mean of these mean values is then calculated.
 3) This becomes the metric which determines which weapons are "best".
 

@@ -5,6 +5,11 @@ from typing import Tuple
 
 from pydub.utils import which
 
+from apex_assistant.config import (DAMAGES_TO_KILL,
+                                   DAMAGES_TO_KILL_WEIGHTS,
+                                   DISTANCES_METERS,
+                                   DISTANCES_METERS_WEIGHTS,
+                                   PLAYER_ACCURACY)
 from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_config import ApexConfig
@@ -14,7 +19,7 @@ from apex_assistant.speech.configure_command import ConfigureCommand
 from apex_assistant.speech.create_summary_report_command import CreateSummaryReportCommand
 from apex_assistant.speech.speech_client import SpeechClient
 from apex_assistant.weapon import WeaponArchetypes
-from apex_assistant.weapon_csv_parser import EngagementCsvReader, WeaponCsvReader
+from apex_assistant.weapon_csv_parser import WeaponCsvReader
 
 
 logger = logging.getLogger()
@@ -30,15 +35,11 @@ def register_commands() -> CommandRegistry:
 
     module_path = os.path.dirname(__file__)
 
-    # TODO: Measure TTK in terms of duration of your active firing (i.e. not counting short pauses).
-    #  Active firing means counting one round period per round fired. i.e. You can multiply number
-    #  of rounds fired with round period and add reload time if you're in the open when reloading.
-    engagements_filename = os.path.join(module_path, 'historic_ttffs.csv')
-    with open(engagements_filename, encoding='utf-8-sig') as fp:
-        dr = EngagementCsvReader(fp)
-        engagements = tuple(dr)
-
-    comparator = LoadoutComparator(engagements)
+    comparator = LoadoutComparator(damages_to_kill=DAMAGES_TO_KILL,
+                                   damages_to_kill_weights=DAMAGES_TO_KILL_WEIGHTS,
+                                   distances_meters=DISTANCES_METERS,
+                                   distances_meters_weights=DISTANCES_METERS_WEIGHTS,
+                                   player_accuracy=PLAYER_ACCURACY)
 
     apex_stats_filename = os.path.join(module_path, 'weapon_stats.csv')
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:

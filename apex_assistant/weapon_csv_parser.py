@@ -1,28 +1,26 @@
 import abc
 import csv
 import logging
-import math
 from enum import StrEnum
-from types import MappingProxyType
 from typing import (Any,
                     Callable,
                     Generic,
                     IO,
-                    Iterable, Iterator,
-                    Mapping, Optional,
+                    Iterable,
+                    Iterator,
+                    Mapping,
+                    Optional,
                     Tuple,
                     Type,
                     TypeAlias,
-                    TypeVar, Union)
-
-import numpy as np
+                    TypeVar,
+                    Union)
 
 from apex_assistant.checker import check_type
 from apex_assistant.legend import Legend
 from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT, Suffix
 from apex_assistant.speech.term import RequiredTerm, Words
 from apex_assistant.speech.term_translator import Translator
-from apex_assistant.ttk_entry import Engagement
 from apex_assistant.weapon import (MagazineCapacities,
                                    MagazineCapacity,
                                    RoundTiming,
@@ -161,95 +159,6 @@ class CsvRow:
         return ','.join(map(str, self.row_dict.values()))
 
 
-class EngagementCsvReader(CsvReader[Engagement]):
-    KEY_START_FRAME = 'Start Frame'
-    KEY_STOP_FRAME = 'Stop Frame'
-    KEY_PAUSE_FRAMES = 'Pause Frames'
-    KEY_FRAMES_PER_SECOND = 'FPS'
-    KEY_ENEMY_HEIGHT = 'Enemy Height (pixels)'
-    KEY_ENEMY_LEGEND = 'Enemy Legend'
-    KEY_WINDOW_HEIGHT = 'Window Height (pixels)'
-    KEY_FOV = 'FOV'
-    KEY_DISTANCE_METERS = 'Distance'
-    KEY_TIME_TO_FINISH_SHOOTING_SECONDS = 'TTFS'
-
-    # Source: https://www.youtube.com/shorts/KU0dROzSx1I
-    _LEGEND_HEIGHTS_METERS: Mapping[Legend, float] = MappingProxyType({
-        Legend.ASH: 1.85,
-        Legend.BALLISTIC: 1.78,
-        Legend.BANGALORE: 1.83,
-        Legend.BLOODHOUND: 1.85,
-        Legend.CAUSTIC: 1.91,
-        Legend.CATALYST: 1.70,
-        Legend.CONDUIT: 1.60,
-        Legend.CRYPTO: 1.75,
-        Legend.FUSE: 1.85,
-        Legend.GIBRALTAR: 1.96,
-        Legend.HORIZON: 1.83,
-        Legend.LIFELINE: 1.65,
-        Legend.LOBA: 1.73,
-        Legend.MAD_MAGGIE: 1.83,
-        Legend.MIRAGE: 1.80,
-        Legend.NEWCASTLE: 1.98,
-        Legend.OCTANE: 1.73,
-        Legend.PATHFINDER: 1.88,
-        Legend.RAMPART: 1.80,
-        Legend.REVENANT: 2.03,
-        Legend.SEER: 1.94,
-        Legend.VALKYRIE: 1.68,
-        Legend.VANTAGE: 1.73,
-        Legend.WATTSON: 1.63,
-        Legend.WRAITH: 1.63
-    })
-    _AVERAGE_LEGEND_HEIGHT = float(np.mean(list(_LEGEND_HEIGHTS_METERS.values())))
-
-    @staticmethod
-    def _get_legend_height_meters(legend: Legend) -> float:
-        return EngagementCsvReader._LEGEND_HEIGHTS_METERS.get(
-            legend,
-            EngagementCsvReader._AVERAGE_LEGEND_HEIGHT)
-
-    @staticmethod
-    def _get_enemy_distance_meters(enemy_height_pixels: int,
-                                   enemy_legend: Legend,
-                                   window_height_pixels: int,
-                                   fov_degrees: int) -> float:
-        fov_radians = math.radians(fov_degrees)
-        enemy_view_height_radians = fov_radians * (enemy_height_pixels / window_height_pixels)
-
-        enemy_height_meters = EngagementCsvReader._get_legend_height_meters(enemy_legend)
-        enemy_distance_meters = (enemy_height_meters / 2) / math.tan(enemy_view_height_radians / 2)
-        return enemy_distance_meters
-
-    def _parse_item(self, item: CsvRow) -> Engagement:
-        if item.has_value(self.KEY_TIME_TO_FINISH_SHOOTING_SECONDS):
-            ttff_seconds = item.parse_float(self.KEY_TIME_TO_FINISH_SHOOTING_SECONDS)
-        else:
-            start_frame = item.parse_int(self.KEY_START_FRAME)
-            stop_frame = item.parse_int(self.KEY_STOP_FRAME)
-            pause_frames = item.parse_int(self.KEY_PAUSE_FRAMES, default_value=0)
-            frames_to_kill = stop_frame - start_frame - pause_frames
-
-            fps = item.parse_float(self.KEY_FRAMES_PER_SECOND)
-            ttff_seconds = frames_to_kill / fps
-
-        if item.has_value(self.KEY_DISTANCE_METERS):
-            enemy_distance_meters = item.parse_float(self.KEY_DISTANCE_METERS)
-        else:
-            enemy_height_pixels = item.parse_int(self.KEY_ENEMY_HEIGHT)
-            enemy_legend = item.parse_str_enum(self.KEY_ENEMY_LEGEND, Legend)
-            fov = item.parse_int(self.KEY_FOV)
-            window_height_pixels = item.parse_int(self.KEY_WINDOW_HEIGHT)
-            enemy_distance_meters = self._get_enemy_distance_meters(
-                enemy_height_pixels=enemy_height_pixels,
-                enemy_legend=enemy_legend,
-                window_height_pixels=window_height_pixels,
-                fov_degrees=fov)
-
-        return Engagement(ttff_seconds=ttff_seconds,
-                          enemy_distance_meters=enemy_distance_meters)
-
-
 class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = 'Weapon'
     KEY_WEAPON_CLASS = 'Weapon Class'
@@ -258,6 +167,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_20_METER_ACCURACY = '20-meter accuracy'
     KEY_40_METER_ACCURACY = '40-meter accuracy'
     KEY_80_METER_ACCURACY = '80-meter accuracy'
+    KEY_160_METER_ACCURACY = '160-meter accuracy'
     KEY_CARE_PACKAGE = 'Care Package'
     KEY_STOCKS_INCOMPATIBLE = 'Stocks Incompatible Override'
     KEY_DAMAGE_BODY = 'Damage (body)'
@@ -527,11 +437,13 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         twenty_meter_accuracy = row.parse_float(self.KEY_20_METER_ACCURACY)
         forty_meter_accuracy = row.parse_float(self.KEY_40_METER_ACCURACY)
         eighty_meter_accuracy = row.parse_float(self.KEY_80_METER_ACCURACY)
+        one_hundred_and_sixty_meter_accuracy = row.parse_float(self.KEY_160_METER_ACCURACY)
         dist_to_accuracy_mapping: Mapping[int, float] = {
             10: ten_meter_accuracy,
             20: twenty_meter_accuracy,
             40: forty_meter_accuracy,
-            80: eighty_meter_accuracy
+            80: eighty_meter_accuracy,
+            160: one_hundred_and_sixty_meter_accuracy
         }
         damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
 
