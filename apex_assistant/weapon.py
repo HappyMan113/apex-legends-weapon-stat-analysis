@@ -2,6 +2,7 @@ import abc
 import logging
 import math
 import re
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from types import MappingProxyType
 from typing import (AbstractSet,
@@ -14,6 +15,7 @@ from typing import (AbstractSet,
                     List,
                     Mapping,
                     Optional,
+                    Sequence,
                     Tuple,
                     TypeVar,
                     Union,
@@ -21,6 +23,8 @@ from typing import (AbstractSet,
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.special import comb
+from scipy.stats import binom
 
 from apex_assistant.checker import (check_bool,
                                     check_equal_length,
@@ -31,10 +35,14 @@ from apex_assistant.checker import (check_bool,
                                     check_tuple,
                                     check_type,
                                     to_kwargs)
-from apex_assistant.config import (CONFIG_FIGURING_DAMAGE_TO_KILL,
-                                   PLAYER_ACCURACY,
+from apex_assistant.config import (CONFIG,
+                                   CONFIG_TIME_AVAILABLE_TO_KILL,
                                    MAX_CONFIG_FIGURING_DISTANCE_METERS,
-                                   MAX_NUM_PERMUTED_ROUNDS)
+                                   MAX_NUM_PERMUTED_WEAPONS,
+                                   PLAYER_ACCURACY,
+                                   get_distance_time_multiplier,
+                                   get_p_kill_for_damages_to_kill,
+                                   get_p_kill_for_times)
 from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
 from apex_assistant.speech.apex_terms import (ALL_BOLT_TERMS,
@@ -51,9 +59,121 @@ from apex_assistant.speech.term_translator import SingleTermFinder, Translator
 from apex_assistant.speech.translations import TranslatedValue
 from apex_assistant.weapon_class import WeaponClass
 
-
 T = TypeVar('T')
 _LOGGER = logging.getLogger()
+
+
+@dataclass
+class WeaponStats:
+    weapon: 'SingleWeaponLoadout'
+    shot_times_seconds: NDArray[np.float64]
+
+
+ERROR_TOL = 1e-9
+
+
+def __get_p_kill2(damage_to_kill: float,
+                  accuracies_nums_shots_and_damages: Sequence[Tuple[float, int, float]],
+                  num_permuted_weapons: int,
+                  max_num_permuted_weapons: int) -> float:
+    assert 0 <= num_permuted_weapons <= max_num_permuted_weapons
+
+    if (num_permuted_weapons == max_num_permuted_weapons or
+            len(accuracies_nums_shots_and_damages) == 0):
+        # Base case.
+        ev_remaining_damage = sum(
+            accuracy_n * num_shots_n * damage_per_round_n
+            for (accuracy_n,
+                 num_shots_n,
+                 damage_per_round_n) in accuracies_nums_shots_and_damages
+        )
+        return 1.0 if ev_remaining_damage >= damage_to_kill - ERROR_TOL else 0.0
+
+    accuracy_0, num_shots_0, damage_per_round_0 = accuracies_nums_shots_and_damages[0]
+    hits_to_kill_0 = math.ceil((damage_to_kill - ERROR_TOL) / damage_per_round_0)
+
+    hits_not_to_kill_0 = np.arange(min(hits_to_kill_0, num_shots_0 + 1))
+    damage_0 = damage_per_round_0 * hits_not_to_kill_0
+    remaining_damages_to_kill = damage_to_kill - damage_0
+
+    p_num_hits_0 = binom.pmf(k=hits_not_to_kill_0, n=num_shots_0, p=accuracy_0)
+    p_kill_0 = 1 - p_num_hits_0.sum()
+
+    next_num_permuted_weapons = num_permuted_weapons + 1
+    p_kill_given_num_hits_0 = np.fromiter(
+        (__get_p_kill2(damage_to_kill=remaining_damage_to_kill,
+                       accuracies_nums_shots_and_damages=accuracies_nums_shots_and_damages[1:],
+                       num_permuted_weapons=next_num_permuted_weapons,
+                       max_num_permuted_weapons=max_num_permuted_weapons)
+         for remaining_damage_to_kill in remaining_damages_to_kill),
+        dtype=float,
+        count=len(remaining_damages_to_kill))
+    p_kill_subsequent_weapons = (p_num_hits_0 * p_kill_given_num_hits_0).sum()
+    p_kill = p_kill_0 + p_kill_subsequent_weapons
+
+    return p_kill
+
+
+def __get_p_kill(damage_to_kill: float,
+                 accuracies_nums_shots_and_damages: Sequence[Tuple[float, int, float]],
+                 max_num_permuted_weapons: int) -> float:
+    if len(accuracies_nums_shots_and_damages) == 0:
+        # This can happen if you have a time given which is lower than the first shot time.
+        return 0
+    return __get_p_kill2(damage_to_kill=damage_to_kill,
+                         accuracies_nums_shots_and_damages=accuracies_nums_shots_and_damages,
+                         num_permuted_weapons=0,
+                         max_num_permuted_weapons=max_num_permuted_weapons)
+
+
+def _trim_weapon_stats(
+        weapons_and_shot_times: Iterable[WeaponStats],
+        time_given_seconds: float) -> Generator[WeaponStats, None, None]:
+    for weapon_stats in weapons_and_shot_times:
+        shot_times_seconds = weapon_stats.shot_times_seconds
+        last_round_time = shot_times_seconds[-1]
+        if last_round_time < time_given_seconds:
+            # We still potentially have time to fire one or more additional rounds.
+            yield weapon_stats
+            continue
+
+        too_late_indices = np.flatnonzero(shot_times_seconds >= time_given_seconds)
+        num_rounds = too_late_indices[0]
+        if num_rounds > 0:
+            yield WeaponStats(weapon=weapon_stats.weapon,
+                              shot_times_seconds=shot_times_seconds[:num_rounds])
+        break
+
+
+def get_accuracies_nums_shots_and_damages(distance_meters: float,
+                                          time_given_seconds: float,
+                                          weapon_stats: Iterable[WeaponStats]) -> \
+        Generator[Tuple[float, int, float], None, None]:
+    for weapon_stats_elt in _trim_weapon_stats(
+            weapons_and_shot_times=weapon_stats,
+            time_given_seconds=time_given_seconds):
+        weapon = weapon_stats_elt.weapon
+        shot_times_seconds = weapon_stats_elt.shot_times_seconds
+
+        damage_per_round = weapon.get_damage_per_round()
+        accuracy = (weapon.get_accuracy_fraction(distance_meters=distance_meters) *
+                    PLAYER_ACCURACY)
+        yield accuracy, len(shot_times_seconds), damage_per_round
+
+
+def get_p_kill(damage_to_kill: float,
+               distance_meters: float,
+               time_given_seconds: float,
+               weapon_stats: Iterable[WeaponStats]) -> float:
+    accuracies_nums_shots_and_damages = tuple(get_accuracies_nums_shots_and_damages(
+        distance_meters=distance_meters,
+        time_given_seconds=time_given_seconds,
+        weapon_stats=weapon_stats))
+    p_kill = __get_p_kill(damage_to_kill=damage_to_kill,
+                          accuracies_nums_shots_and_damages=accuracies_nums_shots_and_damages,
+                          max_num_permuted_weapons=MAX_NUM_PERMUTED_WEAPONS)
+
+    return p_kill
 
 
 class ExcludeFlag(IntEnum):
@@ -581,8 +701,7 @@ class FullLoadoutConfiguration(StrEnum):
                               weapon_a: 'Weapon',
                               weapon_b: 'Weapon',
                               time_seconds: float,
-                              distance_meters: float,
-                              player_accuracy: float) -> float:
+                              distance_meters: float) -> float:
         check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
 
         damage: float = 0
@@ -595,7 +714,6 @@ class FullLoadoutConfiguration(StrEnum):
             damage += weapon.get_single_mag_cumulative_damage(
                 time_seconds=time_seconds - start_time_seconds,
                 distance_meters=distance_meters,
-                player_accuracy=player_accuracy,
                 tactical=tactical)
             assert isinstance(damage, (int, float))
 
@@ -604,10 +722,8 @@ class FullLoadoutConfiguration(StrEnum):
     def get_cumulative_damage_vec(self,
                                   weapon_a: 'Weapon',
                                   weapon_b: 'Weapon',
-                                  times_seconds: NDArray[np.float64],
-                                  distances_meters: NDArray[np.float64],
-                                  player_accuracy: float) -> NDArray[np.float64]:
-        check_float_vec(min_value=0, times_seconds=times_seconds, distances_meters=distances_meters)
+                                  times_seconds: NDArray[np.float64]) -> NDArray[np.float64]:
+        check_float_vec(min_value=0, times_seconds=times_seconds)
 
         damages: NDArray[np.float64] = np.zeros_like(times_seconds)
 
@@ -618,137 +734,58 @@ class FullLoadoutConfiguration(StrEnum):
 
             damages[valid_indices] += weapon.get_single_mag_cumulative_damage_vec(
                 times_seconds=times_seconds[valid_indices] - start_time_seconds,
-                distances_meters=distances_meters[valid_indices],
-                player_accuracy=player_accuracy,
                 tactical=tactical)
 
         return damages
 
-    def get_ttk(self,
-                weapon_a: 'Weapon',
-                weapon_b: 'Weapon',
-                damage_to_kill: float,
-                distance_meters: float,
-                player_accuracy: float) -> float:
-        check_float(min_value=0, min_is_exclusive=True, damage_to_kill=damage_to_kill)
+    def get_expected_damage(self,
+                            weapon_a: 'Weapon',
+                            weapon_b: 'Weapon',
+                            distance_meters: float,
+                            time_given_seconds: float) -> float:
+        check_float(min_value=0, distance_meters=distance_meters)
 
-        permuted_damages: List[NDArray[np.floating[Any]]] = []
-        permuted_times: List[NDArray[np.floating[Any]]] = []
-        permuted_accuracies: List[NDArray[np.floating[Any]]] = []
+        expected_damage: float = 0
+        for accuracy, num_shots, damage_per_round in get_accuracies_nums_shots_and_damages(
+                distance_meters=distance_meters,
+                time_given_seconds=time_given_seconds,
+                weapon_stats=self.__iter_weapons_stats(weapon_a, weapon_b)):
+            expected_damage += accuracy * num_shots * damage_per_round
 
-        damage_sums: Optional[NDArray[np.floating[Any]]] = None
-        permutation_probabilities: Optional[NDArray[np.floating[Any]]] = None
-        num_permuted_rounds_remaining: int = MAX_NUM_PERMUTED_ROUNDS
-        permutations_finished: Optional[NDArray[np.bool_]] = None
-        num_permutations: Optional[int] = None
-        times_to_kill: Optional[NDArray[np.floating[Any]]] = None
-        tol = 1e-2
+        return expected_damage
 
-        for weapon, tactical, time_seconds in self._iter_weapons(weapon_a, weapon_b):
-            shot_times_seconds = weapon.get_shot_times_seconds(tactical=tactical)
+    def get_p_kill(self, weapon_a: 'Weapon', weapon_b: 'Weapon', distance_meters: float) -> float:
+        check_float(min_value=0, distance_meters=distance_meters)
 
-            num_rounds = len(shot_times_seconds)
+        damages_to_kill = CONFIG.damages_to_kill
+        times_given_seconds = (get_distance_time_multiplier(distance_meters) *
+                               CONFIG.times_given_seconds)
 
-            damage_per_round = weapon.get_damage_per_round()
-            accuracy = weapon.get_accuracy_fraction(distance_meters=distance_meters,
-                                                    player_accuracy=player_accuracy)
+        max_time_given_seconds = times_given_seconds.max()
 
-            num_permuted_rounds = min(num_permuted_rounds_remaining, num_rounds)
-            num_permuted_rounds_remaining -= num_permuted_rounds
-            if num_permutations is None:
-                permuted_damages.append(np.full(num_permuted_rounds,
-                                                fill_value=damage_per_round))
-                permuted_times.append(time_seconds + shot_times_seconds[:num_permuted_rounds])
-                permuted_accuracies.append(np.full(num_permuted_rounds, fill_value=accuracy))
-                if num_permuted_rounds_remaining > 0:
-                    # We need to collect more rounds to permute.
-                    continue
+        weapon_stats: Tuple[WeaponStats, ...] = tuple(_trim_weapon_stats(
+            weapons_and_shot_times=self.__iter_weapons_stats(weapon_a, weapon_b),
+            time_given_seconds=max_time_given_seconds))
 
-                permutation_probabilities, damage_permutations = (
-                    FullLoadoutConfiguration._get_damage_permutations_for_rounds(
-                        damages=np.concatenate(permuted_damages),
-                        accuracies=np.concatenate(permuted_accuracies)))
-                permuted_times = np.concatenate(permuted_times)
+        p_kill = get_p_kill_for_times(
+            get_p_kill_for_damages_to_kill(
+                get_p_kill(damage_to_kill=damage_to_kill,
+                           distance_meters=distance_meters,
+                           time_given_seconds=time_given_seconds,
+                           weapon_stats=weapon_stats)
+                for damage_to_kill in damages_to_kill)
+            for time_given_seconds in times_given_seconds)
 
-                num_permutations = len(damage_permutations)
+        return p_kill
 
-                damage_cumsums = damage_permutations.cumsum(axis=1)
-                kill_indices = damage_cumsums >= damage_to_kill - tol
-                permutations_finished = kill_indices[:, -1].copy()
-                damage_sums = damage_cumsums[:, -1].copy()
-
-                permutation_indices, round_indices = np.where(kill_indices)
-                _, indices = np.unique(permutation_indices, return_index=True)
-                assert indices.ndim == 1 and indices.shape[0] <= num_permutations
-                times_to_kill = np.full(num_permutations, fill_value=-1, dtype=float)
-                assert permutations_finished.sum() == len(indices)
-                permuted_round_indices_to_kill = round_indices[indices]
-                times_to_kill[permutations_finished] = \
-                    permuted_times[permuted_round_indices_to_kill]
-
-            assert num_permutations is not None
-
-            num_unpermuted_rounds = num_rounds - num_permuted_rounds
-            expected_damage_per_round = damage_per_round * accuracy
-            remaining_unpermuted_damages_to_kill = damage_to_kill - damage_sums
-            assert (remaining_unpermuted_damages_to_kill[
-                        np.logical_not(permutations_finished)] > 0).all()
-            remaining_unpermuted_rounds_to_kill = np.ceil(
-                (remaining_unpermuted_damages_to_kill - tol) /
-                expected_damage_per_round).astype(int)
-            permutations_finished_new = remaining_unpermuted_rounds_to_kill <= num_unpermuted_rounds
-            permutations_just_finished = np.logical_and(permutations_finished_new,
-                                                        np.logical_not(permutations_finished))
-            permutations_finished = permutations_finished_new
-            unpermuted_round_indices_to_kill = \
-                remaining_unpermuted_rounds_to_kill[permutations_just_finished] - 1
-            if (unpermuted_round_indices_to_kill < 0).any():
-                raise RuntimeError('You need to get your politics straight, young man!')
-            unpermuted_times = time_seconds + shot_times_seconds[num_permuted_rounds:]
-            times_to_kill[permutations_just_finished] = \
-                unpermuted_times[unpermuted_round_indices_to_kill]
-
-            damage_sums += num_unpermuted_rounds * expected_damage_per_round
-
-            if permutations_finished.all():
-                if (damage_sums < damage_to_kill - tol * 2).any():
-                    raise RuntimeError(
-                        'Minimum damage should have been greater than damage to kill...')
-                break
-
-        if not permutations_finished.all():
-            # The configuration is not advisable; this happens when the configuration does not allow
-            # for enough misses before all rounds would be expected to be exhausted prior to the
-            # damage to kill being dealt. E.g. the configuration AB with Bocek and Mastiff at 160
-            # meters away.
-            _LOGGER.info(f'The configuration {self} was invalid for loadouts containing {weapon_a} '
-                         f'and {weapon_b}.')
-            return np.inf
-
-        if (damage_sums < damage_to_kill - tol * 2).any():
-            raise RuntimeError(
-                'Minimum damage should have been greater than damage to kill!!!')
-
-        assert (times_to_kill >= 0).all()
-        assert math.isclose(permutation_probabilities.sum(), 1, abs_tol=0, rel_tol=tol)
-
-        mean_time_to_kill = (times_to_kill * permutation_probabilities).sum()
-
-        return mean_time_to_kill
-
-    def get_ttk_vec(self,
-                    weapon_a: 'Weapon',
-                    weapon_b: 'Weapon',
-                    damage_to_kill: float,
-                    distances_meters: NDArray[np.float64],
-                    player_accuracy: float) -> NDArray[np.float64]:
-        check_float(damage_to_kill=damage_to_kill)
+    def get_p_kill_vec(self,
+                       weapon_a: 'Weapon',
+                       weapon_b: 'Weapon',
+                       distances_meters: NDArray[np.float64]) -> NDArray[np.float64]:
         check_float_vec(distances_meters=distances_meters)
-        return np.array([self.get_ttk(weapon_a=weapon_a,
-                                      weapon_b=weapon_b,
-                                      damage_to_kill=damage_to_kill,
-                                      distance_meters=distance_meters,
-                                      player_accuracy=player_accuracy)
+        return np.array([self.get_p_kill(weapon_a=weapon_a,
+                                         weapon_b=weapon_b,
+                                         distance_meters=distance_meters)
                          for distance_meters in distances_meters])
 
     @staticmethod
@@ -797,6 +834,12 @@ class FullLoadoutConfiguration(StrEnum):
         assert damage_permutations.shape == (num_permutations, num_rounds)
 
         return permutation_probabilities, damage_permutations
+
+    def __iter_weapons_stats(self, weapon_a: 'Weapon', weapon_b: 'Weapon') -> \
+            Generator[WeaponStats, None, None]:
+        for weapon, tactical, time_seconds in self._iter_weapons(weapon_a, weapon_b):
+            yield WeaponStats(weapon,
+                              time_seconds + weapon.get_shot_times_seconds(tactical=tactical))
 
     def _iter_weapons(self, weapon_a: 'Weapon', weapon_b: 'Weapon') -> \
             Generator[Tuple['SingleWeaponLoadout', int, float], None, None]:
@@ -1065,14 +1108,23 @@ class FullLoadout(Loadout):
                     allow_empty=False,
                     advisable_configurations=advisable_configurations)
 
-        idx, _ = min(advisable_configurations,
-                     key=lambda _idx_and_config: _idx_and_config[1].get_ttk(
+        idx, _ = max(advisable_configurations,
+                     key=lambda _idx_and_config: FullLoadout.__get_expected_damage(
+                         config=_idx_and_config[1],
                          weapon_a=weapon_a,
                          weapon_b=weapon_b,
-                         damage_to_kill=CONFIG_FIGURING_DAMAGE_TO_KILL,
-                         distance_meters=distance_meters,
-                         player_accuracy=PLAYER_ACCURACY))
+                         distance_meters=distance_meters))
         return idx
+
+    @staticmethod
+    def __get_expected_damage(config: FullLoadoutConfiguration,
+                              weapon_a: 'Weapon',
+                              weapon_b: 'Weapon',
+                              distance_meters: float) -> float:
+        return config.get_expected_damage(weapon_a=weapon_a,
+                                          weapon_b=weapon_b,
+                                          time_given_seconds=CONFIG_TIME_AVAILABLE_TO_KILL,
+                                          distance_meters=distance_meters)
 
     @staticmethod
     def _remove_in_between_configs(distance_to_config_idx_map: NDArray[np.integer]):
@@ -1101,10 +1153,7 @@ class FullLoadout(Loadout):
         config_indices: NDArray[np.integer] = self._distance_to_config_idx_map[distances_int]
         return config_indices
 
-    def get_cumulative_damage(self,
-                              time_seconds: float,
-                              distance_meters: float,
-                              player_accuracy: float) -> float:
+    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
         check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
         self._lazy_load_internals()
 
@@ -1112,13 +1161,12 @@ class FullLoadout(Loadout):
         return configuration.get_cumulative_damage(weapon_a=self._weapon_a,
                                                    weapon_b=self._weapon_b,
                                                    time_seconds=time_seconds,
-                                                   distance_meters=distance_meters,
-                                                   player_accuracy=player_accuracy)
+                                                   distance_meters=distance_meters)
 
     def get_cumulative_damage_vec(self,
                                   times_seconds: NDArray[np.float64],
-                                  distances_meters: NDArray[np.float64],
-                                  player_accuracy: float) -> NDArray[np.float64]:
+                                  distances_meters: NDArray[np.float64]) -> \
+            Generator[Tuple[FullLoadoutConfiguration, NDArray[np.float64]], None, None]:
         if (times_seconds < 0).any():
             raise ValueError('No time values can be negative.')
         if (distances_meters < 0).any():
@@ -1131,49 +1179,28 @@ class FullLoadout(Loadout):
         times_seconds = times_seconds[sorti]
         distances_meters = distances_meters[sorti]
 
-        result = np.full_like(distances_meters, fill_value=-1)
-
         for config, sl in self._get_configs_and_slices(distances_meters):
-            times_slice = times_seconds[sl]
-            distances_slice = distances_meters[sl]
-
-            result[sl] = self.get_cumulative_damage_with_config_vec(
+            result = self.get_cumulative_damage_with_config_vec(
                 config=config,
-                times_seconds=times_slice,
-                distances_meters=distances_slice,
-                player_accuracy=player_accuracy)
-        assert (result >= 0).all()
-
-        result = result[sorti_inv]
-        return result
+                times_seconds=times_seconds)
+            assert (result >= 0).all()
+            yield config, result[sorti_inv]
 
     def get_cumulative_damage_with_config_vec(self,
                                               config: FullLoadoutConfiguration,
-                                              times_seconds: NDArray[np.float64],
-                                              distances_meters: NDArray[np.float64],
-                                              player_accuracy: float) -> \
+                                              times_seconds: NDArray[np.float64]) -> \
             NDArray[np.float64]:
         return config.get_cumulative_damage_vec(weapon_a=self._weapon_a,
                                                 weapon_b=self._weapon_b,
-                                                times_seconds=times_seconds,
-                                                distances_meters=distances_meters,
-                                                player_accuracy=player_accuracy)
+                                                times_seconds=times_seconds)
 
-    def _get_ttk(self,
-                 damage_to_kill: float,
-                 distance_meters: float,
-                 player_accuracy: float) -> float:
+    def get_p_kill(self, distance_meters: float) -> float:
         config = self._get_best_config_for_distance(distance_meters)
-        return config.get_ttk(weapon_a=self._weapon_a,
-                              weapon_b=self._weapon_b,
-                              damage_to_kill=damage_to_kill,
-                              distance_meters=distance_meters,
-                              player_accuracy=player_accuracy)
+        return config.get_p_kill(weapon_a=self._weapon_a,
+                                 weapon_b=self._weapon_b,
+                                 distance_meters=distance_meters)
 
-    def _get_ttk_vec(self,
-                     damage_to_kill: float,
-                     distances_meters: NDArray[np.float64],
-                     player_accuracy: float) -> NDArray[np.float64]:
+    def get_p_kill_vec(self, distances_meters: NDArray[np.float64]) -> NDArray[np.float64]:
         self._lazy_load_internals()
 
         sorti = distances_meters.argsort()
@@ -1188,12 +1215,10 @@ class FullLoadout(Loadout):
         for config, sl in self._get_configs_and_slices(distances_meters):
             distances_slice = distances_meters[sl]
 
-            result[sl] = config.get_ttk_vec(weapon_a=weapon_a,
-                                            weapon_b=weapon_b,
-                                            damage_to_kill=damage_to_kill,
-                                            distances_meters=distances_slice,
-                                            player_accuracy=player_accuracy)
-        assert (result >= 0).all()
+            result[sl] = config.get_p_kill_vec(weapon_a=weapon_a,
+                                               weapon_b=weapon_b,
+                                               distances_meters=distances_slice)
+        assert (result >= -ERROR_TOL).all()
 
         result = result[sorti_inv]
         return result
@@ -1211,26 +1236,6 @@ class FullLoadout(Loadout):
             assert not np.diff(configs_slice).any()
             config: FullLoadoutConfiguration = CONFIGURATIONS[configs_slice[0]]
             yield config, sl
-
-    def get_dps(self,
-                damage_to_kill: float,
-                distance_meters: float,
-                player_accuracy: float) -> float:
-        dpss = damage_to_kill / self._get_ttk(damage_to_kill=damage_to_kill,
-                                              distance_meters=distance_meters,
-                                              player_accuracy=player_accuracy)
-        return dpss
-
-    def get_dps_vec(self,
-                    damages_to_kill: NDArray[np.float64],
-                    distances_meters: NDArray[np.float64],
-                    player_accuracy: float) -> NDArray[np.float64]:
-        dpss = np.vstack([damage_to_kill / self._get_ttk_vec(damage_to_kill=damage_to_kill,
-                                                             distances_meters=distances_meters,
-                                                             player_accuracy=player_accuracy)
-                          for damage_to_kill in damages_to_kill])
-        assert dpss.shape == (len(damages_to_kill), len(distances_meters))
-        return dpss
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self._weapons_set)
@@ -1315,7 +1320,6 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
     def get_single_mag_cumulative_damage(self,
                                          time_seconds: float,
                                          distance_meters: float,
-                                         player_accuracy: float,
                                          tactical: int) -> float:
         num_rounds = self.get_num_rounds_shot(time_seconds=time_seconds, tactical=tactical)
         if num_rounds < 0:
@@ -1326,14 +1330,11 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
                                'return a number of rounds greater than the magazine capacity.')
         get_cumulative_damage = self.get_damage_per_round() * num_rounds
 
-        return get_cumulative_damage * self.get_accuracy_fraction(distance_meters=distance_meters,
-                                                                  player_accuracy=player_accuracy)
+        return get_cumulative_damage * self.get_accuracy_fraction(distance_meters=distance_meters)
 
     @final
     def get_single_mag_cumulative_damage_vec(self,
                                              times_seconds: NDArray[np.float64],
-                                             distances_meters: NDArray[np.float64],
-                                             player_accuracy: float,
                                              tactical: int) -> NDArray[np.float64]:
         nums_rounds = self.get_nums_rounds_shot(times_seconds=times_seconds, tactical=tactical)
         if (nums_rounds < 0).any():
@@ -1346,9 +1347,7 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
                 'return a number of rounds greater than the magazine capacity.')
         cumulative_damage_vec = self.get_damage_per_round() * nums_rounds
 
-        return cumulative_damage_vec * self.get_accuracy_fraction_vec(
-            distances_meters=distances_meters,
-            player_accuracy=player_accuracy)
+        return cumulative_damage_vec
 
     @abc.abstractmethod
     def get_magazine_capacity(self, tactical: int) -> int:
@@ -1395,13 +1394,12 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
         raise NotImplementedError('Must implement.')
 
     @abc.abstractmethod
-    def get_accuracy_fraction(self, distance_meters: float, player_accuracy: float) -> float:
+    def get_accuracy_fraction(self, distance_meters: float) -> float:
         raise NotImplementedError('Must implement.')
 
     @abc.abstractmethod
     def get_accuracy_fraction_vec(self,
-                                  distances_meters: NDArray[np.float64],
-                                  player_accuracy: float) -> \
+                                  distances_meters: NDArray[np.float64]) -> \
             NDArray[np.float64]:
         raise NotImplementedError('Must implement.')
 
@@ -1518,25 +1516,14 @@ class Weapon(SingleWeaponLoadout):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.tactical_reload_time_secs
 
-    def get_accuracy_fraction(self, distance_meters: float, player_accuracy: float) -> float:
+    def get_accuracy_fraction(self, distance_meters: float) -> float:
         check_float(min_value=0, distance_meters=distance_meters)
-        check_float(min_value=0,
-                    min_is_exclusive=True,
-                    max_value=1,
-                    player_accuracy=player_accuracy)
-        return (float(np.interp(x=distance_meters, xp=self._distances, fp=self._accuracies)) *
-                player_accuracy)
+        return float(np.interp(x=distance_meters, xp=self._distances, fp=self._accuracies))
 
-    def get_accuracy_fraction_vec(self,
-                                  distances_meters: NDArray[np.float64],
-                                  player_accuracy: float) -> NDArray[np.float64]:
+    def get_accuracy_fraction_vec(self, distances_meters: NDArray[np.float64]) -> \
+            NDArray[np.float64]:
         check_float_vec(distances_meters=distances_meters)
-        check_float(min_value=0,
-                    min_is_exclusive=True,
-                    max_value=1,
-                    player_accuracy=player_accuracy)
-        return (np.interp(x=distances_meters, xp=self._distances, fp=self._accuracies) *
-                player_accuracy)
+        return np.interp(x=distances_meters, xp=self._distances, fp=self._accuracies)
 
     def get_magazine_duration_seconds(self, tactical: int) -> float:
         shot_times = self.get_shot_times_seconds(tactical=tactical)
@@ -1623,15 +1610,12 @@ class _SingleShotLoadout(SingleWeaponLoadout):
     def get_damage_per_round(self) -> float:
         return self.wrapped_weapon.get_damage_per_round()
 
-    def get_accuracy_fraction(self, distance_meters: float, player_accuracy: float) -> float:
-        return self.wrapped_weapon.get_accuracy_fraction(distance_meters=distance_meters,
-                                                         player_accuracy=player_accuracy)
+    def get_accuracy_fraction(self, distance_meters: float) -> float:
+        return self.wrapped_weapon.get_accuracy_fraction(distance_meters=distance_meters)
 
-    def get_accuracy_fraction_vec(self,
-                                  distances_meters: NDArray[np.float64],
-                                  player_accuracy: float) -> NDArray[np.float64]:
-        return self.wrapped_weapon.get_accuracy_fraction_vec(distances_meters=distances_meters,
-                                                             player_accuracy=player_accuracy)
+    def get_accuracy_fraction_vec(self, distances_meters: NDArray[np.float64]) -> \
+            NDArray[np.float64]:
+        return self.wrapped_weapon.get_accuracy_fraction_vec(distances_meters=distances_meters)
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self.wrapped_weapon)
@@ -1845,7 +1829,7 @@ class WeaponArchetypes:
                     f'({associated_legend} != {suffixed_archetype.get_associated_legend()}).')
 
             if suffixed_archetype.get_suffix() is None:
-                raise ValueError('with_hopup_archetype must have a suffix.')
+                raise ValueError('suffixed_archetype must have a suffix.')
 
         sort_key = lambda _archetype: _archetype.get_best_weapon().get_damage_per_second_body()
 
@@ -1979,3 +1963,11 @@ class WeaponArchetypes:
 
     def is_care_package(self) -> bool:
         return self._is_care_package
+
+
+def calc_probability_of_n_trials_given_r_successes(n: float | NDArray[np.integer[Any]],
+                                                   r: float | NDArray[np.integer[Any]],
+                                                   p: float | NDArray[np.floating[Any]]) -> \
+        NDArray[np.floating[Any]]:
+    # From https://en.wikipedia.org/wiki/Negative_binomial_distribution
+    return comb(n - 1, r - 1) * (p ** r) * ((1 - p) ** (n - r))

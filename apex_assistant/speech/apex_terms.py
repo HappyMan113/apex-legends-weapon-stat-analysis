@@ -193,8 +193,8 @@ HAVOC = Term(
     'epic', 'Hathic'
     # Also sounds like "Hammerpoint": 'have a good one',
 )
-HEMLOCK = Term('Hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not', 'have a lot',
-               'M.L.A.', 'M-LOT', 'mwah', 'ma')
+HEMLOK = Term('Hemlok', 'hemlock', 'm-lok', 'and look', 'good luck', 'hemba', 'I\'m not have a lot',
+              'M.L.A.', 'M-LOT', 'mwah', 'ma')
 KRABER = Term(
     'Kraber', 'credit', 'KBIR', 'paper', 'kripper', 'grayer', 'Creepers', 'Taylor', 'Creeper',
     'covered', 'Khyber', 'Kramer', 'Krabber', 'Craber', 'Craver', 'Krabour', 'Graber', 'Krabber\'s',
@@ -318,7 +318,7 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
     FLATLINE: None,
     G7_SCOUT: None,
     HAVOC.append_order_agnostic(CARE_PACKAGE_OPT): Suffix(BEAM_SHOT),
-    HEMLOCK: Suffix(FIRE_MODE_SINGLE),
+    HEMLOK: Suffix(FIRE_MODE_SINGLE),
     KRABER: None,
     LONGBOW: None,
     L_STAR: None,

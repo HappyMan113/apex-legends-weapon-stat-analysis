@@ -2,7 +2,7 @@ import csv
 import logging
 import os
 
-from apex_assistant.loadout_comparator import ComparisonResult, LoadoutComparator
+from apex_assistant.loadout_comparator import ComparisonResult, compare_loadouts
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
@@ -13,23 +13,19 @@ from apex_assistant.weapon import FullLoadout, SingleWeaponLoadout, Weapon
 class CreateSummaryReportCommand(ApexCommand):
     _LOGGER = logging.getLogger()
 
-    def __init__(self,
-                 loadout_translator: LoadoutTranslator,
-                 loadout_comparator: LoadoutComparator):
+    def __init__(self, loadout_translator: LoadoutTranslator):
         super().__init__(apex_terms.CREATE_SUMMARY_REPORT,
-                         loadout_translator=loadout_translator,
-                         loadout_comparator=loadout_comparator)
+                         loadout_translator=loadout_translator)
 
     def _execute(self, arguments: Words) -> str:
         translator = self.get_translator()
-        comparator = self.get_comparator()
 
         weapons = translator.get_fully_kitted_weapons()
 
         comparison_results: dict[Weapon, ComparisonResult] = {}
         for weapon_a in weapons:
             loadouts = tuple(FullLoadout(weapon_a, weapon_b) for weapon_b in weapons)
-            comparison_results[weapon_a] = comparator.compare_loadouts(loadouts)
+            comparison_results[weapon_a] = compare_loadouts(loadouts)
 
         max_n = len(weapons)
 

@@ -163,6 +163,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = 'Weapon'
     KEY_WEAPON_CLASS = 'Weapon Class'
     KEY_LEGEND = 'Legend'
+    KEY_10_METER_ACCURACY_HIPFIRE = '10-meter accuracy (hipfire)'
     KEY_10_METER_ACCURACY = '10-meter accuracy'
     KEY_20_METER_ACCURACY = '20-meter accuracy'
     KEY_40_METER_ACCURACY = '40-meter accuracy'
@@ -433,7 +434,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         legend = (row.parse_str_enum(self.KEY_LEGEND, Legend)
                   if row.has_value(self.KEY_LEGEND)
                   else None)
-        ten_meter_accuracy = row.parse_float(self.KEY_10_METER_ACCURACY)
+        ten_meter_accuracy = row.parse_float(self.KEY_10_METER_ACCURACY_HIPFIRE)
         twenty_meter_accuracy = row.parse_float(self.KEY_20_METER_ACCURACY)
         forty_meter_accuracy = row.parse_float(self.KEY_40_METER_ACCURACY)
         eighty_meter_accuracy = row.parse_float(self.KEY_80_METER_ACCURACY)

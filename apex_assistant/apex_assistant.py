@@ -5,12 +5,6 @@ from typing import Tuple
 
 from pydub.utils import which
 
-from apex_assistant.config import (DAMAGES_TO_KILL,
-                                   DAMAGES_TO_KILL_WEIGHTS,
-                                   DISTANCES_METERS,
-                                   DISTANCES_METERS_WEIGHTS,
-                                   PLAYER_ACCURACY)
-from apex_assistant.loadout_comparator import LoadoutComparator
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_config import ApexConfig
 from apex_assistant.speech.command_registry import CommandRegistry
@@ -35,12 +29,6 @@ def register_commands() -> CommandRegistry:
 
     module_path = os.path.dirname(__file__)
 
-    comparator = LoadoutComparator(damages_to_kill=DAMAGES_TO_KILL,
-                                   damages_to_kill_weights=DAMAGES_TO_KILL_WEIGHTS,
-                                   distances_meters=DISTANCES_METERS,
-                                   distances_meters_weights=DISTANCES_METERS_WEIGHTS,
-                                   player_accuracy=PLAYER_ACCURACY)
-
     apex_stats_filename = os.path.join(module_path, 'weapon_stats.csv')
     with open(apex_stats_filename, encoding='utf-8-sig') as fp:
         dr = WeaponCsvReader(fp)
@@ -51,9 +39,9 @@ def register_commands() -> CommandRegistry:
     translator = LoadoutTranslator(weapon_archetypes=weapons, apex_config=apex_config)
 
     registry = CommandRegistry(
-        CompareCommand(loadout_translator=translator, loadout_comparator=comparator),
-        ConfigureCommand(loadout_translator=translator, loadout_comparator=comparator),
-        CreateSummaryReportCommand(loadout_translator=translator, loadout_comparator=comparator))
+        CompareCommand(loadout_translator=translator),
+        ConfigureCommand(loadout_translator=translator),
+        CreateSummaryReportCommand(loadout_translator=translator))
     return registry
 
 

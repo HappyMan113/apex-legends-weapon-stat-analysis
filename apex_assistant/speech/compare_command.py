@@ -3,7 +3,7 @@ from enum import IntEnum
 from typing import Dict, Iterable, Tuple
 
 from apex_assistant.checker import check_tuple, check_type
-from apex_assistant.loadout_comparator import LoadoutComparator
+from apex_assistant.loadout_comparator import compare_loadouts, get_best_loadouts
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.apex_terms import (AKIMBO,
@@ -32,12 +32,9 @@ class _Uniqueness(IntEnum):
 
 
 class CompareCommand(ApexCommand):
-    def __init__(self,
-                 loadout_translator: LoadoutTranslator,
-                 loadout_comparator: LoadoutComparator):
+    def __init__(self, loadout_translator: LoadoutTranslator):
         super().__init__(term=COMPARE | (BEST + (LOADOUT | LOADOUTS)),
-                         loadout_translator=loadout_translator,
-                         loadout_comparator=loadout_comparator)
+                         loadout_translator=loadout_translator)
         show = Term('show', 'so')
         plots = Term('plots', 'plot')
         self._show_plots_finder = SingleTermFinder(show + plots)
@@ -68,7 +65,6 @@ class CompareCommand(ApexCommand):
 
     def _execute(self, arguments: Words) -> str:
         translator = self.get_translator()
-        comparator = self.get_comparator()
         loadouts: Tuple[FullLoadout, ...] = tuple(translator.translate_full_loadouts(arguments))
         show_plots = bool(self._show_plots_finder.find_all(arguments))
         unique_loadouts = set(loadouts)
@@ -86,7 +82,7 @@ class CompareCommand(ApexCommand):
                 exclude_flags_set = tuple(flag for flag in ExcludeFlag if flag.find(exclude_flags))
                 LOGGER.debug(f'Exclude flags: {exclude_flags_set}')
                 return 'All weapons were filtered out.'
-            loadouts = tuple(comparator.get_best_loadouts(weapons))
+            loadouts = tuple(get_best_loadouts(weapons))
             uniqueness = _Uniqueness.SAY_FULL_LOADOUT_ARCHETYPE_NAMES
         elif len(loadouts) == 1:
             loadouts = tuple(WeaponArchetypes.filter_loadouts(loadouts,
@@ -97,7 +93,7 @@ class CompareCommand(ApexCommand):
                                                               exclude_flags=exclude_flags))
             uniqueness = self._get_uniqueness(loadouts)
 
-        comparison_result = comparator.compare_loadouts(loadouts, show_plots=show_plots)
+        comparison_result = compare_loadouts(loadouts, show_plots=show_plots)
         best_loadout, score = comparison_result.get_best_loadout()
 
         LOGGER.info(f'Comparison result: {comparison_result}')
