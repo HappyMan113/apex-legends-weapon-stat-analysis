@@ -5,8 +5,7 @@ import re
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from types import MappingProxyType
-from typing import (AbstractSet,
-                    Any,
+from typing import (Any,
                     Dict,
                     FrozenSet,
                     Generator,
@@ -31,17 +30,18 @@ from apex_assistant.checker import (check_bool,
                                     check_float,
                                     check_float_vec,
                                     check_int,
-                                    check_mapping, check_str,
+                                    check_mapping,
+                                    check_str,
                                     check_tuple,
                                     check_type,
                                     to_kwargs)
 from apex_assistant.config import (CONFIG,
-                                   CONFIG_TIME_AVAILABLE_TO_KILL,
-                                   MAX_CONFIG_FIGURING_DISTANCE_METERS,
                                    MAX_NUM_PERMUTED_WEAPONS,
                                    PLAYER_ACCURACY,
+                                   SupportedDistanceMeters,
                                    get_distance_time_multiplier,
                                    get_p_kill_for_damages_to_kill,
+                                   get_p_kill_for_distances,
                                    get_p_kill_for_times)
 from apex_assistant.legend import Legend
 from apex_assistant.overall_level import OverallLevel
@@ -72,108 +72,91 @@ class WeaponStats:
 ERROR_TOL = 1e-9
 
 
-def __get_p_kill2(damage_to_kill: float,
-                  accuracies_nums_shots_and_damages: Sequence[Tuple[float, int, float]],
-                  num_permuted_weapons: int,
-                  max_num_permuted_weapons: int) -> float:
+def __get_p_kill(damage_to_kill: float,
+                 p_nums_hits_and_damages: Tuple[Tuple[NDArray[np.float64], float], ...],
+                 num_permuted_weapons: int,
+                 max_num_permuted_weapons: int) -> float:
     assert 0 <= num_permuted_weapons <= max_num_permuted_weapons
-
-    if (num_permuted_weapons == max_num_permuted_weapons or
-            len(accuracies_nums_shots_and_damages) == 0):
-        # Base case.
-        ev_remaining_damage = sum(
-            accuracy_n * num_shots_n * damage_per_round_n
-            for (accuracy_n,
-                 num_shots_n,
-                 damage_per_round_n) in accuracies_nums_shots_and_damages
+    if num_permuted_weapons == max_num_permuted_weapons:
+        expected_damage = sum(
+            (p_nums_hits * np.arange(len(p_nums_hits))).sum() * damage_per_round
+            for p_nums_hits, damage_per_round in p_nums_hits_and_damages
         )
-        return 1.0 if ev_remaining_damage >= damage_to_kill - ERROR_TOL else 0.0
+        return 1.0 if expected_damage >= damage_to_kill - ERROR_TOL else 0.0
 
-    accuracy_0, num_shots_0, damage_per_round_0 = accuracies_nums_shots_and_damages[0]
-    hits_to_kill_0 = math.ceil((damage_to_kill - ERROR_TOL) / damage_per_round_0)
+    p_num_hits_0, damage_per_round_0 = p_nums_hits_and_damages[0]
+    num_shots_0 = len(p_num_hits_0) - 1
+    hits_to_kill_0_min = math.ceil((damage_to_kill - ERROR_TOL) / damage_per_round_0)
 
-    hits_not_to_kill_0 = np.arange(min(hits_to_kill_0, num_shots_0 + 1))
+    hits_not_to_kill_0_min = 0
+    hits_not_to_kill_0_max = min(hits_to_kill_0_min - 1, num_shots_0)
+    hits_not_to_kill_0 = np.arange(hits_not_to_kill_0_min, hits_not_to_kill_0_max + 1)
     damage_0 = damage_per_round_0 * hits_not_to_kill_0
     remaining_damages_to_kill = damage_to_kill - damage_0
 
-    p_num_hits_0 = binom.pmf(k=hits_not_to_kill_0, n=num_shots_0, p=accuracy_0)
-    p_kill_0 = 1 - p_num_hits_0.sum()
+    p_num_hits_not_to_kill_0 = p_num_hits_0[hits_not_to_kill_0]
+    p_kill_0 = 1 - p_num_hits_not_to_kill_0.sum()
+
+    if len(p_nums_hits_and_damages) <= 1:
+        return p_kill_0
 
     next_num_permuted_weapons = num_permuted_weapons + 1
+    next_p_nums_hits_and_damages = tuple(p_nums_hits_and_damages[1:])
     p_kill_given_num_hits_0 = np.fromiter(
-        (__get_p_kill2(damage_to_kill=remaining_damage_to_kill,
-                       accuracies_nums_shots_and_damages=accuracies_nums_shots_and_damages[1:],
-                       num_permuted_weapons=next_num_permuted_weapons,
-                       max_num_permuted_weapons=max_num_permuted_weapons)
+        (__get_p_kill(damage_to_kill=remaining_damage_to_kill,
+                      p_nums_hits_and_damages=next_p_nums_hits_and_damages,
+                      num_permuted_weapons=next_num_permuted_weapons,
+                      max_num_permuted_weapons=max_num_permuted_weapons)
          for remaining_damage_to_kill in remaining_damages_to_kill),
         dtype=float,
         count=len(remaining_damages_to_kill))
-    p_kill_subsequent_weapons = (p_num_hits_0 * p_kill_given_num_hits_0).sum()
+    p_kill_subsequent_weapons = (p_num_hits_not_to_kill_0 * p_kill_given_num_hits_0).sum()
     p_kill = p_kill_0 + p_kill_subsequent_weapons
 
     return p_kill
 
 
-def __get_p_kill(damage_to_kill: float,
-                 accuracies_nums_shots_and_damages: Sequence[Tuple[float, int, float]],
-                 max_num_permuted_weapons: int) -> float:
-    if len(accuracies_nums_shots_and_damages) == 0:
+def get_p_kill(damage_to_kill: float,
+               p_nums_hits_and_damages: Tuple[Tuple[NDArray[np.float64], float], ...],
+               max_num_permuted_weapons: int) -> float:
+    if len(p_nums_hits_and_damages) == 0:
         # This can happen if you have a time given which is lower than the first shot time.
         return 0
-    return __get_p_kill2(damage_to_kill=damage_to_kill,
-                         accuracies_nums_shots_and_damages=accuracies_nums_shots_and_damages,
-                         num_permuted_weapons=0,
-                         max_num_permuted_weapons=max_num_permuted_weapons)
+
+    return __get_p_kill(damage_to_kill=damage_to_kill,
+                        p_nums_hits_and_damages=p_nums_hits_and_damages,
+                        num_permuted_weapons=0,
+                        max_num_permuted_weapons=max_num_permuted_weapons)
 
 
-def _trim_weapon_stats(
-        weapons_and_shot_times: Iterable[WeaponStats],
-        time_given_seconds: float) -> Generator[WeaponStats, None, None]:
+def _get_p_nums_hits_and_damages(weapons_and_shot_times: Iterable[WeaponStats],
+                                 time_given_seconds: float,
+                                 distance_meters: SupportedDistanceMeters) -> \
+        Generator[Tuple[NDArray[np.float64], float], None, None]:
     for weapon_stats in weapons_and_shot_times:
         shot_times_seconds = weapon_stats.shot_times_seconds
         last_round_time = shot_times_seconds[-1]
+        weapon = weapon_stats.weapon
+        damage_per_round = weapon.get_damage_per_round()
+
         if last_round_time < time_given_seconds:
             # We still potentially have time to fire one or more additional rounds.
-            yield weapon_stats
+            p_nums_hits = weapon.get_num_hit_probabilities(
+                num_shots=len(shot_times_seconds),
+                distance_meters=distance_meters)
+            assert math.isclose(p_nums_hits.sum(), 1), p_nums_hits.sum()
+            yield p_nums_hits, damage_per_round
             continue
 
         too_late_indices = np.flatnonzero(shot_times_seconds >= time_given_seconds)
         num_rounds = too_late_indices[0]
         if num_rounds > 0:
-            yield WeaponStats(weapon=weapon_stats.weapon,
-                              shot_times_seconds=shot_times_seconds[:num_rounds])
+            p_nums_hits_slice = weapon.get_num_hit_probabilities(
+                num_shots=num_rounds,
+                distance_meters=distance_meters)
+            yield p_nums_hits_slice, damage_per_round
+
         break
-
-
-def get_accuracies_nums_shots_and_damages(distance_meters: float,
-                                          time_given_seconds: float,
-                                          weapon_stats: Iterable[WeaponStats]) -> \
-        Generator[Tuple[float, int, float], None, None]:
-    for weapon_stats_elt in _trim_weapon_stats(
-            weapons_and_shot_times=weapon_stats,
-            time_given_seconds=time_given_seconds):
-        weapon = weapon_stats_elt.weapon
-        shot_times_seconds = weapon_stats_elt.shot_times_seconds
-
-        damage_per_round = weapon.get_damage_per_round()
-        accuracy = (weapon.get_accuracy_fraction(distance_meters=distance_meters) *
-                    PLAYER_ACCURACY)
-        yield accuracy, len(shot_times_seconds), damage_per_round
-
-
-def get_p_kill(damage_to_kill: float,
-               distance_meters: float,
-               time_given_seconds: float,
-               weapon_stats: Iterable[WeaponStats]) -> float:
-    accuracies_nums_shots_and_damages = tuple(get_accuracies_nums_shots_and_damages(
-        distance_meters=distance_meters,
-        time_given_seconds=time_given_seconds,
-        weapon_stats=weapon_stats))
-    p_kill = __get_p_kill(damage_to_kill=damage_to_kill,
-                          accuracies_nums_shots_and_damages=accuracies_nums_shots_and_damages,
-                          max_num_permuted_weapons=MAX_NUM_PERMUTED_WEAPONS)
-
-    return p_kill
 
 
 class ExcludeFlag(IntEnum):
@@ -701,8 +684,9 @@ class FullLoadoutConfiguration(StrEnum):
                               weapon_a: 'Weapon',
                               weapon_b: 'Weapon',
                               time_seconds: float,
-                              distance_meters: float) -> float:
-        check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
+                              distance_meters: SupportedDistanceMeters) -> float:
+        check_float(min_value=0, time_seconds=time_seconds)
+        check_type(SupportedDistanceMeters, distance_meters=distance_meters)
 
         damage: float = 0
 
@@ -738,55 +722,45 @@ class FullLoadoutConfiguration(StrEnum):
 
         return damages
 
-    def get_expected_damage(self,
-                            weapon_a: 'Weapon',
-                            weapon_b: 'Weapon',
-                            distance_meters: float,
-                            time_given_seconds: float) -> float:
-        check_float(min_value=0, distance_meters=distance_meters)
+    def get_p_kill_config(self,
+                          weapon_a: 'Weapon',
+                          weapon_b: 'Weapon',
+                          distance_meters: SupportedDistanceMeters) -> float:
+        check_type(SupportedDistanceMeters, distance_meters=distance_meters)
 
-        expected_damage: float = 0
-        for accuracy, num_shots, damage_per_round in get_accuracies_nums_shots_and_damages(
-                distance_meters=distance_meters,
-                time_given_seconds=time_given_seconds,
-                weapon_stats=self.__iter_weapons_stats(weapon_a, weapon_b)):
-            expected_damage += accuracy * num_shots * damage_per_round
-
-        return expected_damage
-
-    def get_p_kill(self, weapon_a: 'Weapon', weapon_b: 'Weapon', distance_meters: float) -> float:
-        check_float(min_value=0, distance_meters=distance_meters)
-
-        damages_to_kill = CONFIG.damages_to_kill
         times_given_seconds = (get_distance_time_multiplier(distance_meters) *
                                CONFIG.times_given_seconds)
 
         max_time_given_seconds = times_given_seconds.max()
-
-        weapon_stats: Tuple[WeaponStats, ...] = tuple(_trim_weapon_stats(
-            weapons_and_shot_times=self.__iter_weapons_stats(weapon_a, weapon_b),
-            time_given_seconds=max_time_given_seconds))
+        weapon_stats = tuple(self.__iter_weapons_stats(
+            weapon_a=weapon_a,
+            weapon_b=weapon_b,
+            max_time_given_seconds=max_time_given_seconds))
 
         p_kill = get_p_kill_for_times(
-            get_p_kill_for_damages_to_kill(
-                get_p_kill(damage_to_kill=damage_to_kill,
-                           distance_meters=distance_meters,
-                           time_given_seconds=time_given_seconds,
-                           weapon_stats=weapon_stats)
-                for damage_to_kill in damages_to_kill)
+            FullLoadoutConfiguration.__get_p_kill_config(
+                weapon_stats=weapon_stats,
+                time_given_seconds=time_given_seconds,
+                distance_meters=distance_meters)
             for time_given_seconds in times_given_seconds)
 
         return p_kill
 
-    def get_p_kill_vec(self,
-                       weapon_a: 'Weapon',
-                       weapon_b: 'Weapon',
-                       distances_meters: NDArray[np.float64]) -> NDArray[np.float64]:
-        check_float_vec(distances_meters=distances_meters)
-        return np.array([self.get_p_kill(weapon_a=weapon_a,
-                                         weapon_b=weapon_b,
-                                         distance_meters=distance_meters)
-                         for distance_meters in distances_meters])
+    @staticmethod
+    def __get_p_kill_config(weapon_stats: Tuple[WeaponStats, ...],
+                            time_given_seconds: float,
+                            distance_meters: SupportedDistanceMeters):
+        damages_to_kill = CONFIG.damages_to_kill
+        p_nums_hits_and_damages = tuple(_get_p_nums_hits_and_damages(
+            weapons_and_shot_times=weapon_stats,
+            time_given_seconds=time_given_seconds,
+            distance_meters=distance_meters))
+
+        return get_p_kill_for_damages_to_kill(
+            get_p_kill(damage_to_kill=damage_to_kill,
+                       p_nums_hits_and_damages=p_nums_hits_and_damages,
+                       max_num_permuted_weapons=MAX_NUM_PERMUTED_WEAPONS)
+            for damage_to_kill in damages_to_kill)
 
     @staticmethod
     def _get_damage_permutations_for_rounds(damages: NDArray[np.float64],
@@ -835,11 +809,18 @@ class FullLoadoutConfiguration(StrEnum):
 
         return permutation_probabilities, damage_permutations
 
-    def __iter_weapons_stats(self, weapon_a: 'Weapon', weapon_b: 'Weapon') -> \
+    def __iter_weapons_stats(self,
+                             weapon_a: 'Weapon',
+                             weapon_b: 'Weapon',
+                             max_time_given_seconds: float) -> \
             Generator[WeaponStats, None, None]:
         for weapon, tactical, time_seconds in self._iter_weapons(weapon_a, weapon_b):
-            yield WeaponStats(weapon,
-                              time_seconds + weapon.get_shot_times_seconds(tactical=tactical))
+            if time_seconds > max_time_given_seconds:
+                break
+
+            shot_times_seconds = time_seconds + weapon.get_shot_times_seconds(tactical=tactical)
+
+            yield WeaponStats(weapon=weapon, shot_times_seconds=shot_times_seconds)
 
     def _iter_weapons(self, weapon_a: 'Weapon', weapon_b: 'Weapon') -> \
             Generator[Tuple['SingleWeaponLoadout', int, float], None, None]:
@@ -957,234 +938,153 @@ class FullLoadout(Loadout):
 
         self._weapon_a: Weapon | None = None
         self._weapon_b: Weapon | None = None
-        self._distance_to_config_idx_map: NDArray[np.integer] | None = None
+        self._distance_to_config_map: \
+            Mapping[SupportedDistanceMeters, FullLoadoutConfiguration] | None = None
+        self._configs: FrozenSet[FullLoadoutConfiguration] | None = None
+        self._distance_to_p_kill_map: Dict[SupportedDistanceMeters, float] | None = None
         self._base_name: str | None = None
         self._config_descriptor: str | None = None
         self._term: RequiredTerm | None = None
 
     def get_term(self) -> RequiredTerm:
-        self._lazy_load_internals()
+        self.lazy_load_internals()
         return self._term
 
     def get_name(self, config: FullLoadoutConfiguration | None = None) -> str:
-        self._lazy_load_internals()
+        self.lazy_load_internals()
         config_descriptor = config if config is not None else self._config_descriptor
         return f'{self._base_name} ({config_descriptor})'
 
     @staticmethod
-    def _get_config_description(distance_to_config_idx_map: NDArray[np.integer]) -> str:
-        diff_indices = np.flatnonzero(np.diff(distance_to_config_idx_map))
-        far_config = CONFIGURATIONS[distance_to_config_idx_map[-1]]
-        if len(diff_indices) == 0:
-            return far_config
+    def _get_distance_range_str(distances: Sequence[SupportedDistanceMeters]) -> str:
+        if len(distances) == 0:
+            raise ValueError('No distances found.')
 
-        config_indices = distance_to_config_idx_map[diff_indices]
+        first_dist = distances[0]
+        last_dist = distances[-1]
+        if len(distances) == 1:
+            dists_str = f'{first_dist}'
+        else:
+            dists_str = f'{first_dist}-{last_dist}'
+        return f'{dists_str}m'
 
-        configs: List[FullLoadoutConfiguration] = [CONFIGURATIONS[config_idx]
-                                                   for config_idx in config_indices]
-        configs.append(far_config)
+    @staticmethod
+    def _get_config_description(
+            distance_to_config_map: Mapping[SupportedDistanceMeters, FullLoadoutConfiguration]
+    ) -> Tuple[str, bool]:
+        cur_distances: list[SupportedDistanceMeters] = []
+        cur_config: FullLoadoutConfiguration | None = None
+        str_builder: list[str] = []
+        invert_configs: bool = False
+        for distance, config in distance_to_config_map.items():
+            if invert_configs:
+                config = config.invert()
+            if config is not cur_config:
+                if cur_config is not None:
+                    str_builder.append(
+                        f'{FullLoadout._get_distance_range_str(cur_distances)}: {cur_config}')
+                elif config.should_invert():
+                    config = config.invert()
+                    invert_configs = True
 
-        diff_indices = np.pad(diff_indices,
-                              (1, 1),
-                              constant_values=(0, len(distance_to_config_idx_map)))
-        assert len(diff_indices) == len(configs) + 1
+                cur_config = config
+                cur_distances.clear()
+            cur_distances.append(distance)
 
-        return ', '.join(f'{start_m}-{stop_m - 1}m: {config}'
-                         for config, start_m, stop_m in
-                         zip(configs, diff_indices[:-1], diff_indices[1:]))
+        if len(cur_distances) == len(distance_to_config_map):
+            # All configurations were the same regardless of distance.
+            return cur_config, invert_configs
 
-    def _lazy_load_internals(self):
-        if self._distance_to_config_idx_map is not None:
+        if len(cur_distances) != 0:
+            str_builder.append(
+                f'{FullLoadout._get_distance_range_str(cur_distances)}: {cur_config}')
+
+        return ', '.join(str_builder), invert_configs
+
+    def lazy_load_internals(self):
+        if self._distance_to_config_map is not None:
             return
 
         weapons_iter = iter(self._weapons_set)
         weapon_a = next(weapons_iter)
         weapon_b = next(weapons_iter, weapon_a)
 
-        advisable_configurations: Tuple[Tuple[int, FullLoadoutConfiguration], ...] = tuple(
-            (idx, config)
-            for idx, config in enumerate(CONFIGURATIONS)
+        advisable_configurations: Tuple[FullLoadoutConfiguration, ...] = tuple(
+            config
+            for config in CONFIGURATIONS
             if config.is_advisable(weapon_a, weapon_b))
         if len(advisable_configurations) == 0:
             raise RuntimeError('No configurations were advisable.')
 
-        close_config: FullLoadoutConfiguration = \
-            CONFIGURATIONS[FullLoadout._get_best_configuration_idx(
+        distances_meters = CONFIG.distances_meters
+        distance_to_config_map: Mapping[SupportedDistanceMeters, FullLoadoutConfiguration] = {
+            supported_distance: FullLoadout._get_best_configuration(
                 weapon_a=weapon_a,
                 weapon_b=weapon_b,
-                distance_meters=0,
-                advisable_configurations=advisable_configurations)]
-        if close_config.should_invert():
+                distance_meters=supported_distance,
+                advisable_configurations=advisable_configurations)
+            for supported_distance in distances_meters
+        }
+
+        self._config_descriptor, inverted = \
+            FullLoadout._get_config_description(distance_to_config_map)
+        if inverted:
             weapon_a, weapon_b = weapon_b, weapon_a
-            advisable_configurations = tuple((invert_config_idx(idx), config.invert())
-                                             for idx, config in advisable_configurations)
-
-        distance_to_config_idx_map: NDArray[np.integer] = np.full(
-            MAX_CONFIG_FIGURING_DISTANCE_METERS + 1,
-            fill_value=-1)
-        lower_idx = 1
-        upper_idx = len(distance_to_config_idx_map) - 1
-        FullLoadout._populate_distance_to_config_idx_map(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            ranges=distance_to_config_idx_map,
-            advisable_configurations=advisable_configurations,
-            lower_idx=lower_idx,
-            upper_idx=upper_idx)
-        first_config_idx = distance_to_config_idx_map[1]
-        distance_to_config_idx_map[0] = first_config_idx
-        assert not np.any(distance_to_config_idx_map == -1)
-        FullLoadout._remove_in_between_configs(distance_to_config_idx_map)
-
+            distance_to_config_map = MappingProxyType({
+                distance: config.invert()
+                for distance, config in distance_to_config_map.items()
+            })
         self._weapon_a = weapon_a
         self._weapon_b = weapon_b
-        self._distance_to_config_idx_map = distance_to_config_idx_map
+        self._distance_to_config_map = distance_to_config_map
+        self._configs = frozenset(distance_to_config_map.values())
         self._base_name = f'{weapon_a.get_name()} {WITH_SIDEARM} {weapon_b.get_name()}'
-        self._config_descriptor = FullLoadout._get_config_description(distance_to_config_idx_map)
         self._term = weapon_a.get_term().append(WITH_SIDEARM, weapon_b.get_term())
 
+        self._distance_to_p_kill_map = {
+            distance_meters: config.get_p_kill_config(weapon_a=weapon_a,
+                                                      weapon_b=weapon_b,
+                                                      distance_meters=distance_meters)
+            for distance_meters, config in distance_to_config_map.items()}
+
     @staticmethod
-    def _populate_distance_to_config_idx_map(
+    def _get_best_configuration(
             weapon_a: 'Weapon',
             weapon_b: 'Weapon',
-            ranges: NDArray[np.integer],
-            advisable_configurations: Tuple[Tuple[int, FullLoadoutConfiguration], ...],
-            lower_idx: int,
-            upper_idx: int):
-        if lower_idx > upper_idx:
-            # Base case.
-            return
+            distance_meters: SupportedDistanceMeters,
+            advisable_configurations: Iterable[FullLoadoutConfiguration]
+    ) -> FullLoadoutConfiguration:
+        return max(advisable_configurations,
+                   key=lambda _config: _config.get_p_kill_config(weapon_a=weapon_a,
+                                                                 weapon_b=weapon_b,
+                                                                 distance_meters=distance_meters))
 
-        lower_config_idx = FullLoadout._get_best_configuration_idx(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            distance_meters=lower_idx,
-            advisable_configurations=advisable_configurations)
-        ranges[lower_idx] = lower_config_idx
+    def get_cumulative_damage(self,
+                              time_seconds: float,
+                              distance_meters: SupportedDistanceMeters) -> float:
+        check_float(min_value=0, time_seconds=time_seconds)
+        check_type(SupportedDistanceMeters, distance_meters=distance_meters)
+        self.lazy_load_internals()
 
-        if lower_idx == upper_idx:
-            # No need to get the best configuration for the same index again.
-            return
-
-        upper_config_idx = FullLoadout._get_best_configuration_idx(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            distance_meters=upper_idx,
-            advisable_configurations=advisable_configurations)
-        ranges[upper_idx] = upper_config_idx
-
-        if lower_config_idx == upper_config_idx:
-            # If same configuration is best for two distances, we can pretty safely assume that the
-            # same configuration will be best for any distance in between those two distances.
-            ranges[lower_idx + 1:upper_idx] = lower_config_idx
-            return
-
-        # We will have to do a kind of binary search to figure out at what distance the best
-        # configuration changes.
-        mid_idx = round(((math.sqrt(lower_idx) + math.sqrt(upper_idx)) / 2) ** 2)
-        FullLoadout._populate_distance_to_config_idx_map(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            ranges=ranges,
-            advisable_configurations=advisable_configurations,
-            lower_idx=lower_idx + 1,
-            upper_idx=mid_idx)
-        FullLoadout._populate_distance_to_config_idx_map(
-            weapon_a=weapon_a,
-            weapon_b=weapon_b,
-            ranges=ranges,
-            advisable_configurations=advisable_configurations,
-            lower_idx=mid_idx + 1,
-            upper_idx=upper_idx - 1)
-
-    @staticmethod
-    def _get_best_configuration_idx(
-            weapon_a: 'Weapon',
-            weapon_b: 'Weapon',
-            distance_meters: float,
-            advisable_configurations: Tuple[Tuple[int, FullLoadoutConfiguration], ...]) -> int:
-        check_float(min_value=0, distance_meters=distance_meters)
-        check_tuple(tuple,
-                    allow_empty=False,
-                    advisable_configurations=advisable_configurations)
-
-        idx, _ = max(advisable_configurations,
-                     key=lambda _idx_and_config: FullLoadout.__get_expected_damage(
-                         config=_idx_and_config[1],
-                         weapon_a=weapon_a,
-                         weapon_b=weapon_b,
-                         distance_meters=distance_meters))
-        return idx
-
-    @staticmethod
-    def __get_expected_damage(config: FullLoadoutConfiguration,
-                              weapon_a: 'Weapon',
-                              weapon_b: 'Weapon',
-                              distance_meters: float) -> float:
-        return config.get_expected_damage(weapon_a=weapon_a,
-                                          weapon_b=weapon_b,
-                                          time_given_seconds=CONFIG_TIME_AVAILABLE_TO_KILL,
-                                          distance_meters=distance_meters)
-
-    @staticmethod
-    def _remove_in_between_configs(distance_to_config_idx_map: NDArray[np.integer]):
-        diff_indices = np.flatnonzero(np.diff(distance_to_config_idx_map, prepend=-1, append=-1))
-
-        for sl_start_idx, sl_stop_idx in zip(diff_indices[:-1], diff_indices[1:]):
-            config_idx = distance_to_config_idx_map[sl_start_idx]
-            where_it_again = np.flatnonzero(distance_to_config_idx_map[sl_stop_idx:] == config_idx)
-            if len(where_it_again) != 0:
-                where_it_again_last = where_it_again[-1]
-                distance_to_config_idx_map[sl_stop_idx:
-                                           sl_stop_idx + where_it_again_last] = config_idx
-
-    def _get_best_config_for_distance(self, distance_meters: float) -> FullLoadoutConfiguration:
-        distance_int = min(round(distance_meters), len(self._distance_to_config_idx_map) - 1)
-        config_idx: int = self._distance_to_config_idx_map[distance_int]
-        return CONFIGURATIONS[config_idx]
-
-    def _get_best_config_indices_for_distances_vec(
-            self,
-            distances_meters: NDArray[np.float64]) -> NDArray[np.integer]:
-        self._lazy_load_internals()
-
-        distances_int = distances_meters.round().clip(
-            max=len(self._distance_to_config_idx_map) - 1).astype(int)
-        config_indices: NDArray[np.integer] = self._distance_to_config_idx_map[distances_int]
-        return config_indices
-
-    def get_cumulative_damage(self, time_seconds: float, distance_meters: float) -> float:
-        check_float(min_value=0, time_seconds=time_seconds, distance_meters=distance_meters)
-        self._lazy_load_internals()
-
-        configuration = self._get_best_config_for_distance(distance_meters)
+        configuration = self._distance_to_config_map[distance_meters]
         return configuration.get_cumulative_damage(weapon_a=self._weapon_a,
                                                    weapon_b=self._weapon_b,
                                                    time_seconds=time_seconds,
                                                    distance_meters=distance_meters)
 
-    def get_cumulative_damage_vec(self,
-                                  times_seconds: NDArray[np.float64],
-                                  distances_meters: NDArray[np.float64]) -> \
+    def get_cumulative_damage_vec(self, times_seconds: NDArray[np.float64]) -> \
             Generator[Tuple[FullLoadoutConfiguration, NDArray[np.float64]], None, None]:
         if (times_seconds < 0).any():
             raise ValueError('No time values can be negative.')
-        if (distances_meters < 0).any():
-            raise ValueError('No distance values can be negative.')
 
-        self._lazy_load_internals()
+        self.lazy_load_internals()
 
-        sorti = distances_meters.argsort()
-        sorti_inv = sorti.argsort()
-        times_seconds = times_seconds[sorti]
-        distances_meters = distances_meters[sorti]
-
-        for config, sl in self._get_configs_and_slices(distances_meters):
+        for config in self._configs:
             result = self.get_cumulative_damage_with_config_vec(
                 config=config,
                 times_seconds=times_seconds)
             assert (result >= 0).all()
-            yield config, result[sorti_inv]
+            yield config, result
 
     def get_cumulative_damage_with_config_vec(self,
                                               config: FullLoadoutConfiguration,
@@ -1194,48 +1094,29 @@ class FullLoadout(Loadout):
                                                 weapon_b=self._weapon_b,
                                                 times_seconds=times_seconds)
 
-    def get_p_kill(self, distance_meters: float) -> float:
-        config = self._get_best_config_for_distance(distance_meters)
-        return config.get_p_kill(weapon_a=self._weapon_a,
-                                 weapon_b=self._weapon_b,
-                                 distance_meters=distance_meters)
+    def get_p_kill(self, distance_meters: Optional[SupportedDistanceMeters] = None) -> float:
+        self.lazy_load_internals()
 
-    def get_p_kill_vec(self, distances_meters: NDArray[np.float64]) -> NDArray[np.float64]:
-        self._lazy_load_internals()
+        if distance_meters is None:
+            return get_p_kill_for_distances(self._distance_to_p_kill_map.values())
 
-        sorti = distances_meters.argsort()
-        sorti_inv = sorti.argsort()
-        distances_meters = distances_meters[sorti]
+        return self._distance_to_p_kill_map[distance_meters]
 
-        weapon_a = self._weapon_a
-        weapon_b = self._weapon_b
+    def get_p_kill_vec(self) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+        self.lazy_load_internals()
 
-        result = np.full_like(distances_meters, fill_value=-1)
+        p_kills = np.fromiter(
+            (self.get_p_kill(distance_meters) for distance_meters in CONFIG.distances_meters),
+            dtype=float,
+            count=len(CONFIG.distances_meters))
+        distances_meters_float = np.array(CONFIG.distances_meters, dtype=float)
 
-        for config, sl in self._get_configs_and_slices(distances_meters):
-            distances_slice = distances_meters[sl]
+        return p_kills, distances_meters_float
 
-            result[sl] = config.get_p_kill_vec(weapon_a=weapon_a,
-                                               weapon_b=weapon_b,
-                                               distances_meters=distances_slice)
-        assert (result >= -ERROR_TOL).all()
-
-        result = result[sorti_inv]
-        return result
-
-    def _get_configs_and_slices(self, distances_meters_sorted: NDArray[np.float64]) -> \
-            Generator[Tuple[FullLoadoutConfiguration, slice], None, None]:
-        config_indices = self._get_best_config_indices_for_distances_vec(distances_meters_sorted)
-        diff_indices = np.flatnonzero(np.diff(config_indices, prepend=-1, append=-1))
-
-        for start_idx, stop_idx in zip(diff_indices[:-1], diff_indices[1:]):
-            sl = slice(start_idx, stop_idx)
-
-            configs_slice = config_indices[sl]
-
-            assert not np.diff(configs_slice).any()
-            config: FullLoadoutConfiguration = CONFIGURATIONS[configs_slice[0]]
-            yield config, sl
+    def _get_configs_and_distances(self, distances_meters: Iterable[SupportedDistanceMeters]) -> \
+            Generator[Tuple[FullLoadoutConfiguration, SupportedDistanceMeters], None, None]:
+        for dist in distances_meters:
+            yield self._distance_to_config_map[dist], dist
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self._weapons_set)
@@ -1246,49 +1127,17 @@ class FullLoadout(Loadout):
     def get_weapons(self) -> FrozenSet['Weapon']:
         return self._weapons_set
 
-    @staticmethod
-    def get_loadouts(required_weapons: Iterable['Weapon']) -> Generator['FullLoadout', None, None]:
-        base_generator = (FullLoadout(weapon_a, weapon_b)
-                          for weapon_a in required_weapons
-                          for weapon_b in required_weapons)
-        return base_generator
-
-    @staticmethod
-    def filter_loadouts(loadouts: Iterable['FullLoadout'],
-                        weapons_to_exclude: AbstractSet['Weapon']) -> \
-            Generator['FullLoadout', None, None]:
-        return (loadout
-                for loadout in loadouts
-                if loadout.get_weapons().isdisjoint(weapons_to_exclude))
-
-    @staticmethod
-    def _get_duplicates(elements: Iterable['T']) -> set[T]:
-        singles: set[T] = set()
-        duplicates: set[T] = set()
-
-        for element in elements:
-            if element in duplicates:
-                continue
-            if element in singles:
-                duplicates.add(element)
-                continue
-            singles.add(element)
-        return duplicates
-
     def get_weapon_a(self) -> 'Weapon':
-        self._lazy_load_internals()
+        self.lazy_load_internals()
         return self._weapon_a
 
     def get_weapon_b(self):
-        self._lazy_load_internals()
+        self.lazy_load_internals()
         return self._weapon_b
 
-    def get_distances_and_configs(self) -> \
-            Generator[Tuple[int, FullLoadoutConfiguration], None, None]:
-        diff_indices = np.flatnonzero(np.diff(self._distance_to_config_idx_map, prepend=-1))
-        for start_idx in diff_indices:
-            config_idx = self._distance_to_config_idx_map[start_idx]
-            yield int(start_idx), CONFIGURATIONS[config_idx]
+
+_PROBABILITIES_CACHE: \
+    Dict['SingleWeaponLoadout', Mapping[SupportedDistanceMeters, NDArray[np.float64]]] = {}
 
 
 class SingleWeaponLoadout(Loadout, abc.ABC):
@@ -1297,6 +1146,33 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
         check_type(RequiredTerm, term=term)
         self._name = name
         self._term = term
+        self._dists_to_pmfs: Mapping[SupportedDistanceMeters, NDArray[np.float64]] | None = None
+
+    def __calc_shot_probabilities(self, distance_meters: SupportedDistanceMeters):
+        num_shots = self.get_magazine_capacity(tactical=0)
+
+        # Row indices plus one are for numbers of trials (shots); column indices are for k values.
+        return binom.pmf(k=np.arange(num_shots + 1),
+                         n=np.arange(1, num_shots + 1)[:, np.newaxis],
+                         p=self.get_accuracy_fraction(distance_meters) * PLAYER_ACCURACY)
+
+    def __lazy_load_pmfs(self):
+        if self._dists_to_pmfs is not None:
+            return
+
+        self._dists_to_pmfs: Mapping[SupportedDistanceMeters, NDArray[np.float64]] = {
+            distance_meters: self.__calc_shot_probabilities(distance_meters)
+            for distance_meters in CONFIG.distances_meters}
+
+    def get_num_hit_probabilities(self,
+                                  num_shots: int,
+                                  distance_meters: SupportedDistanceMeters) -> NDArray[np.float64]:
+        if num_shots == 0:
+            return np.array([], dtype=float)
+
+        self.__lazy_load_pmfs()
+        pmf = self._dists_to_pmfs[distance_meters][num_shots - 1, :num_shots + 1]
+        return pmf
 
     def get_term(self) -> RequiredTerm:
         return self._term
@@ -1319,7 +1195,7 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
     @final
     def get_single_mag_cumulative_damage(self,
                                          time_seconds: float,
-                                         distance_meters: float,
+                                         distance_meters: SupportedDistanceMeters,
                                          tactical: int) -> float:
         num_rounds = self.get_num_rounds_shot(time_seconds=time_seconds, tactical=tactical)
         if num_rounds < 0:
@@ -1394,13 +1270,7 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
         raise NotImplementedError('Must implement.')
 
     @abc.abstractmethod
-    def get_accuracy_fraction(self, distance_meters: float) -> float:
-        raise NotImplementedError('Must implement.')
-
-    @abc.abstractmethod
-    def get_accuracy_fraction_vec(self,
-                                  distances_meters: NDArray[np.float64]) -> \
-            NDArray[np.float64]:
+    def get_accuracy_fraction(self, distance_meters: SupportedDistanceMeters) -> float:
         raise NotImplementedError('Must implement.')
 
     def can_reload(self) -> bool:
@@ -1421,7 +1291,7 @@ class Weapon(SingleWeaponLoadout):
                  name: str,
                  term: RequiredTerm,
                  weapon_class: WeaponClass,
-                 dist_to_accuracy_mapping: Mapping[int, float],
+                 dist_to_accuracy_mapping: Mapping[SupportedDistanceMeters, float],
                  damage_body: float,
                  holster_time_secs: float,
                  ready_to_fire_time_secs: float,
@@ -1465,13 +1335,6 @@ class Weapon(SingleWeaponLoadout):
         self.archetype = archetype
         self.weapon_class = weapon_class
         self.dist_to_accuracy_mapping = dist_to_accuracy_mapping
-        xp = np.array(list(self.dist_to_accuracy_mapping.keys()))
-        fp = np.array(list(self.dist_to_accuracy_mapping.values()))
-        sorti = xp.argsort()
-        xp = xp[sorti]
-        fp = fp[sorti]
-        self._distances = xp
-        self._accuracies = fp
         self.damage_body = damage_body
         self.holster_time_secs = holster_time_secs
         self.ready_to_fire_time_secs = ready_to_fire_time_secs
@@ -1487,6 +1350,7 @@ class Weapon(SingleWeaponLoadout):
         self._shot_times_seconds = self._round_timing.get_shot_times_seconds(self)
         if len(self._shot_times_seconds) != magazine_capacity:
             raise RuntimeError('Invalid result of get_shot_times_seconds()!')
+        self.__legend = legend
 
     def get_num_rounds_shot(self, time_seconds: float, tactical: int) -> int:
         shot_times_seconds = self.get_shot_times_seconds(tactical=tactical)
@@ -1516,14 +1380,9 @@ class Weapon(SingleWeaponLoadout):
     def get_tactical_reload_time_secs(self) -> float | None:
         return self.tactical_reload_time_secs
 
-    def get_accuracy_fraction(self, distance_meters: float) -> float:
-        check_float(min_value=0, distance_meters=distance_meters)
-        return float(np.interp(x=distance_meters, xp=self._distances, fp=self._accuracies))
-
-    def get_accuracy_fraction_vec(self, distances_meters: NDArray[np.float64]) -> \
-            NDArray[np.float64]:
-        check_float_vec(distances_meters=distances_meters)
-        return np.interp(x=distances_meters, xp=self._distances, fp=self._accuracies)
+    def get_accuracy_fraction(self, distance_meters: SupportedDistanceMeters) -> float:
+        check_type(SupportedDistanceMeters, distance_meters=distance_meters)
+        return self.dist_to_accuracy_mapping[distance_meters]
 
     def get_magazine_duration_seconds(self, tactical: int) -> float:
         shot_times = self.get_shot_times_seconds(tactical=tactical)
@@ -1545,10 +1404,11 @@ class Weapon(SingleWeaponLoadout):
         return self.get_rounds_per_minute() / 60
 
     def __hash__(self):
-        return hash(self.__class__) ^ hash(self._name)
+        return hash((self.__class__, self._name, self.__legend))
 
     def __eq__(self, other: 'Weapon'):
-        return isinstance(other, Weapon) and self._name == other._name
+        return (isinstance(other, Weapon) and
+                (self._name, self.__legend) == (other._name, other.__legend))
 
     def get_weapon_class(self) -> WeaponClass:
         return self.weapon_class
@@ -1610,12 +1470,8 @@ class _SingleShotLoadout(SingleWeaponLoadout):
     def get_damage_per_round(self) -> float:
         return self.wrapped_weapon.get_damage_per_round()
 
-    def get_accuracy_fraction(self, distance_meters: float) -> float:
+    def get_accuracy_fraction(self, distance_meters: SupportedDistanceMeters) -> float:
         return self.wrapped_weapon.get_accuracy_fraction(distance_meters=distance_meters)
-
-    def get_accuracy_fraction_vec(self, distances_meters: NDArray[np.float64]) -> \
-            NDArray[np.float64]:
-        return self.wrapped_weapon.get_accuracy_fraction_vec(distances_meters=distances_meters)
 
     def __hash__(self):
         return hash(self.__class__) ^ hash(self.wrapped_weapon)
@@ -1636,7 +1492,7 @@ class WeaponArchetype:
                  base_term: RequiredTerm,
                  suffix: Optional[Suffix],
                  weapon_class: WeaponClass,
-                 dist_to_accuracy_mapping: Mapping[int, float],
+                 dist_to_accuracy_mapping: Mapping[SupportedDistanceMeters, float],
                  damage_body: float,
                  rounds_per_minute: RoundsPerMinuteBase,
                  magazine_capacity: MagazineCapacityBase,

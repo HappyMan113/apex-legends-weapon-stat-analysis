@@ -2,12 +2,13 @@ import csv
 import logging
 import os
 
+from apex_assistant.loadout_cache import get_or_create_loadout
 from apex_assistant.loadout_comparator import ComparisonResult, compare_loadouts
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech import apex_terms
 from apex_assistant.speech.apex_command import ApexCommand
 from apex_assistant.speech.term import Words
-from apex_assistant.weapon import FullLoadout, SingleWeaponLoadout, Weapon
+from apex_assistant.weapon import SingleWeaponLoadout, Weapon
 
 
 class CreateSummaryReportCommand(ApexCommand):
@@ -24,7 +25,7 @@ class CreateSummaryReportCommand(ApexCommand):
 
         comparison_results: dict[Weapon, ComparisonResult] = {}
         for weapon_a in weapons:
-            loadouts = tuple(FullLoadout(weapon_a, weapon_b) for weapon_b in weapons)
+            loadouts = tuple(get_or_create_loadout(weapon_a, weapon_b) for weapon_b in weapons)
             comparison_results[weapon_a] = compare_loadouts(loadouts)
 
         max_n = len(weapons)

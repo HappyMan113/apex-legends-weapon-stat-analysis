@@ -1,6 +1,7 @@
 import math
 from dataclasses import dataclass
-from typing import Iterable
+from enum import IntEnum
+from typing import Iterable, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,6 +12,19 @@ def _get_readonly_view(arr: NDArray) -> NDArray:
     arr = arr.view()
     arr.flags.writeable = False
     return arr
+
+
+class SupportedDistanceMeters(IntEnum):
+    FIVE = 5
+    TEN = 10
+    TWENTY = 20
+    FORTY = 40
+    EIGHTY = 80
+    ONE_HUNDRED_AND_SIXTY = 160
+
+
+HIPFIRE_DISTANCE_METERS: float = 15
+
 
 # Player accuracy. This is a fraction that gets multiplied by the "ideal" accuracy value.
 PLAYER_ACCURACY: float = 0.75
@@ -25,8 +39,15 @@ __DAMAGES_TO_KILL = _get_readonly_view(np.array([175, 200, 215], dtype=float))
 _DAMAGES_TO_KILL_WEIGHTS = _get_readonly_view(np.array([0.25, 1, 0.5], dtype=float))
 
 # Distances to assume when determining P(kill).
-__DISTANCES_METERS = _get_readonly_view(np.array([0, 10, 20, 40, 80, 160], dtype=float))
-_DISTANCES_METERS_WEIGHTS = _get_readonly_view(np.array([0, 1, 1, 1, 0, 0], dtype=float))
+__DISTANCES_METERS: Tuple[SupportedDistanceMeters, ...] = (
+    SupportedDistanceMeters.FIVE,
+    SupportedDistanceMeters.TEN,
+    SupportedDistanceMeters.TWENTY,
+    SupportedDistanceMeters.FORTY,
+    SupportedDistanceMeters.EIGHTY,
+    SupportedDistanceMeters.ONE_HUNDRED_AND_SIXTY
+)
+_DISTANCES_METERS_WEIGHTS = _get_readonly_view(np.array([1, 1, 1, 1, 0, 0], dtype=float))
 
 # k should be greater than 1, because the longer you stay in a fight, the less health you tend to
 # have, and therefore the more likely you are to get finished off at any given moment. I don't
@@ -60,7 +81,7 @@ __TIMES_AVAILABLE_TO_KILL = weibull.ppf(__percentiles, c=__K, scale=__LMBDA) + m
 
 
 # noinspection PyUnusedLocal
-def get_distance_time_multiplier(distance_meters: float) -> float:
+def get_distance_time_multiplier(distance_meters: SupportedDistanceMeters) -> float:
     return 1
 
 # Fixed time windows to assume when determining how much time we have to accumulate P(kill).
@@ -73,10 +94,10 @@ _DAMAGES_TO_KILL_WEIGHTS = _get_readonly_view(_DAMAGES_TO_KILL_WEIGHTS[sorti] /
                                               _DAMAGES_TO_KILL_WEIGHTS.sum())
 
 filteri = np.flatnonzero(_DISTANCES_METERS_WEIGHTS > 0)
-__DISTANCES_METERS = __DISTANCES_METERS[filteri]
+__DISTANCES_METERS = tuple(__DISTANCES_METERS[idx] for idx in filteri)
 _DISTANCES_METERS_WEIGHTS = _DISTANCES_METERS_WEIGHTS[filteri]
-sorti = __DISTANCES_METERS.argsort()
-__DISTANCES_METERS = _get_readonly_view(__DISTANCES_METERS[sorti])
+sorti = np.argsort(__DISTANCES_METERS)
+__DISTANCES_METERS = tuple(__DISTANCES_METERS[idx] for idx in sorti)
 _DISTANCES_METERS_WEIGHTS = _get_readonly_view(_DISTANCES_METERS_WEIGHTS[sorti] /
                                                _DISTANCES_METERS_WEIGHTS.sum())
 
@@ -87,7 +108,7 @@ _TIMES_AVAILABLE_TO_KILL_WEIGHTS = _get_readonly_view(_TIMES_AVAILABLE_TO_KILL_W
 
 if __DAMAGES_TO_KILL.shape != _DAMAGES_TO_KILL_WEIGHTS.shape:
     raise ValueError('len(__DAMAGES_TO_KILL) != len(__DAMAGES_TO_KILL_WEIGHTS)')
-if __DISTANCES_METERS.shape != _DISTANCES_METERS_WEIGHTS.shape:
+if (len(__DISTANCES_METERS),) != _DISTANCES_METERS_WEIGHTS.shape:
     raise ValueError('len(__DISTANCES_METERS) != len(__DISTANCES_METERS_WEIGHTS)')
 if __TIMES_AVAILABLE_TO_KILL.shape != _TIMES_AVAILABLE_TO_KILL_WEIGHTS.shape:
     raise ValueError('len(__TIMES_AVAILABLE_TO_KILL) != len(__TIMES_AVAILABLE_TO_KILL_WEIGHTS)')
@@ -95,10 +116,6 @@ if __TIMES_AVAILABLE_TO_KILL.shape != _TIMES_AVAILABLE_TO_KILL_WEIGHTS.shape:
 assert math.isclose(_DAMAGES_TO_KILL_WEIGHTS.sum(), 1)
 assert math.isclose(_DISTANCES_METERS_WEIGHTS.sum(), 1)
 assert math.isclose(_TIMES_AVAILABLE_TO_KILL_WEIGHTS.sum(), 1)
-
-
-CONFIG_TIME_AVAILABLE_TO_KILL: float = __TIMES_AVAILABLE_TO_KILL.max()
-MAX_CONFIG_FIGURING_DISTANCE_METERS: int = math.ceil(__DISTANCES_METERS.max())
 
 
 def get_p_kill_for_damages_to_kill(p_kill_array: Iterable[float]) -> float:
@@ -134,7 +151,7 @@ def get_p_kill_for_times(p_kill_array: Iterable[float]) -> float:
 @dataclass(frozen=True)
 class Config:
     damages_to_kill: NDArray[np.float64]
-    distances_meters: NDArray[np.float64]
+    distances_meters: Tuple[SupportedDistanceMeters, ...]
     times_given_seconds: NDArray[np.float64]
 
 

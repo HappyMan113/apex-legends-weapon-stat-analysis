@@ -7,7 +7,7 @@ from typing import Collection, Dict, Generator, List, Mapping, Optional, Tuple
 import numpy as np
 
 from apex_assistant.checker import check_int, check_tuple
-from apex_assistant.config import CONFIG, get_p_kill_for_distances
+from apex_assistant.loadout_cache import get_loadouts
 from apex_assistant.weapon import FullLoadout, Weapon
 
 logger = logging.getLogger()
@@ -79,9 +79,7 @@ def compare_loadouts(loadouts: Collection[FullLoadout], show_plots: bool = False
 
     # Loadouts in descending order
     loadouts_and_p_kills: List[Tuple[FullLoadout, float]] = sorted(
-        ((loadout, get_p_kill_for_distances(loadout.get_p_kill_vec(
-            distances_meters=CONFIG.distances_meters)))
-         for loadout in frozenset(loadouts)),
+        ((loadout, loadout.get_p_kill()) for loadout in frozenset(loadouts)),
         key=lambda loadout_and_p_kill: loadout_and_p_kill[1],
         reverse=True)
 
@@ -108,17 +106,14 @@ def compare_loadouts(loadouts: Collection[FullLoadout], show_plots: bool = False
         ts_min = 0
         ts_max = 2
         ts_lin = np.linspace(ts_min, ts_max, num=4000)
-        ds_lin = np.linspace(CONFIG.distances_meters.min(), CONFIG.distances_meters.max(), num=100)
 
         num_lines = 10
         num_configs_plotted: int = 0
         for loadout, _ in loadouts_and_p_kills[:num_lines]:
-            p_kills = loadout.get_p_kill_vec(distances_meters=ds_lin)
-            ax1.plot(ds_lin, p_kills, label=loadout.get_name())
+            p_kills, ds_lin = loadout.get_p_kill_vec()
+            ax1.plot(ds_lin, p_kills, label=loadout.get_name(), marker='o')
 
-            for config, damages in loadout.get_cumulative_damage_vec(
-                    times_seconds=ts_lin,
-                    distances_meters=np.zeros_like(ts_lin)):
+            for config, damages in loadout.get_cumulative_damage_vec(ts_lin):
                 if num_configs_plotted >= num_lines:
                     break
                 ax2.plot(ts_lin, damages, label=loadout.get_name(config))
@@ -126,6 +121,7 @@ def compare_loadouts(loadouts: Collection[FullLoadout], show_plots: bool = False
 
         ax1.set_xlabel('Distance (meters)')
         ax1.set_ylabel('Probability of Kill')
+        ax1.set_ylim((0, None))
         ax1.legend()
 
         ax2.set_xlabel('Time (seconds)')
@@ -138,8 +134,7 @@ def compare_loadouts(loadouts: Collection[FullLoadout], show_plots: bool = False
     return result
 
 
-def get_best_loadouts(weapons: Tuple[Weapon, ...],
-                      max_num_loadouts: Optional[int] = None) -> \
+def get_best_loadouts(weapons: Tuple[Weapon, ...], max_num_loadouts: Optional[int] = None) -> \
         Generator[FullLoadout, None, None]:
     check_tuple(Weapon, allow_empty=False, weapons=weapons)
     check_int(min_value=1, optional=True, max_num_loadouts=max_num_loadouts)
@@ -152,7 +147,7 @@ def get_best_loadouts(weapons: Tuple[Weapon, ...],
     else:
         max_num_loadouts = min(max_max_num_loadouts, max_num_loadouts)
 
-    loadouts = tuple(FullLoadout.get_loadouts(weapons_set))
+    loadouts = tuple(get_loadouts(weapons_set))
     comparison_result = compare_loadouts(loadouts)
 
     num_loadouts = 0

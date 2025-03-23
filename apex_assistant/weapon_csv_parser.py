@@ -17,6 +17,7 @@ from typing import (Any,
                     Union)
 
 from apex_assistant.checker import check_type
+from apex_assistant.config import HIPFIRE_DISTANCE_METERS, SupportedDistanceMeters
 from apex_assistant.legend import Legend
 from apex_assistant.speech.apex_terms import ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT, Suffix
 from apex_assistant.speech.term import RequiredTerm, Words
@@ -163,12 +164,6 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_WEAPON_ARCHETYPE = 'Weapon'
     KEY_WEAPON_CLASS = 'Weapon Class'
     KEY_LEGEND = 'Legend'
-    KEY_10_METER_ACCURACY_HIPFIRE = '10-meter accuracy (hipfire)'
-    KEY_10_METER_ACCURACY = '10-meter accuracy'
-    KEY_20_METER_ACCURACY = '20-meter accuracy'
-    KEY_40_METER_ACCURACY = '40-meter accuracy'
-    KEY_80_METER_ACCURACY = '80-meter accuracy'
-    KEY_160_METER_ACCURACY = '160-meter accuracy'
     KEY_CARE_PACKAGE = 'Care Package'
     KEY_STOCKS_INCOMPATIBLE = 'Stocks Incompatible Override'
     KEY_DAMAGE_BODY = 'Damage (body)'
@@ -206,6 +201,12 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     def __init__(self, fp: IO):
         super().__init__(fp)
         self._taken_terms: dict[Tuple[RequiredTerm, _SUFFIX_T], str] = {}
+
+    @staticmethod
+    def get_key_n_meter_accuracy(supported_distance_meters: SupportedDistanceMeters):
+        if supported_distance_meters.value <= HIPFIRE_DISTANCE_METERS:
+            return f'{supported_distance_meters}-meter accuracy (hipfire)'
+        return f'{supported_distance_meters}-meter accuracy'
 
     @staticmethod
     def get_term_and_suffix(name: Words) -> Tuple[RequiredTerm, Optional[Suffix]]:
@@ -434,17 +435,9 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
         legend = (row.parse_str_enum(self.KEY_LEGEND, Legend)
                   if row.has_value(self.KEY_LEGEND)
                   else None)
-        ten_meter_accuracy = row.parse_float(self.KEY_10_METER_ACCURACY_HIPFIRE)
-        twenty_meter_accuracy = row.parse_float(self.KEY_20_METER_ACCURACY)
-        forty_meter_accuracy = row.parse_float(self.KEY_40_METER_ACCURACY)
-        eighty_meter_accuracy = row.parse_float(self.KEY_80_METER_ACCURACY)
-        one_hundred_and_sixty_meter_accuracy = row.parse_float(self.KEY_160_METER_ACCURACY)
-        dist_to_accuracy_mapping: Mapping[int, float] = {
-            10: ten_meter_accuracy,
-            20: twenty_meter_accuracy,
-            40: forty_meter_accuracy,
-            80: eighty_meter_accuracy,
-            160: one_hundred_and_sixty_meter_accuracy
+        dist_to_accuracy_mapping: Mapping[SupportedDistanceMeters, float] = {
+            distance: row.parse_float(WeaponCsvReader.get_key_n_meter_accuracy(distance))
+            for distance in SupportedDistanceMeters
         }
         damage_body = row.parse_float(self.KEY_DAMAGE_BODY)
 

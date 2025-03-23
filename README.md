@@ -7,14 +7,10 @@ highest expected average damage ser second in close quarters combat.
 
 ## Expected Mean DPS Calculation Algorithm
 
-1) Time to kill is calculated for a given loadout. First 5 rounds are permuted and probability of
-   each of the 2^5 permutations is calculated. Remaining rounds are extrapolated using accuracy * 
-   damage per round. Time to kill for each permutation is derived from the round indices of each
-   permutation, then multiplied by the permutation probabilities and summed.
-2) Damage to kill is divided by the mean time to kill to get expected damage per second.
-3) This is done for a variety of distances and damages to kill.
-4) Mean is taken.
-5) This becomes the metric which determines which weapons are "best".
+Probability of kill (P(kill)) is calculated for a loadout using binomial distributions against a
+sampling of time values taken from a Weibull distribution. This is done for various distances (and
+their corresponding accuracy values), and the mean of all of these probability values is considered
+the final P(kill) value.
 
 ## Algorithm Notes
 - Weapon stats were compiled from various sources. Sources were as follows:
@@ -34,16 +30,17 @@ highest expected average damage ser second in close quarters combat.
   recordings. The values I got were close to the values in the Reddit post
   [here](https://www.reddit.com/r/apexlegends/comments/13rtny9/the_foundational_flaw_of_apex_legends/)
   which describes Ready to Fire time (referred to as "Draw Time" in the post).
-- For Hammerpoint and Disruptor hop-ups, the DPS is calculated as the average of the DPS when
+- For <!--Hammerpoint and -->Disruptor hop-ups, the DPS is calculated as the average of the DPS when
   no bonus damage is applied and the DPS when the bonus damage does apply. Essentially a 50/50
   split for shielded/unshielded shots.
 - Accuracy at various distances was measured against fully kitted variants of weapons. Dummies
   were standing still, and I (the player) was strafing back and forth to try to take into
   account fire spread. Accuracy was calculated simply as the interpolated value between the two
   nearest accuracy data points.
-  - For 160m measurements, for most weapons I figured the fire spread would still be taken into
-    account with me standing still, so I stood still and crouched in most cases (probably should
-    redo this for closer distances in the future).
+  - For measurements of accuracy at 10 meter and closer ranges, I used hipfire. 
+  - For measurements of accuracy at 160 meter measurements and further, for most weapons I figured
+    the fire spread would still be taken into account with me standing still and that the risk of
+    dying due to standing still was pretty low, so I stood still and crouched in most cases.
 
 ## Speech-to-Text and Text-to-Speech
 

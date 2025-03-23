@@ -5,6 +5,7 @@ from typing import Collection, Generator, Iterable, List, Optional, Tuple, TypeV
 
 from apex_assistant.checker import check_tuple, check_type
 from apex_assistant.legend import Legend
+from apex_assistant.loadout_cache import get_loadouts, get_or_create_loadout, preload_loadouts
 from apex_assistant.overall_level import OverallLevel
 from apex_assistant.speech.apex_config import ApexConfig
 from apex_assistant.speech.apex_terms import (BASE,
@@ -37,6 +38,7 @@ class WithSidearm(IntEnum):
 
 
 T = TypeVar('T')
+logger = logging.getLogger()
 
 
 class LoadoutTranslator:
@@ -73,7 +75,10 @@ class LoadoutTranslator:
             for parser in parsers})
 
     def set_legend(self, legend: Optional[Legend]) -> Optional[Legend]:
-        return self._apex_config.set_legend(legend)
+        old_legend = self._apex_config.set_legend(legend)
+        logger.info(f'Preloading loadouts for {legend}...')
+        self.preload_loadouts()
+        return old_legend
 
     def get_legend(self) -> Optional[Legend]:
         return self._apex_config.get_legend()
@@ -128,6 +133,9 @@ class LoadoutTranslator:
             Tuple[Weapon, ...]:
         return tuple(self.iget_fully_kitted_weapons(exclude_flags))
 
+    def preload_loadouts(self):
+        preload_loadouts(self.get_fully_kitted_weapons())
+
     def translate_full_loadouts(self, words: Words) -> \
             Generator[FullLoadout, None, None]:
         check_type(Words, words=words)
@@ -147,7 +155,7 @@ class LoadoutTranslator:
                 explicit_loadouts.add(full_loadout)
 
         if len(either_slot_weapons) > 1:
-            for full_loadout in self._filter_loadouts(FullLoadout.get_loadouts(either_slot_weapons),
+            for full_loadout in self._filter_loadouts(get_loadouts(either_slot_weapons),
                                                       explicit_loadouts=explicit_loadouts):
                 yield full_loadout
         elif len(either_slot_weapons) == 1:
@@ -177,10 +185,10 @@ class LoadoutTranslator:
             Generator[FullLoadout, None, None]:
         fully_kitted_weapons = self.get_fully_kitted_weapons()
         for sidearm in fully_kitted_weapons:
-            yield FullLoadout(either_slot_weapon, sidearm)
+            yield get_or_create_loadout(either_slot_weapon, sidearm)
 
         for main_weapon in fully_kitted_weapons:
-            yield FullLoadout(main_weapon, either_slot_weapon)
+            yield get_or_create_loadout(main_weapon, either_slot_weapon)
 
     def _get_mains_and_sidearms(self, words: Words) -> \
             Generator['MainWeaponsAndSidearms', None, None]:
@@ -307,7 +315,7 @@ class MainWeaponsAndSidearms:
     def get_full_loadouts(self) -> Generator[FullLoadout, None, None]:
         for main_weapon in self._main_weapons:
             for sidearm in self._sidearms:
-                yield FullLoadout(main_weapon, sidearm)
+                yield get_or_create_loadout(main_weapon, sidearm)
 
     def get_main_weapons(self) -> Tuple[Weapon, ...]:
         return self._main_weapons
