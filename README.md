@@ -25,6 +25,7 @@ the final P(kill) value.
   - [S23 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/from-the-rift-season-updates)
   - [S23 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/astral-anomaly-event)
   - [S24 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/from-the-rift-season-updates)
+  - [X Post with S24 mid-season patch notes](https://x.com/Respawn/status/1909722102892314681)
 - Reload times are assumed to be tactical reload times with only 1 bullet left in the magazine.
 - Swap times were calculated as "Holster Time" + "Ready to Fire" time that I calculated from my
   recordings. The values I got were close to the values in the Reddit post
