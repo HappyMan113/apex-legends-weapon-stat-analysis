@@ -47,7 +47,7 @@ __DISTANCES_METERS: Tuple[SupportedDistanceMeters, ...] = (
     SupportedDistanceMeters.EIGHTY,
     SupportedDistanceMeters.ONE_HUNDRED_AND_SIXTY
 )
-_DISTANCES_METERS_WEIGHTS = _get_readonly_view(np.array([1, 1, 1, 1, 0, 0], dtype=float))
+_DISTANCES_METERS_WEIGHTS = _get_readonly_view(np.array([1, 1, 1, 2, 2, 2], dtype=float))
 
 # k should be greater than 1, because the longer you stay in a fight, the less health you tend to
 # have, and therefore the more likely you are to get finished off at any given moment. I don't

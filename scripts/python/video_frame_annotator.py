@@ -62,39 +62,42 @@ def _is_annotated_filename(filename: str):
 
 
 def annotate_frame_and_time(input_filename: str, overwrite: bool = True):
-    if _is_annotated_filename(input_filename):
-        print(f'File {input_filename} is already annotated. Skipping.')
-        return
-
-    output_filename = _to_annotated_filename(input_filename)
-
-    if os.path.exists(output_filename):
-        if not overwrite:
-            print(f'{output_filename} already exists. Skipping.')
+    try:
+        if _is_annotated_filename(input_filename):
+            print(f'File {input_filename} is already annotated. Skipping.')
             return
-        os.remove(output_filename)
 
-    print(f'Annotating "{input_filename}"...')
-    font_filename = os.path.abspath(os.path.join('resources', 'Apex-Medium.ttf'))
-    stream = ffmpeg.input(input_filename)
+        output_filename = _to_annotated_filename(input_filename)
 
-    # Draw text. See https://kkroening.github.io/ffmpeg-python/#ffmpeg.drawtext.
-    boxborderw = 8
-    common_kwargs: dict[str] = dict(
-        x=f'w*.97-tw-{boxborderw}',
-        fontfile=font_filename,
-        escape_text=False,
-        fontcolor='White',
-        box=1,
-        boxcolor='Navy',
-        expansion='normal',
-        boxborderw=boxborderw,
-        fontsize=36)
-    stream = ffmpeg.drawtext(stream, text='Frame: %{frame_num}', y='h*0.88-lh', **common_kwargs)
+        if os.path.exists(output_filename):
+            if not overwrite:
+                print(f'{output_filename} already exists. Skipping.')
+                return
+            os.remove(output_filename)
 
-    stream = ffmpeg.output(stream, output_filename)
-    ffmpeg.run(stream, overwrite_output=True, quiet=True)
-    print(f'Done annotating "{input_filename}".')
+        print(f'Annotating "{input_filename}"...')
+        font_filename = os.path.abspath(os.path.join('resources', 'Apex-Medium.ttf'))
+        stream = ffmpeg.input(input_filename)
+
+        # Draw text. See https://kkroening.github.io/ffmpeg-python/#ffmpeg.drawtext.
+        boxborderw = 8
+        common_kwargs: dict[str] = dict(
+            x=f'w*.97-tw-{boxborderw}',
+            fontfile=font_filename,
+            escape_text=False,
+            fontcolor='White',
+            box=1,
+            boxcolor='Navy',
+            expansion='normal',
+            boxborderw=boxborderw,
+            fontsize=36)
+        stream = ffmpeg.drawtext(stream, text='Frame: %{frame_num}', y='h*0.88-lh', **common_kwargs)
+
+        stream = ffmpeg.output(stream, output_filename)
+        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        print(f'Done annotating "{input_filename}".')
+    except Exception as ex:
+        print(f'Error occurred during annotation: {ex}', file=sys.stderr)
 
 
 if __name__ == '__main__':

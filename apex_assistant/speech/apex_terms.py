@@ -171,6 +171,7 @@ TURBOCHARGER = Term(
     'Turbocharger', 'dipper charger', 'gerber charger', 'to a charger', 'turbo charger',
     'temperature', 'timber charger', 'supercharger', 'derpacharger', 'double charger',
     'There we are Roger', 'terroir charger', 'to butch rogers', 'gibber-chatter')
+TURBOCHARGED = Term('turbocharged', 'gerber charged', 'gerber charge', 'turbo charged')
 _EVA = Term('eva', 'you', 'eat the', 'if a', 'either', 'ebay', 'you\'re', 'eve at', 'eve',
             'of the')
 EVA_8 = (Term('eva 8', 'eva', 'e-rate', 'ebay', 'ev8', 'eva', 'evade', 'eva8', 'E-V-A-T-E', 'ebate',
@@ -285,6 +286,7 @@ SELECTFIRE_RECEIVER = (
 RELIC = Term('relic', 'relict', 'relick', 'relik')
 BEAM_SHOT = Term('beam', 'bean') + Term('shot')
 SHEILA = Term('Sheila', 'CELA', 'Sila')
+SKULLPIERCER = Term('skullpiercer', 'skull piercer')
 
 
 _SUFFIX_TO_TYPE_DICT: Mapping[TermBase, SuffixedArchetypeType] = MappingProxyType({
@@ -300,27 +302,27 @@ _SUFFIX_TO_TYPE_DICT: Mapping[TermBase, SuffixedArchetypeType] = MappingProxyTyp
     AMPED: SuffixedArchetypeType.REVVED_UP,
     AKIMBO: SuffixedArchetypeType.AKIMBO,
     RELIC: SuffixedArchetypeType.RELIC,
-    SELECTFIRE_RECEIVER: SuffixedArchetypeType.HOPPED_UP
+    SELECTFIRE_RECEIVER: SuffixedArchetypeType.HOPPED_UP,
+    TURBOCHARGED: SuffixedArchetypeType.HOPPED_UP,
+    SKULLPIERCER: SuffixedArchetypeType.HOPPED_UP
 })
 
 ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
     MappingProxyType[Term, Optional[Tuple[Suffix, ...]]]
 ) = MappingProxyType({
-    THIRTY_THIRTY_REPEATER: (Suffix(RELIC, SLOW), Suffix(SLOW), Suffix(RELIC)),
+    THIRTY_THIRTY_REPEATER: (Suffix(SKULLPIERCER, SLOW), Suffix(SLOW), Suffix(SKULLPIERCER)),
     ALTERNATOR: None,
-    # Want to make sure that "Bocek", "Devotion", and "EVA-8" resolve to weapons till they switch
-    # back to not having shatter caps.
-    BOCEK.append(OPT_WITH_EXCL, SHATTER_CAPS.opt()): Suffix(MINIMAL_DRAW),
+    BOCEK: (Suffix(MINIMAL_DRAW), Suffix(REVVED), Suffix(REVVED, MINIMAL_DRAW)),
     CAR.append(SMG_OPT): None,
     CHARGE_RIFLE: Suffix(SELECTFIRE_RECEIVER),
-    DEVOTION: None,
-    EVA_8: Suffix(BOOSTED_LOADER),
+    DEVOTION: Suffix(TURBOCHARGED),
+    EVA_8: None,
     FLATLINE: None,
     G7_SCOUT: None,
-    HAVOC.append_order_agnostic(CARE_PACKAGE_OPT): Suffix(BEAM_SHOT),
+    HAVOC: None,
     HEMLOK: Suffix(FIRE_MODE_SINGLE),
     KRABER: None,
-    LONGBOW: None,
+    LONGBOW: Suffix(SKULLPIERCER),
     L_STAR: None,
     MASTIFF: None,
     MOZAMBIQUE: Suffix(AKIMBO),
@@ -332,13 +334,11 @@ ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT: (
     R99: None,
     RAMPAGE: Suffix(REVVED),
     RE_45: None,
-    SENTINEL: (Suffix(BOOSTED_LOADER, AMPED),
-               Suffix(BOOSTED_LOADER),
-               Suffix(AMPED)),
+    SENTINEL: Suffix(AMPED),
     SPITFIRE: None,
-    TRIPLE_TAKE: Suffix(BOOSTED_LOADER),
+    TRIPLE_TAKE.append(CARE_PACKAGE_OPT): None,
     VOLT.append(SMG_OPT): None,
-    WINGMAN: Suffix(BOOSTED_LOADER),
+    WINGMAN: Suffix(SKULLPIERCER),
     SHEILA: None
 })
 for key, value in ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT.items():
