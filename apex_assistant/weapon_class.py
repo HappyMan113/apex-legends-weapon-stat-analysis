@@ -14,7 +14,7 @@ class WeaponClass(StrEnum):
 
     __ALIASES_DICT: dict['WeaponClass', RequiredTerm] = {
         ASSAULT_RIFLE: Term('ARs'),
-        LMG: Term('LNGE', 'LMGs', 'LNG'),
+        LMG: Term('LMGs'),
         MARKSMAN: Term('marksmans'),
         PISTOL: Term('pistols'),
         SHOTGUN: Term('shotguns'),

@@ -1,6 +1,7 @@
 import math
 from dataclasses import dataclass
 from enum import IntEnum
+from types import MappingProxyType
 from typing import Iterable, Tuple
 
 import numpy as np
@@ -61,7 +62,8 @@ _DISTANCES_METERS_WEIGHTS = _get_readonly_view(np.array([1, 1, 1, 2, 2, 2], dtyp
 # meaning that incoming damage increases over time. However, the shape of the curve describing
 # incoming damage over time is not immediately obvious. If we assume linearly increasing damage
 # over time, that would mean quadratically decreasing health over time. The parameters below are
-# what I came up with when trying to fit the Weibull survival function against my own ver y
+# what I came up with when trying to fit the Weibull survival function against my own very limited
+# data
 # k=1 - no way that's right; the peak of the density is at 0
 # k=1.25 - peaks really early, but maybe that's believable
 # k=1.5 - believable if shifted to the right
@@ -69,7 +71,10 @@ _DISTANCES_METERS_WEIGHTS = _get_readonly_view(np.array([1, 1, 1, 2, 2, 2], dtyp
 # k=2.5 - dubious
 # k>=3 - no way that's right; it doesn't allow for drawn-out encounters
 __K: float = 1.25
-__LMBDA: float = 2  # Should probably be somewhere between 1 & 3.
+# Should probably be somewhere between 1 & 3. In my experience, for a k of 1.25, lambda should be
+# around 2.0 to model all typical engagements, whereas lambda should be around 2.4 to model time to
+# die for engagements where I died.
+__LMBDA: float = 2.4
 
 # It is technically possible to get a die faster than 0.5 seconds, but assuming that this is the
 # minimum results in a more believable probability density.
@@ -80,9 +85,15 @@ __percentiles = np.linspace(0, 1, num=__NUM_TIME_SAMPLES, endpoint=False)
 __TIMES_AVAILABLE_TO_KILL = weibull.ppf(__percentiles, c=__K, scale=__LMBDA) + min_time_to_kill
 
 
-# noinspection PyUnusedLocal
-def get_distance_time_multiplier(distance_meters: SupportedDistanceMeters) -> float:
-    return 1
+__TIME_MULTIPLIERS = MappingProxyType({
+    distance_meters: 1 if float(distance_meters) <= HIPFIRE_DISTANCE_METERS else 0.7
+    for distance_meters in SupportedDistanceMeters
+})
+
+
+def get_time_multiplier(distance_meters: SupportedDistanceMeters) -> float:
+    return __TIME_MULTIPLIERS[distance_meters]
+
 
 # Fixed time windows to assume when determining how much time we have to accumulate P(kill).
 _TIMES_AVAILABLE_TO_KILL_WEIGHTS = np.ones_like(__TIMES_AVAILABLE_TO_KILL, dtype=float)

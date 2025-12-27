@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 cd "$PSScriptRoot\.."
 
-python .\scripts\python_version_check.py
+python .\scripts\python\python_version_check.py
 if ($LASTEXITCODE -ne 0) { exit }
 
 $install_path = $Env:APEX_ASSISTANT_INSTALL_PATH
@@ -13,13 +13,8 @@ $install_path = "$install_path\Apex Assistant"
 $venv_path = "$install_path\venv"
 echo "Setting up venv in $install_path"
 
-# Clean.
-try {
-    Remove-Item -Recurse $venv_path
-} catch [System.Management.Automation.ItemNotFoundException] {}
-
 # Create virtual environement.
-python -m venv $venv_path
+python -m venv $venv_path --clear
 if ($LASTEXITCODE -ne 0) { exit }
 
 # Activate virtual environment.
@@ -39,7 +34,7 @@ pip config set --site install.no-deps true
 
 # Install required packages.
 # https://download.pytorch.org/whl/cu121 has torch packages.
-pip install -r .\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121 --ignore-requires-python --no-compile
+pip install -r .\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128 --ignore-requires-python --no-compile
 if ($LASTEXITCODE -ne 0) { exit }
 
 .\scripts\install.ps1

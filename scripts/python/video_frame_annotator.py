@@ -1,8 +1,15 @@
+# To run this script, FFMpeg must be installed:
+# winget install Gyan.FFmpeg
+#
+# Must also install ffmpeg:
+# pip install ffmpeg
+
 import glob
 import os
 import sys
+import traceback
 from multiprocessing import Pool, cpu_count
-from typing import Iterable
+from typing import Any, Iterable
 
 import ffmpeg
 
@@ -77,11 +84,15 @@ def annotate_frame_and_time(input_filename: str, overwrite: bool = True):
 
         print(f'Annotating "{input_filename}"...')
         font_filename = os.path.abspath(os.path.join('resources', 'Apex-Medium.ttf'))
+        if not os.path.isfile(font_filename):
+            print(f'Font file not found: {font_filename}!', file=sys.stderr)
+            return
+
         stream = ffmpeg.input(input_filename)
 
         # Draw text. See https://kkroening.github.io/ffmpeg-python/#ffmpeg.drawtext.
         boxborderw = 8
-        common_kwargs: dict[str] = dict(
+        common_kwargs: dict[str, Any] = dict(
             x=f'w*.97-tw-{boxborderw}',
             fontfile=font_filename,
             escape_text=False,
@@ -94,10 +105,17 @@ def annotate_frame_and_time(input_filename: str, overwrite: bool = True):
         stream = ffmpeg.drawtext(stream, text='Frame: %{frame_num}', y='h*0.88-lh', **common_kwargs)
 
         stream = ffmpeg.output(stream, output_filename)
-        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        try:
+            ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        except Exception as ex:
+            traceback.print_exception(ex)
+            print(f'Unable to run ffmpeg. Is it installed?')
+            return
+
         print(f'Done annotating "{input_filename}".')
     except Exception as ex:
         print(f'Error occurred during annotation: {ex}', file=sys.stderr)
+        traceback.print_exception(ex)
 
 
 if __name__ == '__main__':

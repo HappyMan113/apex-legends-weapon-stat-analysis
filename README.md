@@ -19,7 +19,6 @@ the final P(kill) value.
   - [S21 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/upheaval-patch-notes)
   - [S21 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/double-take-collection-event)
   - [S22 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/shockwave-patch-notes)
-  - [Reddit comment with the new G7 Scout fire rate](https://www.reddit.com/r/apexlegends/comments/1dwbf4o/comment/lbtsc84/)
   - [S22 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/space-hunt-event)
   - [X Post about Mozambique Nerf](https://x.com/Respawn/status/1844427285916680379)
   - [S23 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/from-the-rift-season-updates)
@@ -28,76 +27,35 @@ the final P(kill) value.
   - [X Post with S24 mid-season patch notes](https://x.com/Respawn/status/1909722102892314681)
   - [S25 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/prodigy-patch-notes)
   - [X Post with S25 early-season patch notes](https://x.com/Respawn/status/1922450385207455919)
+  - [S25 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/future-icons-event)
+  - [S26 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/showdown-patch-notes)
+  - [S26 mid-season patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/wild-iron-event)
+  - [S27 patch notes](https://www.ea.com/games/apex-legends/apex-legends/news/amped-patch-notes)
 - Reload times are assumed to be tactical reload times with only 1 bullet left in the magazine.
 - Swap times were calculated as "Holster Time" + "Ready to Fire" time that I calculated from my
   recordings. The values I got were close to the values in the Reddit post
   [here](https://www.reddit.com/r/apexlegends/comments/13rtny9/the_foundational_flaw_of_apex_legends/)
   which describes Ready to Fire time (referred to as "Draw Time" in the post).
-- For <!--Hammerpoint and -->Disruptor hop-ups, the DPS is calculated as the average of the DPS when
-  no bonus damage is applied and the DPS when the bonus damage does apply. Essentially a 50/50
-  split for shielded/unshielded shots.
+- For Hammerpoint and Disruptor hop-ups, the DPS is calculated as the average of the DPS when no
+  bonus damage is applied and the DPS when the bonus damage does apply. Essentially a 50/50 split
+  for shielded/unshielded shots.
 - Accuracy at various distances was measured against fully kitted variants of weapons. Dummies
   were standing still, and I (the player) was strafing back and forth to try to take into
   account fire spread. Accuracy was calculated simply as the interpolated value between the two
   nearest accuracy data points.
-  - For measurements of accuracy at 10 meter and closer ranges, I used hipfire. 
-  - For measurements of accuracy at 160 meter measurements and further, for most weapons I figured
+  - For measurements of accuracy at 10 meter and closer ranges, I used hipfire.
+    <!-- TODO: Redo some of the accuracy measurements here that would have been affected by hits not
+    being counted due to dummies not being reset prior to getting finished off -->
+  - For measurements of accuracy at 80 meter measurements and further, for most weapons I figured
     the fire spread would still be taken into account with me standing still and that the risk of
     dying due to standing still was pretty low, so I stood still and crouched in most cases.
 
-## Speech-to-Text and Text-to-Speech
-
-- Speech-to-Text is done locally through faster-whisper, which is a reimplementation of OpenAI's
-  whisper model. Ideally you will be able to do this with a GPU. See prerequisites below.
-- Text-to-Speech is done through OpenAI's tts-1 model, with a fallback to being done locally. See
-  Prerequisites below.
-
 # Prerequisites
 
-- Must be on Windows.
-- Must have a microphone.
-- Must set up OpenAI API key for text-to-speech to be done using the OpenAI's tts-1 engine as
-  opposed to TTS being done locally on your machine.
-    - [Create a Project Key](https://platform.openai.com/api-keys)
-    - Set environment variable `OPENAI_API_KEY` to your project key.
-    - [Add funds](https://platform.openai.com/settings/organization/billing/overview) if needed (I
-      wasn't able to make API requests for free, but maybe you'll have better luck).
-    - Must have an internet connection to be able to make OpenAI API requests.
-- Must have NVIDIA CUDA GPU to allow GPU-based Speech-to-Text to work on your machine (CPU-based STT
-  may slow down your machine, which wouldn't be ideal for playing Apex).
-    - Make sure you've installed
-      [NVIDIA GPU Drivers](https://www.nvidia.com/download/index.aspx?lang=en-us)
-- Install FFMpeg
-  ```shell
-  winget install Gyan.FFmpeg
-  ```
 - Install 7-Zip.
   ```shell
   winget install -e --id 7zip.7zip
   ```
-- (Recommended)
-  [Enable developer mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development)
-  to allow for symbolic links to work which is what's ideal when using the distil-large-v3 model. If
-  you leave developer mode disabled, the slower large-v2 model will be used.
-
-See the
-[RealtimeSST README](https://github.com/KoljaB/RealtimeSTT?tab=readme-ov-file#steps-that-might-be-necessary-before)
-for more information.
-
-<!--
-## Get your Azure API keys:
-- [Azure Portal](https://portal.azure.com/?quickstart=true#home)
-- [Guide to creating API keys](https://docs.merkulov.design/how-to-get-microsoft-azure-tts-api-key/)
-
-## Get ElevenLabs
-- `python -m pip install --upgrade elevenlabs==0.2.27`
-- `python -m pip install --upgrade elevenlabs==1.2.2`
-- Get your ElevenLabs API key: https://elevenlabs.io/app/speech-synthesis
-    - Get MPV https://sourceforge.net/projects/mpv-player-windows/
-    - Run bootstrapper
-- Run install script
-- Add install location with exe to your Path
--->
 
 ## User Installation
 
@@ -109,7 +67,7 @@ download apex-assistant.7z. Extract the archive using [7-Zip](https://www.7-zip.
 
 Run `apex-assistant.bat` which you just extracted. Wait for audio recording to start.
 
-### Voice Command Syntax
+### Command Line Syntax
 
 Filler words are ignored, and a lot of variations are allowed. However, the documented syntax is as
 follows:
@@ -128,11 +86,6 @@ Argument syntaxes are further broken down as follows:
 | `<class>`  | `<AR\|LMG\|MARKSMAN\|PISTOL\|SHOTGUN\|SMG\|SNIPER>`                                                                                                                                                                                                    |
 
 # Developer Guide
-
-<!--
-## [Build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-Just get "Desktop development with C++"
--->
 
 ## Set up Virtual Environment
 

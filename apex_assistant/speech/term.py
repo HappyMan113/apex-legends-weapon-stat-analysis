@@ -1,9 +1,16 @@
 import abc
 import string
 from abc import ABC
-from enum import StrEnum
 from types import MappingProxyType
-from typing import Generator, Iterable, Iterator, Tuple, TypeAlias, Union, final
+from typing import (AbstractSet,
+                    Generator,
+                    Iterable,
+                    Iterator,
+                    Tuple,
+                    TypeAlias,
+                    Union,
+                    final,
+                    override)
 
 from apex_assistant.checker import check_bool, check_int, check_str, check_tuple, check_type
 
@@ -43,21 +50,25 @@ class Words:
         elif not isinstance(words, tuple):
             words = tuple(words)
             check_tuple(Word, words=words)
-        self.words = words
+        self.words: Tuple[Word, ...] = words
 
-    def __repr__(self):
+    @override
+    def __repr__(self) -> str:
         return ' '.join(map(repr, self.words))
 
-    def __str__(self):
+    @override
+    def __str__(self) -> str:
         return ' '.join(map(str, self.words))
 
-    def get_words(self) -> tuple[Word]:
+    def get_words(self) -> tuple[Word, ...]:
         return self.words
 
-    def __hash__(self):
+    @override
+    def __hash__(self) -> int:
         return hash(self.words)
 
-    def __eq__(self, other):
+    @override
+    def __eq__(self, other) -> bool:
         return isinstance(other, Words) and self.words == other.words
 
     def __getitem__(self, sl: Union[int, slice]):
@@ -79,11 +90,6 @@ class Words:
 
     def __iter__(self) -> Iterator[Word]:
         return self.words.__iter__()
-
-
-class _WordsAreForWhat(StrEnum):
-    FOR_SPEECH = 'for_speech'
-    FOR_TEXT = 'for_text'
 
 
 REQ_TERM: TypeAlias = 'RequiredTerm'
@@ -118,7 +124,7 @@ class TermBase(abc.ABC):
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
     @abc.abstractmethod
-    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+    def get_human_readable_words(self) -> Generator[Words, None, None]:
         """Gets the words in this term that would be good for speaking or printing."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
@@ -129,11 +135,7 @@ class TermBase(abc.ABC):
 
     def __str__(self) -> str:
         """Gets a string representation of this term that would be good for speaking or printing."""
-        return ' '.join(map(str, self.get_human_readable_words(_WordsAreForWhat.FOR_TEXT)))
-
-    def to_audible_str(self) -> str:
-        """Gets a string representation of this term that would be good for speaking or printing."""
-        return ' '.join(map(str, self.get_human_readable_words(_WordsAreForWhat.FOR_SPEECH)))
+        return ' '.join(map(str, self.get_human_readable_words()))
 
     def __add__(self, next_term: TERM) -> TERM:
         """Shorthand for self.append(next_term)."""
@@ -188,21 +190,23 @@ class RequiredTerm(TermBase, ABC):
         """Gets the first word in each Words object that translates to this term."""
         raise NotImplementedError(f'Must implement in {self.__class__.__name__}')
 
+    @override
     def __add__(self, next_term: TERM) -> REQ_TERM:
         check_type(TermBase, next_term=next_term)
         return self.append(next_term)
 
+    @override
     def append(self, *next_terms: TERM) -> REQ_TERM:
         check_tuple(TermBase, allow_empty=False, next_terms=next_terms)
         return CombinedTerm(self, *next_terms)
 
-    def opt(self, include_in_speech: bool = False) -> OPT_TERM:
+    def opt(self, include_in_output: bool = False) -> OPT_TERM:
         """
         A word translates into the resulting optional term if the word translates into self or if
         the word is blank.
         """
-        check_bool(include_in_speech=include_in_speech)
-        return OptTerm(self, include_in_speech=include_in_speech)
+        check_bool(include_in_output=include_in_output)
+        return OptTerm(self, include_in_output=include_in_output)
 
     def __or__(self, other: REQ_TERM) -> REQ_TERM:
         """Shorthand for self.or_any(other)."""
@@ -217,16 +221,19 @@ class RequiredTerm(TermBase, ABC):
         check_tuple(allowed_element_types=RequiredTerm, allow_empty=False, or_operands=or_operands)
         return OrTerm(*((self,) + or_operands))
 
+    @override
     def _insert_opt(self, term_to_insert: OPT_TERM) -> REQ_TERM:
         without_opt_term = self
         with_opt_term = CombinedTerm(term_to_insert.get_wrapped_term(), without_opt_term)
-        if term_to_insert.included_by_default():
+        if term_to_insert.include_in_output():
             return with_opt_term | without_opt_term
         return without_opt_term | with_opt_term
 
+    @override
     def unwrap(self) -> Tuple['RequiredTerm', bool]:
         return self, False
 
+    @override
     def _insert_order_agnostic(self, other_term: REQ_TERM) -> REQ_TERM:
         return (self + other_term) | (self + other_term)
 
@@ -252,7 +259,7 @@ class Term(RequiredTerm):
                  known_term: Union[str, Words],
                  *variations: Union[str, Words]):
         known_term = self._map_term(known_term)
-        variations: set[Words, ...] = set(map(self._map_term, variations)) - {known_term}
+        variations: AbstractSet[Words] = frozenset(map(self._map_term, variations)) - {known_term}
         variations_dict: dict[Word, set[Words]] = {}
         for variation in variations:
             first_word = variation.get_first_word()
@@ -278,6 +285,7 @@ class Term(RequiredTerm):
             for variation in variations:
                 yield variation
 
+    @override
     def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
         check_type(Words, said_words=said_words)
         max_num_words = min(len(said_words), self.get_max_variation_len())
@@ -286,12 +294,15 @@ class Term(RequiredTerm):
                                 range(max_num_words, min_num_words - 1, -1)):
             yield num_words
 
+    @override
     def get_max_variation_len(self) -> int:
         return self._max_variation_len
 
+    @override
     def get_min_variation_len(self) -> int:
         return self._min_variation_len
 
+    @override
     def has_variation(self, said_words: Words) -> bool:
         check_type(Words, said_words=said_words)
         if len(said_words) == 0:
@@ -304,12 +315,15 @@ class Term(RequiredTerm):
         variations_n = self._variations_dict.get(first_word, None)
         return variations_n is not None and said_words in variations_n
 
+    @override
     def has_variation_len(self, n) -> bool:
         return n == len(self._known_term) or n in self._variations_dict
 
-    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+    @override
+    def get_human_readable_words(self) -> Generator[Words, None, None]:
         yield self._known_term
 
+    @override
     def __repr__(self) -> str:
         delim = '|'
         words: list[Words] = [self._known_term]
@@ -317,24 +331,27 @@ class Term(RequiredTerm):
             words.extend(values)
         return '{' + delim.join(map(repr, words)) + '}'
 
+    @override
     def get_possible_first_words(self) -> Generator[Word | None, None, None]:
         for first_word in self._first_words:
             yield first_word
 
+    @override
     def __hash__(self) -> int:
         return hash(self.__class__) ^ self._known_term.__hash__()
 
+    @override
     def __eq__(self, other: 'Term') -> bool:
         return isinstance(other, Term) and other._known_term.__eq__(self._known_term)
 
 
 class OptTerm(TermBase):
-    def __init__(self, opt_word: RequiredTerm, include_in_speech: bool):
+    def __init__(self, opt_word: RequiredTerm, include_in_output: bool):
         check_type(RequiredTerm, opt_word=opt_word)
-        check_bool(include_in_speech=include_in_speech)
+        check_bool(include_in_output=include_in_output)
 
         self._wrapped = opt_word
-        self._include_in_speech = include_in_speech
+        self._include_in_output = include_in_output
 
     def get_max_variation_len(self) -> int:
         return self._wrapped.get_max_variation_len()
@@ -342,11 +359,9 @@ class OptTerm(TermBase):
     def get_min_variation_len(self) -> int:
         return 0
 
-    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
-        check_type(_WordsAreForWhat, for_what=for_what)
-        if self._include_in_speech or (for_what is not _WordsAreForWhat.FOR_SPEECH):
-            for words in self._wrapped.get_human_readable_words(for_what):
-                yield words
+    def get_human_readable_words(self) -> Generator[Words, None, None]:
+        for words in self._wrapped.get_human_readable_words():
+            yield words
 
     def __repr__(self):
         return f'[{repr(self._wrapped)}]'
@@ -378,40 +393,34 @@ class OptTerm(TermBase):
         # We're going to have to account for all 4 possible permutations.
         term1: RequiredTerm = term_to_insert.get_wrapped_term()
         term2: RequiredTerm = self.get_wrapped_term()
-        incl_term1 = term_to_insert.included_by_default()
-        incl_term2 = self.included_by_default()
         both_terms = term1 + term2
-        if incl_term1 and incl_term2:
-            req_terms = (both_terms, term1, term2)
-            include_in_speech = True
-        elif incl_term2:
-            req_terms = (term2, term1, both_terms)
-            include_in_speech = True
-        else:
-            req_terms = (term1, term2, both_terms)
-            include_in_speech = incl_term1
-        return OrTerm(*req_terms).opt(include_in_speech=include_in_speech)
+        req_terms = (both_terms, term1, term2)
+        return OrTerm(*req_terms).opt()
 
     def get_wrapped_term(self) -> RequiredTerm:
         """Gets the required term that is wrapped by this optional term."""
         return self._wrapped
 
-    def included_by_default(self) -> bool:
-        """Gets whether the wrapped required term is included by default in speakable strings."""
-        return self._include_in_speech
+    def include_in_output(self) -> bool:
+        """Gets whether the wrapped required term is included in outputted text."""
+        return self._include_in_output
 
+    @override
     def unwrap(self) -> Tuple['RequiredTerm', bool]:
         return self.get_wrapped_term(), True
 
+    @override
     def _insert_order_agnostic(self, other_term: REQ_TERM) -> REQ_TERM:
         wrapped = self.get_wrapped_term()
         return (((wrapped + other_term) | (other_term + wrapped) | other_term)
-                if self.included_by_default() else
+                if self._include_in_output else
                 (other_term | (wrapped + other_term) | (other_term + wrapped)))
 
+    @override
     def __hash__(self) -> int:
         return hash(self.__class__) ^ hash(self._wrapped)
 
+    @override
     def __eq__(self, other: 'OptTerm') -> bool:
         return isinstance(other, OptTerm) and other._wrapped == self._wrapped
 
@@ -427,17 +436,21 @@ class CombinedTerm(RequiredTerm):
         self.min_variation_len = sum(term.get_min_variation_len() for term in sub_terms)
         self.sub_terms = sub_terms
 
+    @override
     def get_max_variation_len(self) -> int:
         return self.max_variation_len
 
+    @override
     def get_min_variation_len(self) -> int:
         return self.min_variation_len
 
+    @override
     def has_variation(self, said_words: Words) -> bool:
         check_type(Words, said_words=said_words)
         return any(len(said_words) == num_words
                    for num_words in self.get_variation_lens(said_words))
 
+    @override
     def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
         check_type(Words, said_words=said_words)
         return self.__get_variation_lens(0, self.sub_terms, said_words)
@@ -466,26 +479,32 @@ class CombinedTerm(RequiredTerm):
                                                     already_yielded=already_yielded):
                 yield result
 
+    @override
     def has_variation_len(self, n: int) -> bool:
         check_int(min_value=0, n=n)
         # Not totally accurate, but good enough for now.
         return self.max_variation_len >= n >= self.min_variation_len
 
-    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
+    @override
+    def get_human_readable_words(self) -> Generator[Words, None, None]:
         for sub_term in self.sub_terms:
-            for words in sub_term.get_human_readable_words(for_what):
+            for words in sub_term.get_human_readable_words():
                 yield words
 
+    @override
     def __repr__(self) -> str:
         return '(' + ' '.join(map(repr, self.sub_terms)) + ')'
 
+    @override
     def get_possible_first_words(self) -> Generator[Word, None, None]:
         for word in self.first_sub_term.get_possible_first_words():
             yield word
 
+    @override
     def __hash__(self) -> int:
         return hash(self.__class__) ^ hash(self.sub_terms)
 
+    @override
     def __eq__(self, other: 'CombinedTerm') -> bool:
         return isinstance(other, CombinedTerm) and other.sub_terms == self.sub_terms
 
@@ -501,12 +520,15 @@ class OrTerm(RequiredTerm):
         self.min_variation_len = min(operand.get_max_variation_len()
                                      for operand in self.or_operands)
 
+    @override
     def get_max_variation_len(self) -> int:
         return self.max_variation_len
 
+    @override
     def get_min_variation_len(self) -> int:
         return self.min_variation_len
 
+    @override
     def get_variation_lens(self, said_words: Words) -> Generator[int, None, None]:
         check_type(Words, said_words=said_words)
         accum = set[int]()
@@ -516,31 +538,38 @@ class OrTerm(RequiredTerm):
                     accum.add(variation_len)
                     yield variation_len
 
+    @override
     def has_variation_len(self, n: int) -> bool:
         check_int(min_value=0, n=n)
         return any(operand.has_variation_len(n)
                    for operand in self.or_operands)
 
+    @override
     def has_variation(self, said_words: Words) -> bool:
         check_type(Words, said_words=said_words)
         return any(operand.has_variation(said_words)
                    for operand in self.or_operands)
 
+    @override
     def get_possible_first_words(self) -> Generator[Word, None, None]:
         for operand in self.or_operands:
             for possible_first_word in operand.get_possible_first_words():
                 yield possible_first_word
 
-    def get_human_readable_words(self, for_what: _WordsAreForWhat) -> Generator[Words, None, None]:
-        for words in self.or_operands[0].get_human_readable_words(for_what):
+    @override
+    def get_human_readable_words(self) -> Generator[Words, None, None]:
+        for words in self.or_operands[0].get_human_readable_words():
             yield words
 
+    @override
     def __repr__(self):
         return '(' + ' | '.join(map(repr, self.or_operands)) + ')'
 
+    @override
     def __hash__(self) -> int:
         return hash(self.__class__) ^ hash(self.or_operands)
 
+    @override
     def __eq__(self, other: 'OrTerm') -> bool:
         return isinstance(other, OrTerm) and other.or_operands == self.or_operands
 

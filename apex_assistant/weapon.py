@@ -39,7 +39,7 @@ from apex_assistant.config import (CONFIG,
                                    MAX_NUM_PERMUTED_WEAPONS,
                                    PLAYER_ACCURACY,
                                    SupportedDistanceMeters,
-                                   get_distance_time_multiplier,
+                                   get_time_multiplier,
                                    get_p_kill_for_damages_to_kill,
                                    get_p_kill_for_distances,
                                    get_p_kill_for_times)
@@ -149,7 +149,7 @@ def _get_p_nums_hits_and_damages(weapons_and_shot_times: Iterable[WeaponStats],
             continue
 
         too_late_indices = np.flatnonzero(shot_times_seconds >= time_given_seconds)
-        num_rounds = too_late_indices[0]
+        num_rounds = int(too_late_indices[0])
         if num_rounds > 0:
             p_nums_hits_slice = weapon.get_num_hit_probabilities(
                 num_shots=num_rounds,
@@ -168,7 +168,7 @@ class ExcludeFlag(IntEnum):
     NON_REVVED_UP = 0x10
     AKIMBO = 0x20
     NON_AKIMBO = 0x40
-    RELIC = 0x80
+    TURBOCHARGED = 0x80
 
     def find(self, exclude_flags: int) -> bool:
         return (exclude_flags & self.value) != 0
@@ -371,6 +371,7 @@ class RoundTimingType(StrEnum):
     BURST = 'burst'
     NEMESIS = 'nemesis'
     NONE = 'none'
+    DELAY_AND_BURST = 'delay and burst'
 
 
 _HUMAN_REACTION_TIME_SECONDS = 0.2
@@ -410,10 +411,10 @@ class RoundTimingDevotion(RoundTiming):
         rps_final = base_weapon.get_rounds_per_second()
         rps_per_sec = (rps_final - rps_initial) / self._spinup_time_seconds
 
-        times: np.ndarray[np.float64] = np.empty(magazine_capacity)
+        times: NDArray[np.float64] = np.empty(magazine_capacity)
         times[0] = 0
         for round_num in range(1, magazine_capacity):
-            prev_t = times[round_num - 1]
+            prev_t = float(times[round_num - 1])
             rps_t = min(rps_final, rps_initial + rps_per_sec * prev_t)
             seconds_per_round_t = 1 / rps_t
             times[round_num] = prev_t + seconds_per_round_t
@@ -431,10 +432,12 @@ class RoundTimingDevotion(RoundTiming):
 
 
 class _RoundTimingBurstBase(RoundTiming, abc.ABC):
-    def __init__(self, rounds_per_burst: int):
+    def __init__(self, rounds_per_burst: int, spinup_time: float = 0):
         super().__init__()
         check_int(min_value=2, rounds_per_burst=rounds_per_burst)
+        check_float(spinup_time=spinup_time, min_value=0)
         self._rounds_per_burst = rounds_per_burst
+        self._spinup_time = spinup_time
 
     def _get_burst_nums_rounds(self, base_weapon: 'Weapon', tactical: int) -> \
             np.ndarray[np.integer, ...]:
@@ -454,7 +457,7 @@ class _RoundTimingBurstBase(RoundTiming, abc.ABC):
         return burst_duration_seconds
 
     def _get_burst_durations_seconds(self, base_weapon: 'Weapon', tactical: int) -> \
-            np.ndarray[np.float64]:
+            NDArray[np.float64]:
         nums_rounds = self._get_burst_nums_rounds(base_weapon, tactical)
         burst_durations_seconds = self._get_burst_duration_seconds(base_weapon, nums_rounds)
         return burst_durations_seconds
@@ -462,17 +465,19 @@ class _RoundTimingBurstBase(RoundTiming, abc.ABC):
     @abc.abstractmethod
     def _get_burst_periods_seconds(self,
                                    base_weapon: 'Weapon',
-                                   tactical: int) -> np.ndarray[np.float64]:
+                                   tactical: int) -> NDArray[np.float64]:
         raise NotImplementedError()
 
     def get_shot_times_seconds(self, base_weapon: 'Weapon') -> NDArray[np.float64]:
         burst_periods_seconds = self._get_burst_periods_seconds(base_weapon, tactical=0)
-        burst_stop_times_seconds = burst_periods_seconds.cumsum()
-        burst_start_times_seconds = np.append(0, burst_stop_times_seconds[:-1])
+        burst_stop_times_seconds = burst_periods_seconds.cumsum() + self._spinup_time
+        burst_start_times_seconds = np.append(self._spinup_time, burst_stop_times_seconds[:-1])
         round_relative_start_times_seconds = (np.arange(self._rounds_per_burst) /
                                               base_weapon.get_rounds_per_second())
-        round_times_seconds = (burst_start_times_seconds[:, np.newaxis] +
-                               round_relative_start_times_seconds[np.newaxis, :]).flatten()
+        # noinspection PyTypeChecker
+        round_times_seconds: NDArray[np.float64] = (
+                burst_start_times_seconds[:, np.newaxis] +
+                round_relative_start_times_seconds[np.newaxis, :]).flatten()
         return round_times_seconds
 
     def __hash__(self) -> int:
@@ -484,8 +489,8 @@ class _RoundTimingBurstBase(RoundTiming, abc.ABC):
 
 
 class RoundTimingBurst(_RoundTimingBurstBase):
-    def __init__(self, rounds_per_burst: int, burst_fire_delay: float):
-        super().__init__(rounds_per_burst=rounds_per_burst)
+    def __init__(self, rounds_per_burst: int, burst_fire_delay: float, spinup_time: float = 0):
+        super().__init__(rounds_per_burst=rounds_per_burst, spinup_time=spinup_time)
         check_float(min_value=0,
                     min_is_exclusive=True,
                     burst_fire_delay=burst_fire_delay)
@@ -532,7 +537,7 @@ class RoundTimingNemesis(_RoundTimingBurstBase):
 
     def _get_burst_periods_seconds(self,
                                    base_weapon: 'Weapon',
-                                   tactical: int) -> np.ndarray[np.float64]:
+                                   tactical: int) -> NDArray[np.float64]:
         burst_durations_seconds = self._get_burst_durations_seconds(base_weapon=base_weapon,
                                                                     tactical=tactical)
         num_bursts = len(burst_durations_seconds)
@@ -588,7 +593,7 @@ class RoundTimingRegular(RoundTiming):
         return isinstance(other, RoundTimingRegular)
 
 
-class RoundTimingHavoc(RoundTiming):
+class RoundTimingDelay(RoundTiming):
     _NO_SPINUP = RoundTimingRegular.get_instance()
 
     def __init__(self, spinup_time_seconds: float):
@@ -602,7 +607,7 @@ class RoundTimingHavoc(RoundTiming):
         return hash(self.__class__) ^ hash(self._spinup_time_seconds)
 
     def __eq__(self, other):
-        return (isinstance(other, RoundTimingHavoc) and
+        return (isinstance(other, RoundTimingDelay) and
                 other._spinup_time_seconds == self._spinup_time_seconds)
 
 
@@ -728,7 +733,7 @@ class FullLoadoutConfiguration(StrEnum):
                           distance_meters: SupportedDistanceMeters) -> float:
         check_type(SupportedDistanceMeters, distance_meters=distance_meters)
 
-        times_given_seconds = (get_distance_time_multiplier(distance_meters) *
+        times_given_seconds = (get_time_multiplier(distance_meters) *
                                CONFIG.times_given_seconds)
 
         max_time_given_seconds = times_given_seconds.max()
@@ -747,7 +752,7 @@ class FullLoadoutConfiguration(StrEnum):
         return p_kill
 
     @staticmethod
-    def __get_p_kill_config(weapon_stats: Tuple[WeaponStats, ...],
+    def __get_p_kill_config(weapon_stats: Iterable[WeaponStats],
                             time_given_seconds: float,
                             distance_meters: SupportedDistanceMeters):
         damages_to_kill = CONFIG.damages_to_kill
@@ -801,10 +806,12 @@ class FullLoadoutConfiguration(StrEnum):
                                      shots_miss * probability_of_miss)
         assert shots_bools_probabilities.shape == (num_permutations, num_rounds)
 
-        permutation_probabilities = shots_bools_probabilities.cumprod(axis=1)[:, -1]
+        permutation_probabilities: NDArray[np.float64] = \
+            shots_bools_probabilities.cumprod(axis=1)[:, -1]
 
         assert permutation_probabilities.shape == (num_permutations,)
-        damage_permutations = shots_hit * damages
+        # noinspection PyTypeChecker
+        damage_permutations: NDArray[np.float64] = shots_hit * damages
         assert damage_permutations.shape == (num_permutations, num_rounds)
 
         return permutation_probabilities, damage_permutations
@@ -909,6 +916,7 @@ class FullLoadoutConfiguration(StrEnum):
         return str(self)
 
 
+# noinspection PyTypeChecker
 CONFIGURATIONS: Tuple[FullLoadoutConfiguration, ...] = tuple(FullLoadoutConfiguration)
 
 
@@ -1148,10 +1156,12 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
         self._term = term
         self._dists_to_pmfs: Mapping[SupportedDistanceMeters, NDArray[np.float64]] | None = None
 
-    def __calc_shot_probabilities(self, distance_meters: SupportedDistanceMeters):
+    def __calc_shot_probabilities(self, distance_meters: SupportedDistanceMeters) -> \
+            NDArray[np.float64]:
         num_shots = self.get_magazine_capacity(tactical=0)
 
         # Row indices plus one are for numbers of trials (shots); column indices are for k values.
+        # noinspection PyTypeChecker
         return binom.pmf(k=np.arange(num_shots + 1),
                          n=np.arange(1, num_shots + 1)[:, np.newaxis],
                          p=self.get_accuracy_fraction(distance_meters) * PLAYER_ACCURACY)
@@ -1284,8 +1294,6 @@ class SingleWeaponLoadout(Loadout, abc.ABC):
 
 
 class Weapon(SingleWeaponLoadout):
-    EIGHTY_PERCENT = 0.8
-
     def __init__(self,
                  archetype: 'WeaponArchetype',
                  name: str,
@@ -1434,7 +1442,8 @@ class _SingleShotLoadout(SingleWeaponLoadout):
         check_type(Weapon, wrapped_weapon=wrapped_weapon)
         super().__init__(wrapped_weapon.get_name(), wrapped_weapon.get_term())
         self.wrapped_weapon = wrapped_weapon
-        self.first_shot_time_seconds = self.wrapped_weapon.get_shot_times_seconds(tactical=0)[0]
+        self.first_shot_time_seconds = \
+            float(self.wrapped_weapon.get_shot_times_seconds(tactical=0)[0])
 
     def get_archetype(self) -> 'WeaponArchetype':
         return self.wrapped_weapon.get_archetype()
@@ -1753,7 +1762,7 @@ class WeaponArchetypes:
             SuffixedArchetypeType.HOPPED_UP: (ExcludeFlag.HOPPED_UP, ExcludeFlag.NON_HOPPED_UP),
             SuffixedArchetypeType.REVVED_UP: (ExcludeFlag.REVVED_UP, ExcludeFlag.NON_REVVED_UP),
             SuffixedArchetypeType.AKIMBO: (ExcludeFlag.AKIMBO, ExcludeFlag.NON_AKIMBO),
-            SuffixedArchetypeType.RELIC: (ExcludeFlag.RELIC, ExcludeFlag.NONE),
+            SuffixedArchetypeType.MODDED: (ExcludeFlag.TURBOCHARGED, ExcludeFlag.NONE),
         }
 
         for suffix_type, (exclude_it, exclude_not_it) in suffix_type_to_flags.items():
@@ -1807,7 +1816,7 @@ class WeaponArchetypes:
         if len(suffixed_archetypes) > 0:
             raise RuntimeError(
                 'Suffixed weapons found with no non-hopped-up equivalents: '
-                f'{set(suffixed_archetypes.values())}')
+                f'{tuple(suffixed_archetypes.values())}')
 
         return tuple(archetype_groups)
 

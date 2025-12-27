@@ -3,8 +3,6 @@ import os
 import sys
 from typing import Tuple
 
-from pydub.utils import which
-
 from apex_assistant.loadout_translator import LoadoutTranslator
 from apex_assistant.speech.apex_config import ApexConfig
 from apex_assistant.speech.command_registry import CommandRegistry
@@ -57,27 +55,14 @@ def set_up_logger(level):
                         datefmt='%Y-%m-%d %H:%M:%S')
 
 
-def ensure_ffmpeg_installed():
-    if which("ffmpeg"):
-        return
-
-    print('FFMpeg not found. Installing...')
-    os.system('winget install Gyan.FFmpeg')
-    print('===================================================================')
-    print('FFMPEG installed. Please restart your shell and rerun this program.')
-    print('===================================================================')
-    sys.exit(0)
-
-
 def main():
-    ensure_ffmpeg_installed()
     log_level = logging.INFO
     set_up_logger(log_level)
 
     archetypes = load_weapon_archetypes()
     translator, registry = register_commands(archetypes)
     for_legend_str = (f' for {translator.get_legend()}' if translator.get_legend() is not None else
-                      '')
+                      ' for default legend')
     logger.info(f'Preloading fully-kitted loadouts{for_legend_str}...')
     translator.preload_loadouts()
 

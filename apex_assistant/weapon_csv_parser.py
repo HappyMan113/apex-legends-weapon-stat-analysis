@@ -27,7 +27,7 @@ from apex_assistant.weapon import (MagazineCapacities,
                                    RoundTiming,
                                    RoundTimingBurst,
                                    RoundTimingDevotion,
-                                   RoundTimingHavoc,
+                                   RoundTimingDelay,
                                    RoundTimingNemesis,
                                    RoundTimingRegular,
                                    RoundTimingType,
@@ -45,7 +45,7 @@ T = TypeVar('T')
 _SUFFIX_T: TypeAlias = Union[Suffix, Tuple[Suffix, ...]]
 
 
-class CsvReader(Generic[T]):
+class CsvReader(Generic[T], abc.ABC):
     CSV_DICT_TYPE = dict[str, str]
 
     def __init__(self, fp: IO):
@@ -187,13 +187,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
     KEY_READY_TO_FIRE_TIME = 'Ready to Fire Time'
     KEY_ACTIVE = 'Active'
     KEY_TACTICAL_RELOAD_TIME_BASE = 'Tactical Reload Time (base)'
-    KEY_TACTICAL_RELOAD_TIME_LEVEL_1 = 'Tactical Reload Time (level 1)'
-    KEY_TACTICAL_RELOAD_TIME_LEVEL_2 = 'Tactical Reload Time (level 2)'
-    KEY_TACTICAL_RELOAD_TIME_LEVEL_3 = 'Tactical Reload Time (level 3)'
     KEY_FULL_RELOAD_TIME_BASE = 'Full Reload Time (base)'
-    KEY_FULL_RELOAD_TIME_LEVEL_1 = 'Full Reload Time (level 1)'
-    KEY_FULL_RELOAD_TIME_LEVEL_2 = 'Full Reload Time (level 2)'
-    KEY_FULL_RELOAD_TIME_LEVEL_3 = 'Full Reload Time (level 3)'
     KEY_HEAT_BASED = 'Heat Based'
 
     _ARCHETYPES_TRANSLATOR = Translator[_SUFFIX_T](ARCHETYPES_TERM_TO_ARCHETYPE_SUFFIXES_DICT)
@@ -235,8 +229,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
                 result = translated_term.get_term(), None
 
         if result is None:
-            raise RuntimeError(f'No term found for weapon archetype: {name}. Speech-to-text will '
-                               'not work for it.')
+            raise RuntimeError(f'No term found for weapon archetype: {name}.')
 
         return result
 
@@ -301,66 +294,30 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
             return None
         return csv_row.parse_float(key_base_reload_time)
 
-    @staticmethod
-    def _parse_reload_times(csv_row: CsvRow,
-                            key_base_reload_time,
-                            key_level_1_reload_time,
-                            key_level_2_reload_time,
-                            key_level_3_reload_time) -> Tuple[float, ...]:
-        return (csv_row.parse_float(key_base_reload_time),
-                csv_row.parse_float(key_level_1_reload_time),
-                csv_row.parse_float(key_level_2_reload_time),
-                csv_row.parse_float(key_level_3_reload_time))
-
     def _parse_stock_dependant_stats(self, row: CsvRow, stock_compatible: bool) -> StockStatsBase:
         holster_time_secs_base = row.parse_float(self.KEY_HOLSTER_TIME)
         ready_to_fire_time_secs_base = row.parse_float(self.KEY_READY_TO_FIRE_TIME)
+        tactical_reload_time_base = row.parse_float(self.KEY_TACTICAL_RELOAD_TIME_BASE)
+        full_reload_time_base = row.parse_float(self.KEY_FULL_RELOAD_TIME_BASE)
 
         if stock_compatible:
-            tactical_reloads = self._parse_reload_times(
-                row,
-                key_base_reload_time=self.KEY_TACTICAL_RELOAD_TIME_BASE,
-                key_level_1_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_1,
-                key_level_2_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_2,
-                key_level_3_reload_time=self.KEY_TACTICAL_RELOAD_TIME_LEVEL_3)
-            full_reloads = self._parse_reload_times(
-                row,
-                key_base_reload_time=self.KEY_FULL_RELOAD_TIME_BASE,
-                key_level_1_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_1,
-                key_level_2_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_2,
-                key_level_3_reload_time=self.KEY_FULL_RELOAD_TIME_LEVEL_3)
-
             # Multipliers for holster/deploy/RTF times of level 0/1/2/3 stocks.
-            stock_multipliers = (1, 0.85, 0.8, 0.75)
+            stock_rtf_time_multipliers = (1, 0.85, 0.8, 0.75)
+            # Multipliers for tactical/full reload times of level 0/1/2/3 stocks.
+            stock_reload_time_multipliers = (1, 0.966666666666666, 0.933333333333333, 0.9)
 
             stock_stats = StockStats(*(
                 StockStatValues(
-                    tactical_reload_time_secs=tac_reload,
-                    full_reload_time_secs=full_reload,
-                    holster_time_secs=holster_time_secs_base * multiplier,
-                    ready_to_fire_time_secs=ready_to_fire_time_secs_base * multiplier)
-                for tac_reload, full_reload, multiplier in zip(tactical_reloads,
-                                                               full_reloads,
-                                                               stock_multipliers)))
+                    tactical_reload_time_secs=tactical_reload_time_base * reload_time_multiplier,
+                    full_reload_time_secs=full_reload_time_base * reload_time_multiplier,
+                    holster_time_secs=holster_time_secs_base * rtf_time_multiplier,
+                    ready_to_fire_time_secs=ready_to_fire_time_secs_base * rtf_time_multiplier)
+                for rtf_time_multiplier, reload_time_multiplier in
+                zip(stock_rtf_time_multipliers, stock_reload_time_multipliers)))
         else:
-            tactical_reload = self._parse_reload_time(
-                row,
-                key_base_reload_time=self.KEY_TACTICAL_RELOAD_TIME_BASE)
-            full_reload = self._parse_reload_time(
-                row,
-                key_base_reload_time=self.KEY_FULL_RELOAD_TIME_BASE)
-            row.ensure_empty(
-                f'Cannot specify non-base tactical or full reload times for {row}',
-                self.KEY_TACTICAL_RELOAD_TIME_LEVEL_1,
-                self.KEY_TACTICAL_RELOAD_TIME_LEVEL_2,
-                self.KEY_TACTICAL_RELOAD_TIME_LEVEL_3,
-                self.KEY_FULL_RELOAD_TIME_LEVEL_1,
-                self.KEY_FULL_RELOAD_TIME_LEVEL_2,
-                self.KEY_FULL_RELOAD_TIME_LEVEL_3)
-
             stock_stats = StockStat(StockStatValues(
-                tactical_reload_time_secs=tactical_reload,
-                full_reload_time_secs=full_reload,
+                tactical_reload_time_secs=tactical_reload_time_base,
+                full_reload_time_secs=full_reload_time_base,
                 holster_time_secs=holster_time_secs_base,
                 ready_to_fire_time_secs=ready_to_fire_time_secs_base))
 
@@ -389,7 +346,7 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
 
         elif spinup_type is RoundTimingType.DELAY:
             spinup_time = csv_row.parse_float(self.KEY_SPINUP_TIME)
-            spinup = RoundTimingHavoc(spinup_time)
+            spinup = RoundTimingDelay(spinup_time)
             disallowed_keys.remove(self.KEY_SPINUP_TIME)
 
         elif spinup_type is RoundTimingType.BURST:
@@ -398,6 +355,17 @@ class WeaponCsvReader(CsvReader[WeaponArchetype]):
             spinup = RoundTimingBurst(rounds_per_burst=rounds_per_burst,
                                       burst_fire_delay=burst_fire_delay)
             disallowed_keys -= {self.KEY_ROUNDS_PER_BURST, self.KEY_BURST_FIRE_DELAY}
+
+        elif spinup_type is RoundTimingType.DELAY_AND_BURST:
+            spinup_time = csv_row.parse_float(self.KEY_SPINUP_TIME)
+            rounds_per_burst = csv_row.parse_int(self.KEY_ROUNDS_PER_BURST)
+            burst_fire_delay = csv_row.parse_float(self.KEY_BURST_FIRE_DELAY)
+            spinup = RoundTimingBurst(rounds_per_burst=rounds_per_burst,
+                                      burst_fire_delay=burst_fire_delay,
+                                      spinup_time=spinup_time)
+            disallowed_keys -= {self.KEY_SPINUP_TIME,
+                                self.KEY_ROUNDS_PER_BURST,
+                                self.KEY_BURST_FIRE_DELAY}
 
         elif spinup_type is RoundTimingType.NEMESIS:
             rounds_per_burst = csv_row.parse_int(self.KEY_ROUNDS_PER_BURST)
